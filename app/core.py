@@ -330,6 +330,91 @@ async def itunes_art(http, artist, title):
     return (info["art"], info["album"]) if info else (None, None)
 
 
+HITS_WORDS = re.compile(r"\b(greatest hits|best of|the best|hits|essential|essentials|anthology|collection|gold|definitive|"
+                        r"retrospective|very best|platinum|ultimate|number ones|#1'?s|singles|20th century masters|"
+                        r"the masters|icon|playlist:|millennium collection|chronicles|in concert)\b", re.I)
+
+
+def album_kind(name, track_count=None, album_artist=None):
+    """'single', 'ep', 'compilation' (various artists), 'hits' (one artist's best-of) or 'album'."""
+    n = (name or "").strip()
+    if re.search(r"(\s-\s|\()single\)?$", n, re.I) or (track_count is not None and 0 < track_count <= 3):
+        return "single"
+    if re.search(r"(\s-\s|\()ep\)?$", n, re.I):
+        return "ep"
+    if (album_artist or "").strip().lower() in ("various", "various artists"):
+        return "compilation"
+    if HITS_WORDS.search(n):
+        return "hits"
+    return "album"
+
+
+def bare_album(name):
+    """'Rumours (Super Deluxe)' / 'Dreams - Single' -> the name to search for."""
+    n = re.sub(r"\s+-\s+(single|ep)$", "", (name or "").strip(), flags=re.I)
+    return clean_title(n) or n
+
+
+async def itunes_song_albums(http, artist, title, limit=50):
+    """Every release Apple Music has this song on: the studio album, best-ofs, compilations, the single."""
+    q = urllib.parse.urlencode({"term": f"{main_artist(artist)} {clean_title(title)}", "entity": "song", "limit": limit})
+    async with http.get(f"{ITUNES}/search?" + q) as r:
+        data = await r.json(content_type=None)
+    out, seen = [], set()
+    want_t, want_a = norm(clean_title(title)), norm(main_artist(artist))
+    for x in data.get("results", []):
+        if norm(clean_title(x.get("trackName"))) != want_t:
+            continue
+        a = norm(x.get("artistName"))
+        if not (want_a and a and (want_a in a or a in want_a)):
+            continue
+        cid = x.get("collectionId")
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        out.append({"collection_id": cid, "album": x.get("collectionName"), "year": (x.get("releaseDate") or "")[:4],
+                    "tracks": x.get("trackCount"), "album_artist": x.get("collectionArtistName") or x.get("artistName"),
+                    "kind": album_kind(x.get("collectionName"), x.get("trackCount"), x.get("collectionArtistName"))})
+    return out
+
+
+def studio_album(cands):
+    """The original album among a song's releases: a regular album, earliest first."""
+    albums = [c for c in cands if c["kind"] == "album" and not re.search(r"\blive\b", c["album"] or "", re.I)]
+    return min(albums, key=lambda c: c["year"] or "9999") if albums else None
+
+
+async def resolve_pair(http, first, second, medium=None):
+    """Two songs heard back to back: which release has both, in that order? Apple Music first (each
+    song's releases, the ones they share), then Discogs. Picks the release where the second song comes
+    right after the first, so a studio album and a best-of with both songs are told apart."""
+    try:
+        a = await itunes_song_albums(http, first["artist"], first["title"])
+        b = await itunes_song_albums(http, second["artist"], second["title"])
+        shared = [c for c in a if c["collection_id"] in {x["collection_id"] for x in b}]
+        best = None
+        for c in shared[:6]:
+            rec = await itunes_album_record(http, c["collection_id"], medium)
+            if not rec:
+                continue
+            ia, ib = rec.find(first["title"], first["artist"]), rec.find(second["title"], second["artist"])
+            if ia is None or ib is None or ib <= ia:
+                continue
+            score = (ib - ia, 0 if c["kind"] == "album" else 1)     # right after it wins; then studio over best-of
+            if best is None or score < best[0]:
+                best = (score, rec, ib)
+        if best:
+            return best[1], best[2]
+    except Exception as e:
+        log("record lookup (Apple Music) failed:", repr(e))
+    if discogs_ready():
+        try:
+            return await discogs_find_record(http, first, second)
+        except Exception as e:
+            log("record lookup (Discogs) failed:", repr(e))
+    return None, None
+
+
 async def itunes_search(http, query, limit=15):
     q = urllib.parse.urlencode({"term": query, "entity": "song", "limit": limit})
     async with http.get(f"{ITUNES}/search?" + q) as r:
@@ -1029,7 +1114,7 @@ async def discogs_find_album_start(http, title, artist, album):
     return None, None
 
 
-async def itunes_album_record(http, collection_id):
+async def itunes_album_record(http, collection_id, medium=None):
     """The album's tracklist from Apple Music, as a record to follow (no sides: tracks in order)."""
     if not collection_id:
         return None
@@ -1039,13 +1124,15 @@ async def itunes_album_record(http, collection_id):
     album = next((x for x in items if x.get("wrapperType") == "collection"), {})
     songs = sorted((x for x in items if x.get("wrapperType") == "track"),
                    key=lambda x: (x.get("discNumber") or 1, x.get("trackNumber") or 0))
-    if len(songs) < 2:
+    if len(songs) < 1:
         return None
     multi = len({x.get("discNumber") or 1 for x in songs}) > 1
+    seven = medium == "vinyl" and len(songs) <= 3          # a single on vinyl: a 45 with an A side and a B side
     tl = []
-    for x in songs:
+    for i, x in enumerate(songs):
         secs = round((x.get("trackTimeMillis") or 0) / 1000)
-        tl.append({"position": f"{x.get('discNumber') or 1}-{x.get('trackNumber')}" if multi else str(x.get("trackNumber")),
+        tl.append({"position": ("A" if i == 0 else "B" + (str(i) if len(songs) > 2 else "")) if seven else
+                   f"{x.get('discNumber') or 1}-{x.get('trackNumber')}" if multi else str(x.get("trackNumber")),
                    "title": x.get("trackName"), "duration": f"{secs // 60}:{secs % 60:02d}" if secs else "",
                    "artists": [{"name": x.get("artistName")}] if x.get("artistName") != album.get("artistName") else []})
     art = (album.get("artworkUrl100") or "").replace("100x100bb", "1000x1000bb") or None
@@ -1058,14 +1145,18 @@ async def itunes_album_record(http, collection_id):
     return rec
 
 
-async def find_album_record(http, title, artist, album, medium=None):
+async def find_album_record(http, title, artist, album, medium=None, collection_id=None):
     """A song was recognized on a record, CD or tape: find its album's tracklist (Discogs, then Apple Music)
     so the next songs can follow in order. Returns (record, index of this song) or (None, None)."""
+    kind = album_kind(album)
     if discogs_ready() and album:
         fmt = {"vinyl": "Vinyl", "cd": "CD", "cassette": "Cassette"}.get(medium or "vinyl")
-        base = {"type": "release", "artist": main_artist(artist), "release_title": clean_title(album), "per_page": 10}
+        base = {"type": "release", "artist": main_artist(artist), "release_title": bare_album(album), "per_page": 10}
+        if kind in ("single", "ep"):
+            base["format"] = "Single" if kind == "single" else "EP"      # a 45 or a 12" single, not the LP
         try:
-            results = (await discogs_get(http, "/database/search", {**base, "format": fmt})).get("results", [])
+            results = (await discogs_get(http, "/database/search", {**base, "format": fmt} if "format" not in base
+                                         else base)).get("results", [])
             if not results:
                 results = (await discogs_get(http, "/database/search", base)).get("results", [])
             for r in results[:3]:
@@ -1077,8 +1168,8 @@ async def find_album_record(http, title, artist, album, medium=None):
         except Exception as e:
             log("album lookup (Discogs) failed:", repr(e))
     try:
-        info = await itunes_lookup(http, artist, title) or {}
-        rec = await itunes_album_record(http, info.get("collection_id"))
+        cid = collection_id or (await itunes_lookup(http, artist, title) or {}).get("collection_id")
+        rec = await itunes_album_record(http, cid, medium)
         if rec:
             i = rec.find(title, artist)
             if i is not None:
@@ -1563,7 +1654,7 @@ async def _turntable_inner(app, mic, shz):
         """A song was recognized on a record, CD or tape: assume the album is playing and follow its
         tracklist, so the next songs show up even if Shazam can't match them."""
         medium = room_medium(app)
-        if medium == "radio" or not CFG.get("follow_album", True):
+        if medium == "radio" or not CFG.get("follow_album", True) or app.get("album_name"):
             return
         try:
             album = song.get("album") or ((await itunes_lookup(app["http"], song["artist"], song["title"])) or {}).get("album")
@@ -1571,18 +1662,34 @@ async def _turntable_inner(app, mic, shz):
             if not album or key in tried_albums:
                 return
             tried_albums.add(key)
-            found, idx = await find_album_record(app["http"], song["title"], song["artist"], album, medium)
+            kind = album_kind(album)
+            found, idx, tentative = None, None, False
+            if kind in ("hits", "compilation"):
+                # Shazam often names a best-of or a compilation even when the original album is playing.
+                # Follow the original album for now; the next song shows which one it really is.
+                studio = studio_album(await itunes_song_albums(app["http"], song["artist"], song["title"]))
+                if studio:
+                    found, idx = await find_album_record(app["http"], song["title"], song["artist"], studio["album"],
+                                                         medium, studio["collection_id"])
+                    tentative = bool(found)
+                    if found:
+                        log(f"Shazam says '{album}' ({kind}); trying the original album '{studio['album']}' first")
+            if not found:
+                found, idx = await find_album_record(app["http"], song["title"], song["artist"], album, medium)
+                tentative = kind == "hits"
         except Exception as e:
             log("album lookup failed:", repr(e))
             return
-        if not found or app.get("record"):
+        if not found or app.get("record") or app.get("album_name"):
             return
         found.auto = True
+        found.tentative = tentative          # not sure yet: the next song confirms it or picks another release
         if not found.medium:
             found.medium = medium if medium in ("vinyl", "cd", "cassette") else None
         app["record"] = found
         log(f"following the album: {found.artist} - {found.title}, now {found.tracks[idx]['pos']} "
-            f"({'Apple Music' if getattr(found, 'from_itunes', False) else 'Discogs'} tracklist)")
+            f"({'Apple Music' if getattr(found, 'from_itunes', False) else 'Discogs'} tracklist"
+            f"{', a single' if album_kind(found.title, len(found.tracks)) == 'single' else ''}{', to be confirmed' if tentative else ''})")
         cur = st.track
         p = progress_now(app)
         pos = p.get("pos") if p and p.get("kind") == "exact" else None
@@ -1595,24 +1702,39 @@ async def _turntable_inner(app, mic, shz):
             set_progress(app, found.track()["id"], pos, found.tracks[idx]["duration"], "exact")
 
     async def work_out_record(first, second):
-        """Runs in the background so listening isn't held up by Discogs."""
-        try:
-            found, idx = await discogs_find_record(app["http"], first, second)
-        except Exception as e:
-            log("record lookup failed:", repr(e))
+        """Two songs in a row that aren't on the record Liner Notes was following (or with none yet):
+        find the release that has both. Different artists and nothing found: probably a compilation
+        Liner Notes can't find, so ask which one. Runs in the background so listening isn't held up."""
+        medium = room_medium(app)
+        found, idx = await resolve_pair(app["http"], first, second, medium)
+        if app.get("album_name") or app.get("record"):
             return
-        if not found or app.get("record"):
-            if not found:
-                log(f"no single record has both '{first['title']}' and '{second['title']}'")
+        if found:
+            found.auto, found.tentative = True, False
+            if not found.medium:
+                found.medium = medium if medium in ("vinyl", "cd", "cassette") else None
+            app["record"] = found
+            app.pop("album_ask", None)
+            log(f"worked out the record from two songs: {found.artist} - {found.title} (now {found.tracks[idx]['pos']})")
+            cur = st.track
+            if cur and cur.get("source") == "turntable" and norm(clean_title(cur.get("title"))) == norm(clean_title(second["title"])):
+                show_record(app, found, found.set_index(idx))
+            else:
+                found.set_index(idx)
             return
-        found.auto = True
-        app["record"] = found
-        log(f"worked out the record: {found.artist} - {found.title} (now {found.tracks[idx]['pos']})")
-        cur = st.track
-        if cur and cur.get("source") == "turntable" and norm(cur.get("title")) == norm(second["title"]):
-            show_record(app, found, found.set_index(idx))
+        log(f"no release has both '{first['title']}' and '{second['title']}'")
+        if norm(main_artist(first["artist"])) != norm(main_artist(second["artist"])):
+            if time.time() > app.get("album_ask_off_until", 0) and medium != "radio":
+                ask = app.get("album_ask") or {"songs": [], "since": first.get("at") or time.time() - 600}
+                for x in (first, second):
+                    if not any(norm(y["title"]) == norm(x["title"]) for y in ask["songs"]):
+                        ask["songs"].append({"title": x["title"], "artist": x["artist"]})
+                ask["songs"] = ask["songs"][-4:]
+                ask["discogs"] = discogs_ready()
+                app["album_ask"] = ask
+                log("songs by different artists and no release has both: asking which compilation this is")
         else:
-            found.set_index(idx)
+            await check_album_start(second)     # same band, but not in order on any one release: follow this song's album
     set_mode(app, mic, "standby")
 
     while True:
@@ -1633,6 +1755,9 @@ async def _turntable_inner(app, mic, shz):
 
         if rec and app["listen_mode"] != "active" and now - rec.last_active > 3 * 3600:
             app["record"] = rec = None       # forget a record that hasn't played in hours
+        if (app.get("album_name") or app.get("album_ask")) and now - max(ROOM["last"], (app.get("album_name") or {}).get("since", 0)) > 20 * 60:
+            app.pop("album_name", None)      # a compilation you named lasts while it plays, not into the next record
+            app.pop("album_ask", None)
 
         mode = app["listen_mode"]
         if mode == "off":
@@ -1780,9 +1905,23 @@ async def _turntable_inner(app, mic, shz):
             app["listen_now_done"] = time.time()
 
         on_record = rec.find(res["title"], res["artist"]) if (rec and res and res.get("title")) else None
-        if rec and rec.auto and res and res.get("title") and on_record is None:
-            log(f"'{res['title']}' isn't on {rec.title}: dropping that guess")
-            app["record"] = rec = None
+        prev_song = None            # what was playing before, when a guessed record turns out wrong
+        if rec and rec.auto and res and res.get("title") and rec.idx is not None:
+            nxt = rec.next_side_start(rec.idx)
+            # Where the next song should be: this one, the next (or the one after, if a change was missed),
+            # or the start of the next side. Anywhere else on a guessed release means a different release
+            # with the same songs, like a best-of instead of the album.
+            ok = {rec.idx, rec.idx + 1, rec.idx + 2, nxt} if not getattr(rec, "tentative", False) else {rec.idx, rec.idx + 1, nxt}
+            jumped = on_record is not None and on_record not in ok
+            if on_record is None or jumped:
+                # Not on the guessed release, or not where it should be (a best-of, not the album): guess again
+                prev_song = {"title": rec.tracks[rec.idx]["title"], "artist": rec.tracks[rec.idx]["artist"]}
+                log(f"'{res['title']}' {'is not next' if on_record is not None else 'is not'} on {rec.title}: dropping that guess")
+                app["record"] = rec = None
+                on_record = None
+            elif getattr(rec, "tentative", False) and on_record != rec.idx:
+                rec.tentative = False
+                log(f"confirmed: it's {rec.title}")
         if on_record is not None:
             misses = 0
             if rec.idx != on_record:
@@ -1796,20 +1935,26 @@ async def _turntable_inner(app, mic, shz):
         if res and res.get("title"):
             misses = 0
             tid = make_id(res["artist"], res["title"])
-            # A song on a record, CD or tape: assume its album is playing and follow the tracklist
-            if not rec:
-                asyncio.create_task(check_album_start(res))
+            song = {"title": res["title"], "artist": res["artist"], "at": now}
+            named = app.get("album_name")
+            if not rec and not named and room_medium(app) != "radio":
+                prev = prev_song or (heard[-1] if heard and now - heard[-1]["at"] < 20 * 60 else None)
+                if prev and norm(prev["title"]) != norm(res["title"]):
+                    # Two different songs in a row: find the release with both (an album, a best-of, a compilation)
+                    asyncio.create_task(work_out_record(prev, song))
+                elif not prev:
+                    # The first song: assume its album is playing and follow the tracklist
+                    asyncio.create_task(check_album_start(res))
+            if not heard or norm(heard[-1]["title"]) != norm(res["title"]):
+                heard = (heard + [song])[-6:]
             needle_drop = False
-            # Two different songs in a row with no record chosen: work out which record this is
-            if not rec and discogs_ready() and (not heard or norm(heard[-1]["title"]) != norm(res["title"])):
-                if heard and now - heard[-1]["at"] < 20 * 60:
-                    asyncio.create_task(work_out_record(heard[-1], {"title": res["title"], "artist": res["artist"]}))
-                heard = [{"title": res["title"], "artist": res["artist"], "at": now}]
             if not (t and t.get("id") == tid):
                 info = await itunes_lookup(app["http"], res["artist"], res["title"]) or {}
                 album = res["album"] or info.get("album")
+                named = app.get("album_name")          # a compilation you named: its songs go under that name
                 show_and_enrich(app, {
-                    "id": tid, "title": res["title"], "artist": res["artist"], "album": album,
+                    "id": tid, "title": res["title"], "artist": res["artist"],
+                    "album": named["title"] if named else album, "album_artist": named["artist"] if named else None,
                     "art": res["art"] or info.get("art"), "source": "turntable", "app": "Turntable",
                     "status": "playing", "year": res["year"] or info.get("year"),
                     "label": res["label"] or info.get("label"), "genre": res["genre"] or info.get("genre"),
@@ -1916,6 +2061,12 @@ class History:
             recent = [r for r in recent if not (r["album"] or "").lower() == (last.get("album") or "").lower()][:8]
         return {"last": last, "recent": recent, "saved": saved, "covers": covers, "now": time.time()}
 
+    def name_album_since(self, since, title, artist):
+        """You named the compilation that's playing: the songs already heard from it go under that name."""
+        with self._db() as db:
+            db.execute("UPDATE plays SET album=?, album_artist=? WHERE ts>=? AND source IN ('vinyl','cd','cassette','other','room')",
+                       (title, artist, since))
+
     def set_room_medium(self, medium, since):
         """Plays heard before anyone said what they were on get filled in."""
         with self._db() as db:
@@ -1984,6 +2135,7 @@ class History:
         for a in albums:
             a["songs"] = len(a.pop("_songs"))
             a.pop("_named", None)
+            a["kind"] = album_kind(a["album"], None, a["artist"])
         return albums
 
     def shelf_songs(self, key):
@@ -2362,6 +2514,8 @@ async def api_records_load(request):
     if not rec.tracks:
         return web.json_response({"ok": False, "error": "Discogs doesn't list the songs on this one."})
     app["record"] = rec
+    app.pop("album_ask", None)
+    app.pop("album_name", None)
     log(f"record loaded: {rec.artist} - {rec.title} ({len(rec.tracks)} tracks)")
     if app.get("listen_mode") == "active":          # already playing: start at track 1, Shazam will correct it
         show_record(app, rec, rec.set_index(0))
@@ -2378,6 +2532,38 @@ async def api_records_position(request):
     body = await request.json()
     show_record(app, rec, rec.set_index(body.get("index", 0)))
     return web.json_response({"ok": True, "record": rec.summary()})
+
+
+async def api_album_name(request):
+    """Name the compilation that's playing (when neither Apple Music nor Discogs could find it), or stop using the name."""
+    app, st = request.app, request.app["state"]
+    body = await request.json()
+    if body.get("clear"):
+        app.pop("album_name", None)
+        return web.json_response({"ok": True})
+    title = re.sub(r"\s+", " ", body.get("title") or "").strip()[:200]
+    if not title:
+        return web.json_response({"ok": False, "error": "Type the album's name."}, status=400)
+    artist = re.sub(r"\s+", " ", body.get("artist") or "").strip()[:200] or "Various Artists"
+    ask = app.pop("album_ask", None) or {}
+    since = ask.get("since") or time.time() - 600
+    rec = app.get("record")
+    if rec and rec.auto:
+        app.pop("record", None)
+    app["album_name"] = {"title": title, "artist": artist, "since": time.time()}
+    await asyncio.to_thread(st.db.name_album_since, since, title, artist)
+    if st.track and st.track.get("source") in ROOM_SOURCES:
+        st.enrich(st.track["id"], {"album": title, "album_artist": artist})
+    log(f"compilation named: {title} ({artist})")
+    return web.json_response({"ok": True})
+
+
+async def api_album_ask(request):
+    """'Not a compilation': stop asking for a few hours."""
+    app = request.app
+    app.pop("album_ask", None)
+    app["album_ask_off_until"] = time.time() + 3 * 3600
+    return web.json_response({"ok": True})
 
 
 async def api_records_clear(request):
@@ -3559,6 +3745,8 @@ async def api_now(request):
                               "ask_medium": bool(st.track and st.track.get("source") in ROOM_SOURCES and st.track.get("status") == "playing"
                                                  and not st.track.get("medium") and not room_medium(request.app)),
                               "discogs_ready": discogs_ready(),
+                              "album_ask": request.app.get("album_ask"),
+                              "album_name": request.app.get("album_name"),
                               "listen": {"mode": request.app.get("listen_mode", "off"),
                                          "has_mic": request.app.get("mic") is not None,
                                          "mic_live": mic_live(request.app),
@@ -3737,6 +3925,8 @@ def build_app(demo=False):
     app.router.add_post("/api/medium", api_medium)
     app.router.add_get("/api/stylus", api_stylus)
     app.router.add_get("/api/shelf", api_shelf)
+    app.router.add_post("/api/album/name", api_album_name)
+    app.router.add_post("/api/album/ask", api_album_ask)
     app.router.add_post("/api/shelf/hide", api_shelf_hide)
     app.router.add_post("/api/stylus", api_stylus)
     app.router.add_get("/api/recap", api_recap)

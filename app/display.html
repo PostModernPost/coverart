@@ -328,6 +328,19 @@
   #mediumAsk label { display: flex; align-items: center; gap: .5em; margin-top: .7em; color: var(--dim); cursor: pointer; }
   #mediumAsk input { width: 1.1em; height: 1.1em; accent-color: var(--gold); }
   @media (max-aspect-ratio: 7/5) { #mediumAsk { margin-left: auto; margin-right: auto; } #mediumAsk .row { justify-content: center; } #mediumAsk label { justify-content: center; } }
+  #albumAsk { display: none; margin-top: 1.4em; padding: .9em 1.1em; border: 1px solid rgba(201,160,74,.45); border-radius: 14px;
+    background: rgba(0,0,0,.35); max-width: 26em; font-size: clamp(13px, 2.1vmin, 17px); }
+  #albumAsk.on { display: block; }
+  #albumAsk > span { display: block; color: var(--fg); font-weight: 600; }
+  #albumAsk small { display: block; color: var(--dim); margin: .3em 0 .7em; }
+  #albumAsk .row { gap: .5em; }
+  #albumAsk .pill { font-size: 1em; padding: .35em .9em; }
+  #aaName { display: none; margin-top: .8em; gap: .5em; flex-wrap: wrap; }
+  #albumAsk.naming #aaName { display: flex; }
+  #aaName .field, #ownAlbum .field { font-size: 1em; padding: .45em .9em; flex: 1; min-width: 8em; }
+  @media (max-aspect-ratio: 7/5) { #albumAsk { margin-left: auto; margin-right: auto; } #albumAsk .row { justify-content: center; } }
+  #ownAlbum { margin-top: 3vmin; padding-top: 2vmin; border-top: 1px solid var(--faint); }
+  #ownAlbum .row { gap: .6em; flex-wrap: wrap; }
   /* settings with several choices: the choices go on their own line under the label */
   #textSize, #mediaRow, #idleModeRow, #idleOffRow, #pcMediaRow { flex-wrap: wrap; }
   #pcMediaRow .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
@@ -483,6 +496,10 @@
     <div id="mediumAsk"><span>What's playing it?</span>
       <div class="row"><button class="pill" data-m="vinyl">Vinyl</button><button class="pill" data-m="cd">CD</button><button class="pill" data-m="cassette">Cassette</button><button class="pill" data-m="radio">Radio</button><button class="pill" data-m="other">Other</button></div>
       <label><input type="checkbox" id="mediumDefault"> Always use this</label></div>
+    <div id="albumAsk"><span>Songs by different artists. A compilation?</span><small id="aaSongs"></small>
+      <div class="row"><button class="pill" id="aaFind">Find it</button><button class="pill" id="aaNameBtn">Name it</button><button class="pill" id="aaNo">Not a compilation</button></div>
+      <form id="aaName"><input class="field" id="aaTitle" placeholder="Album name" autocomplete="off" aria-label="Album name">
+        <input class="field" id="aaArtist" placeholder="Various Artists" autocomplete="off" aria-label="Album artist"><button class="pill" type="submit">Save</button></form></div>
     <div class="looking" id="looking"><i></i><span id="lookingText">Still listening</span></div>
     <div id="actRow"><button id="listenBtn" class="listenBtn">Listen now</button><button id="findBtn">Manual search</button></div>
   </div>
@@ -559,6 +576,13 @@
     </div>
     <div id="recResults"></div>
     <div id="songResults"></div>
+    <div id="ownAlbum">
+      <h3 style="margin:0 0 .3em">Can't find it?</h3>
+      <p class="muted" id="oaHint" style="margin:0 0 .9em">Name the album that's playing yourself. Songs Liner Notes recognizes go under that name, on your shelf too, until the music stops for a while.</p>
+      <form class="row" id="oaForm"><input class="field" id="oaTitle" placeholder="Album name" autocomplete="off" aria-label="Album name">
+        <input class="field" id="oaArtist" placeholder="Artist (Various Artists)" autocomplete="off" aria-label="Album artist">
+        <button class="pill" type="submit">Use this name</button><button class="pill" type="button" id="oaStop" style="display:none">Stop using it</button></form>
+    </div>
   </div>
   <div id="recLoaded" style="display:none">
     <div class="recHead"><img id="recCover" alt="">
@@ -938,6 +962,7 @@ async function poll() {
     document.querySelectorAll("#pcMediaRow [data-pm]").forEach(b => b.classList.toggle("on", b.dataset.pm === (d.pc_media || "music")));
     document.querySelectorAll("#mediaRow [data-rm]").forEach(b => b.classList.toggle("on", b.dataset.rm === mediaDefault));
     $("mediumAsk").classList.toggle("on", !!d.ask_medium && !mediumBusy);
+    showAlbumAsk(d.album_ask, d.album_name);
     if (d.listen) showListening(d.listen);
     showProgress(d.progress || null);
     showRecord(d.record || null, d.discogs_ready !== false);
@@ -2052,8 +2077,57 @@ $("lyricsBtn").addEventListener("click", e => {
 });
 $("tb-stats").addEventListener("click", e => { e.stopPropagation(); openPanel("stats"); loadStats(); });
 
+// ---------------------------------------------------------------- compilations: which album is this?
+let albumAsk = null, albumName = null;
+function showAlbumAsk(ask, named) {
+  albumAsk = ask || null; albumName = named || null;
+  const el = $("albumAsk"), on = !!ask && !named;
+  if (!on) { el.classList.remove("on", "naming"); }
+  else {
+    el.classList.add("on");
+    $("aaSongs").textContent = ask.songs.map(x => `${x.title} (${x.artist})`).join(" · ");
+  }
+  $("oaStop").style.display = named ? "inline-block" : "none";
+  $("oaHint").textContent = named ? `Using "${named.title}" for the songs playing now.`
+    : "Name the album that's playing yourself. Songs Liner Notes recognizes go under that name, on your shelf too, until the music stops for a while.";
+}
+async function nameAlbum(title, artist) {
+  try {
+    const r = await fetch("/api/album/name", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, artist }) });
+    const d = await r.json();
+    if (!d.ok) { toast(d.error || "Only Liner Notes on the PC can do that."); return false; }
+    toast(`Songs now go under "${title}".`); poll(); return true;
+  } catch (e) { toast("Couldn't reach Liner Notes."); return false; }
+}
+$("aaFind").addEventListener("click", e => {
+  e.stopPropagation(); openSearch();
+  const s = albumAsk && albumAsk.songs[0];
+  if (s && discogsReady) { $("rq").value = `${s.artist} ${s.title}`; recSearch({ q: $("rq").value }); }
+});
+$("aaNameBtn").addEventListener("click", e => { e.stopPropagation(); $("albumAsk").classList.add("naming"); setTimeout(() => $("aaTitle").focus(), 30); });
+$("aaNo").addEventListener("click", async e => {
+  e.stopPropagation(); $("albumAsk").classList.remove("on");
+  try { await fetch("/api/album/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); } catch (err) {}
+});
+$("albumAsk").addEventListener("click", e => e.stopPropagation());
+$("aaName").addEventListener("submit", async e => {
+  e.preventDefault();
+  const t = $("aaTitle").value.trim(); if (!t) { $("aaTitle").focus(); return; }
+  if (await nameAlbum(t, $("aaArtist").value.trim())) { $("aaTitle").value = $("aaArtist").value = ""; $("albumAsk").classList.remove("on", "naming"); }
+});
+$("oaForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const t = $("oaTitle").value.trim(); if (!t) { $("oaTitle").focus(); return; }
+  if (await nameAlbum(t, $("oaArtist").value.trim())) { $("oaTitle").value = $("oaArtist").value = ""; closePanel("records"); }
+});
+$("oaStop").addEventListener("click", async () => {
+  try { await fetch("/api/album/name", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clear: true }) }); } catch (e) {}
+  toast("Stopped using that name."); poll();
+});
+
 // ---------------------------------------------------------------- your shelf
 const SHELF_MEDIA = { vinyl: ["Vinyl", "record", "records"], cd: ["CD", "CD", "CDs"], cassette: ["Cassette", "tape", "tapes"], other: ["Other", "other", "other"] };
+const KIND_NAME = { single: "Single", ep: "EP", compilation: "Compilation", hits: "Best of" };
 let shelf = [], shelfMedium = "", shelfSort = "recent", shelfOpen = null;
 const shortDate = ts => new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: new Date(ts * 1000).getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
 async function loadShelf() {
@@ -2083,9 +2157,9 @@ function drawShelf() {
     : !list.length ? `<p class="muted">Nothing on your shelf matches that.</p>`
     : list.map(a => `<button class="shelfItem" data-key="${esc(a.key)}">
         <div class="cv">${a.art ? `<img src="${esc(a.art)}" alt="" loading="lazy">` : `<div class="ph">${esc((a.album || "?")[0])}</div>`}
-          ${shelfMedium ? "" : `<i class="md">${SHELF_MEDIA[a.medium][0]}</i>`}</div>
+          ${shelfMedium && !(a.kind === "single" && a.medium === "vinyl") ? "" : `<i class="md">${a.kind === "single" && a.medium === "vinyl" ? "45" : SHELF_MEDIA[a.medium][0]}</i>`}</div>
         <b title="${esc(a.album)}">${esc(a.album)}</b><span title="${esc(a.artist)}">${esc(a.artist)}</span>
-        <small>${a.plays === 1 ? "Played once" : a.plays + " plays"} · ${shortDate(a.last)}</small></button>`).join("");
+        <small>${KIND_NAME[a.kind] ? KIND_NAME[a.kind] + " · " : ""}${a.plays === 1 ? "Played once" : a.plays + " plays"} · ${shortDate(a.last)}</small></button>`).join("");
 }
 async function openShelfItem(key) {
   const a = shelf.find(x => x.key === key); if (!a) return;
@@ -2094,7 +2168,7 @@ async function openShelfItem(key) {
   $("sdArt").src = a.art || BLANK;
   $("sdArt").style.visibility = a.art ? "visible" : "hidden";
   $("sdInfo").innerHTML = `<h3>${esc(a.album)}</h3><p style="font-size:1.15em;margin:.3em 0 1em">${esc(a.artist)}</p>
-    <p class="muted" style="margin:.2em 0">${[SHELF_MEDIA[a.medium][0], a.year, a.label].filter(Boolean).map(esc).join(" · ")}</p>
+    <p class="muted" style="margin:.2em 0">${[a.kind === "single" && a.medium === "vinyl" ? "45" : SHELF_MEDIA[a.medium][0], KIND_NAME[a.kind], a.year, a.label].filter(Boolean).map(esc).join(" · ")}</p>
     <p class="muted" style="margin:.2em 0">${a.plays === 1 ? "Played once" : `Played ${a.plays} times`}, ${shortDate(a.first) === shortDate(a.last) ? "on " + shortDate(a.last) : `first on ${shortDate(a.first)}, last on ${shortDate(a.last)}`}</p>
     <div class="row" style="margin-top:1.4em"><button class="pill" id="sdRemove">Remove from shelf</button></div>
     <p class="muted" style="font-size:.85em;margin-top:.8em">Remove anything you don't own, or a wrong match. It stays in your listening history.</p>`;

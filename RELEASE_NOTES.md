@@ -1,4 +1,5 @@
-- Your shelf: a new button in the toolbar shows every record, CD and tape you've played, added automatically the first time Liner Notes knows what's playing. Radio and apps on the PC don't count.
-- Filter by vinyl, CD or tape; sort by recently played, most played, artist, or not played lately; search by album, artist or label.
-- Tap an album to see when you first and last played it, how many times, and the songs you've heard from it (tap a song for its page). Remove anything you don't own or that was matched wrong, with Undo. It stays in your listening history.
-- Compilations followed from their tracklist (like Vinyl Moon) stay together as one album, and "Rumours" and "Rumours (2004 Remaster)" count as the same record.
+- Compilations: when two songs in a row are by different artists, Liner Notes looks for the compilation that has both, in order (Apple Music first, then Discogs), and follows its tracklist.
+- If it can't find one, a card asks "A compilation?" with Find it (record search, started from the first song), Name it (type the album's name), or Not a compilation. A named album keeps its songs together, including the ones already played, on your shelf too, until the music stops for 20 minutes. Record search also has a "Can't find it?" box to name it.
+- Best-ofs vs. studio albums: when Shazam names a greatest hits or compilation release, Liner Notes follows the original album first, and the next song settles which one is really playing. Any guessed album gets re-checked when a song turns up out of order.
+- Singles and 45s: a song Shazam lists as a single follows the single (a 7" from Discogs when there's one), with an A side and a B side on vinyl, so it tells you to flip for the B side.
+- Your shelf marks singles (45 on vinyl), EPs, best-ofs and compilations.
