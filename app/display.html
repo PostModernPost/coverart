@@ -155,6 +155,12 @@
   .result span, .line span { color: var(--dim); font-size: calc(var(--ts) * clamp(11px, 2.2vmin, 16px)); }
 
   /* records */
+  .nowRec { display: flex; gap: 2vmin; align-items: center; background: rgba(255,255,255,.06); border-radius: 10px; padding: 1.4vmin; margin: 1.5em 0 0; }
+  .nowRec img { width: calc(var(--ts) * clamp(44px, 9vmin, 64px)); aspect-ratio: 1; border-radius: 4px; object-fit: cover; background: #1a1a1d; flex: none; }
+  .nowRec span { display: block; font-size: calc(var(--ts) * clamp(11px, 2.1vmin, 15px)); }
+  .nowRec b { font-size: calc(var(--ts) * clamp(13px, 2.7vmin, 19px)); }
+  .resHead { margin: 3vmin 0 1vmin; }
+  #lyricsBtn.on { opacity: 1; background: rgba(201,160,74,.28); }
   .recHead { display: flex; gap: 3vmin; align-items: center; margin-bottom: 3vmin; }
   .recHead img { width: calc(var(--ts) * clamp(80px, 20vmin, 160px)); aspect-ratio: 1; border-radius: 6px; object-fit: cover; background: #1a1a1d; flex: none; }
   .sideHead { margin: 3vmin 0 1vmin; }
@@ -268,9 +274,9 @@
 <div id="idle"><div class="record"></div><div id="idleText">Nothing playing</div></div>
 
 <div id="toolbar">
-  <button id="tb-records" title="What's on the turntable" aria-label="Records">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r=".6"/></svg></button>
-  <button id="tb-search" title="Search for a song" aria-label="Search">
+  <button id="lyricsBtn" title="Lyrics" aria-label="Lyrics">
+    <svg viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h10M4 18h7"/><path d="M18 14v6"/><circle cx="16.5" cy="20" r="1.5"/></svg></button>
+  <button id="tb-search" title="Find a song or record" aria-label="Find a song or record">
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
   <button id="tb-stats" title="Listening history" aria-label="Listening history">
     <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
@@ -296,8 +302,11 @@
 <div id="records" class="panel">
   <button class="close" aria-label="Close">&times;</button>
   <div id="recPick">
-    <h2>What's on the turntable?</h2>
-    <div class="sub">Pick the record and Liner Notes follows along song by song, even the ones Shazam doesn't know.</div>
+    <h2>Find a song or record</h2>
+    <div class="sub">Type what's on the sleeve: artist, song, album, or the catalog number from the spine. Pick a <strong>record</strong> and Liner Notes follows it song by song; pick a <strong>song</strong> to put just that one on screen.</div>
+    <div class="nowRec" id="nowRec" style="display:none">
+      <img id="nowRecCover" alt=""><div style="flex:1;min-width:0"><span class="muted">On the turntable</span><b id="nowRecTitle" class="clamp"></b></div>
+      <button class="pill" id="nowRecList">Tracklist</button></div>
     <div id="recKey" style="display:none">
       <p>Record search uses Discogs, which needs a free access token the first time.
         <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">Get one here</a>
@@ -307,7 +316,7 @@
       <p class="muted" id="recKeyMsg"></p>
     </div>
     <form id="recForm" style="display:flex;gap:1.5vmin;flex-wrap:wrap;margin:1em 0 3vmin">
-      <input id="rq" class="field" type="search" placeholder="Artist, album, or catalog number" autocomplete="off" enterkeyhint="search" style="flex:1">
+      <input id="rq" class="field" type="search" placeholder="Artist, song, album, or catalog number" autocomplete="off" enterkeyhint="search" style="flex:1">
       <button class="pill" type="submit">Search</button>
       <button class="pill" type="button" id="scanBtn" style="display:none">Scan barcode</button>
     </form>
@@ -317,12 +326,13 @@
       <button class="pill" id="scanStop">Cancel</button>
     </div>
     <div id="recResults"></div>
+    <div id="songResults"></div>
   </div>
   <div id="recLoaded" style="display:none">
     <div class="recHead"><img id="recCover" alt="">
       <div><h2 id="recTitle"></h2><div class="sub" id="recSub"></div>
-        <div class="row"><button class="pill" id="recChange">Change record</button><button class="pill" id="recDone">Done with this record</button></div></div></div>
-    <p class="muted" id="recAuto" style="display:none">Liner Notes worked this out from the last two songs. Not the right record? Tap Change record.</p>
+        <div class="row"><button class="pill" id="recChange">Search again</button><button class="pill" id="recDone">Done with this record</button></div></div></div>
+    <p class="muted" id="recAuto" style="display:none">Liner Notes worked this out from the last two songs. Not the right record? Tap Search again.</p>
     <p class="muted">Tap the song that's playing if Liner Notes is on the wrong one, or to tell it which side you started on.</p>
     <div id="recTracks"></div>
   </div>
@@ -389,16 +399,6 @@
 
   <div class="row" style="margin-top:3vmin"><button class="pill" id="wifiOff" style="display:none">Stop sharing on Wi-Fi</button></div>
   </div>
-</div>
-
-<!-- search -->
-<div id="search" class="panel">
-  <button class="close" aria-label="Close">&times;</button>
-  <h2>Find a song</h2>
-  <div class="sub">Type the artist, song or album from the sleeve. Pick the right one and it goes on screen.</div>
-  <form id="searchForm"><input id="q" type="search" placeholder="Artist, song, album…" autocomplete="off" enterkeyhint="search">
-    <button class="pill" type="submit">Search</button></form>
-  <div id="results"></div>
 </div>
 
 <!-- stats -->
@@ -474,6 +474,8 @@ function textScale() {
   return Math.min(innerWidth, innerHeight) < 520 ? 1.4 : 1;     // phones get bigger words by default
 }
 function applySettings() {
+  const lb = document.getElementById("lyricsBtn");
+  if (lb) { lb.classList.toggle("on", !!settings.lyricsBeside); lb.title = settings.lyricsBeside ? "Hide lyrics" : "Show lyrics"; }
   document.documentElement.style.setProperty("--ts", textScale());
   document.querySelectorAll("#textSize [data-ts]").forEach(b => b.classList.toggle("on", String(settings.textSize || "auto") === b.dataset.ts));
   document.querySelectorAll(".setting[data-key]").forEach(el => el.classList.toggle("on", !!settings[el.dataset.key]));
@@ -576,11 +578,13 @@ function showRecord(r, ready) {
   if (changed && $("records").classList.contains("open")) renderRecords();
 }
 function renderRecords() {
-  const loaded = record && recView !== "pick";
+  $("nowRec").style.display = record ? "flex" : "none";
+  if (record) { $("nowRecCover").src = record.cover || BLANK; $("nowRecTitle").textContent = record.title; }
+  const loaded = record && recView === "list";
   $("recPick").style.display = loaded ? "none" : "block";
   $("recLoaded").style.display = loaded ? "block" : "none";
   $("recKey").style.display = discogsReady ? "none" : "block";
-  $("recForm").style.display = discogsReady ? "flex" : "none";
+  $("recForm").style.display = "flex";            // song search works even without Discogs
   $("scanBtn").style.display = "BarcodeDetector" in window ? "inline-block" : "none";
   if (!loaded) return;
   $("recAuto").style.display = record.auto ? "block" : "none";
@@ -596,28 +600,50 @@ function renderRecords() {
   });
   $("recTracks").innerHTML = html;
 }
-function openRecords() { recView = "auto"; renderRecords(); openPanel("records"); if (!record && discogsReady) setTimeout(() => $("rq").focus(), 50); }
+function openRecords() { recView = record ? "list" : "pick"; renderRecords(); openPanel("records"); if (!record && discogsReady) setTimeout(() => $("rq").focus(), 50); }
 
 async function recSearch(params) {
-  $("recResults").innerHTML = `<p class="muted">Searching Discogs…</p>`;
-  try {
-    const d = await (await fetch("/api/records/search?" + new URLSearchParams(params))).json();
-    if (d.need_key) { discogsReady = false; renderRecords(); $("recKeyMsg").textContent = d.error || ""; $("recResults").innerHTML = ""; return; }
-    if (d.error) { $("recResults").innerHTML = `<p class="muted">${esc(d.error)}</p>`; return; }
-    if (!d.results.length) { $("recResults").innerHTML = `<p class="muted">No records found. Try the catalog number from the spine, or just the album name.</p>`; return; }
-    $("recResults").innerHTML = d.results.map(r => `
-      <div class="result" data-id="${r.id}"><img src="${esc(r.thumb || BLANK)}" alt="" loading="lazy">
-        <div><b>${esc(r.title)}</b><span>${esc([r.year, r.label, r.catno, r.format, r.country].filter(Boolean).join(" · "))}</span></div></div>`).join("");
-  } catch (e) { $("recResults").innerHTML = `<p class="muted">Discogs isn't reachable right now.</p>`; }
+  const isBarcode = !!params.barcode;
+  $("recResults").innerHTML = `<p class="muted">Searching…</p>`; $("songResults").innerHTML = "";
+  const recP = fetch("/api/records/search?" + new URLSearchParams(params)).then(r => r.json()).catch(() => ({ error: "Discogs isn't reachable right now." }));
+  const songP = isBarcode ? Promise.resolve({ results: [] })
+    : fetch("/api/search?q=" + encodeURIComponent(params.q)).then(r => r.json()).catch(() => ({ results: [] }));
+  const [rd, sd] = await Promise.all([recP, songP]);
+  // records
+  if (rd.need_key) { discogsReady = false; renderRecords(); $("recKeyMsg").textContent = rd.error || ""; }
+  const recs = (rd.results || []).slice(0, isBarcode ? 20 : 6);
+  $("recResults").innerHTML = recs.length ? `<h3 class="resHead">Records</h3>` + recs.map(r => `
+      <div class="result" data-kind="record" data-id="${r.id}"><img src="${esc(r.thumb || BLANK)}" alt="" loading="lazy">
+        <div><b>${esc(r.title)}</b><span>${esc([r.year, r.label, r.catno, r.format, r.country].filter(Boolean).join(" · "))}</span></div></div>`).join("")
+    : (rd.error && !rd.need_key ? `<p class="muted">${esc(rd.error)}</p>` : "");
+  // songs
+  const songs = (sd.results || []).slice(0, 8);
+  $("songResults").innerHTML = songs.length ? `<h3 class="resHead">Songs</h3>` + songs.map(r => `
+      <div class="result" data-kind="song" data-id="${r.track_id}"><img src="${esc(r.thumb || BLANK)}" alt="" loading="lazy">
+        <div><b>${esc(r.title)}</b><span>${esc([r.artist, r.album, r.year].filter(Boolean).join(" · "))}</span></div></div>`).join("") : "";
+  if (!recs.length && !songs.length && !rd.need_key)
+    $("recResults").innerHTML = `<p class="muted">Nothing found. Try fewer words, just the artist, or the catalog number from the spine.</p>`;
 }
-$("recForm").addEventListener("submit", e => { e.preventDefault(); const q = $("rq").value.trim(); if (q) recSearch(/^\d{8,14}$/.test(q) ? { barcode: q } : { q }); });
+$("recForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const q = $("rq").value.trim();
+  if (q) recSearch(/^\d{8,14}$/.test(q) ? { barcode: q } : { q });
+});
+$("songResults").addEventListener("click", async e => {
+  const row = e.target.closest(".result"); if (!row) return;
+  row.style.opacity = .5;
+  try {
+    await fetch("/api/pick", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ track_id: row.dataset.id }) });
+    closePanel("records"); poll();
+  } catch (err) { row.style.opacity = 1; }
+});
 $("recResults").addEventListener("click", async e => {
   const row = e.target.closest(".result"); if (!row) return;
   row.style.opacity = .5;
   const d = await (await fetch("/api/records/load", { method: "POST", headers: { "Content-Type": "application/json" },
                                                       body: JSON.stringify({ id: row.dataset.id }) })).json();
   if (!d.ok) { row.style.opacity = 1; $("recResults").insertAdjacentHTML("afterbegin", `<p class="muted">${esc(d.error || "Couldn't load it.")}</p>`); return; }
-  record = d.record; recView = "auto"; $("recResults").innerHTML = ""; $("rq").value = ""; renderRecords(); poll();
+  record = d.record; recView = "list"; $("recResults").innerHTML = ""; $("songResults").innerHTML = ""; $("rq").value = ""; renderRecords(); poll();
 });
 $("recTracks").addEventListener("click", async e => {
   const row = e.target.closest(".trk"); if (!row) return;
@@ -626,7 +652,8 @@ $("recTracks").addEventListener("click", async e => {
   if (d.record) { record = d.record; renderRecords(); poll(); }
 });
 $("recChange").addEventListener("click", () => { recView = "pick"; renderRecords(); setTimeout(() => $("rq").focus(), 50); });
-$("recDone").addEventListener("click", async () => { await fetch("/api/records/clear", { method: "POST" }); record = null; recView = "auto"; renderRecords(); poll(); });
+$("nowRecList").addEventListener("click", () => { recView = "list"; renderRecords(); });
+$("recDone").addEventListener("click", async () => { await fetch("/api/records/clear", { method: "POST" }); record = null; recView = "pick"; renderRecords(); poll(); });
 $("recTokenSave").addEventListener("click", async () => {
   const d = await (await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
                                                 body: JSON.stringify({ discogs_token: $("recToken").value }) })).json();
@@ -784,38 +811,8 @@ async function openInfo() {
   else $("lyrics").textContent = "No lyrics found.";
 }
 
-// ---------------------------------------------------------------- search
-function openSearch() {
-  openPanel("search");
-  setTimeout(() => $("q").focus(), 50);
-}
-$("searchForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  const q = $("q").value.trim();
-  if (!q) return;
-  $("results").innerHTML = `<p class="muted">Searching…</p>`;
-  try {
-    const d = await (await fetch("/api/search?q=" + encodeURIComponent(q))).json();
-    if (d.error) { $("results").innerHTML = `<p class="muted">${esc(d.error)}</p>`; return; }
-    if (!d.results.length) { $("results").innerHTML = `<p class="muted">Nothing found. Try fewer words, or just the artist.</p>`; return; }
-    $("results").innerHTML = d.results.map(r => `
-      <div class="result" data-id="${r.track_id}">
-        <img src="${esc(r.thumb || BLANK)}" alt="" loading="lazy">
-        <div><b>${esc(r.title)}</b><span>${esc([r.artist, r.album, r.year].filter(Boolean).join(" · "))}</span></div>
-      </div>`).join("");
-  } catch (err) { $("results").innerHTML = `<p class="muted">Search isn't reachable right now.</p>`; }
-});
-$("results").addEventListener("click", async e => {
-  const row = e.target.closest(".result");
-  if (!row) return;
-  row.style.opacity = .5;
-  try {
-    await fetch("/api/pick", { method: "POST", headers: { "Content-Type": "application/json" },
-                               body: JSON.stringify({ track_id: row.dataset.id }) });
-    closePanel("search");
-    poll();
-  } catch (err) { row.style.opacity = 1; }
-});
+// ---------------------------------------------------------------- search (one panel for songs and records)
+function openSearch() { recView = "pick"; renderRecords(); openPanel("records"); if (discogsReady) setTimeout(() => $("rq").focus(), 50); }
 
 // ---------------------------------------------------------------- stats
 let statsDays = 30;
@@ -1036,7 +1033,9 @@ $("stage").addEventListener("click", e => { if (e.target.id === "findBtn") retur
 $("findBtn").addEventListener("click", e => { e.stopPropagation(); openSearch(); });
 $("infoBtn").addEventListener("click", e => { e.stopPropagation(); openInfo(); });
 $("tb-search").addEventListener("click", e => { e.stopPropagation(); openSearch(); });
-$("tb-records").addEventListener("click", e => { e.stopPropagation(); openRecords(); });
+$("lyricsBtn").addEventListener("click", e => {
+  e.stopPropagation(); settings.lyricsBeside = !settings.lyricsBeside; saveSettings(); applySettings();
+});
 $("tb-stats").addEventListener("click", e => { e.stopPropagation(); openPanel("stats"); loadStats(); });
 $("tb-settings").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
 

@@ -1,3 +1,2 @@
-- Lyrics follow the song: with "Lyrics beside the album art" on, timed lyrics scroll along and highlight the current line (Spotify, and records Shazam recognizes; songs without timed lyrics show the plain words)
-- Lyrics mode is cleaner: just the title above the cover and the artist and album below it, with the lyrics in their own column. On a phone held upright, the lyrics sit under the cover
-- Scroll the lyrics yourself any time; they pick back up a few seconds later
+- Lyrics button on the main screen (top right) to turn lyrics beside the art on and off; the Settings switch still works too
+- One search for songs and records: type what's on the sleeve and pick either a record (Liner Notes follows it song by song) or a single song. Barcode scanning lives there too, and the record on the turntable shows at the top with its tracklist one tap away
