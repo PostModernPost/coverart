@@ -1,14 +1,13 @@
-"""Draws the record icon (same as the tray icon) into packaging/linernotes.ico for the exe and installer."""
+"""Draws the Liner Notes logo into packaging/linernotes.ico for the exe and installer."""
 import os
-from PIL import Image, ImageDraw
+import sys
 
-size = 256
-img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-d = ImageDraw.Draw(img)
-c = size / 2
-for r, col in ((0.48, (20, 20, 22, 255)), (0.40, (40, 40, 44, 255)), (0.32, (24, 24, 26, 255)),
-               (0.24, (40, 40, 44, 255)), (0.17, (201, 160, 74, 255)), (0.03, (20, 20, 22, 255))):
-    d.ellipse([c - r * size, c - r * size, c + r * size, c + r * size], fill=col)
-out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "linernotes.ico")
-img.save(out, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "app"))
+import logo  # noqa: E402
+
+sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256]
+imgs = [logo.draw_mark(s, tile=s >= 48) for s in sizes]      # small sizes: the bare mark reads better
+out = os.path.join(HERE, "linernotes.ico")
+imgs[-1].save(out, sizes=[(s, s) for s in sizes], append_images=imgs[:-1])
 print("wrote", out)

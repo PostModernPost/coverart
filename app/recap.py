@@ -56,7 +56,9 @@ def recap_stats(db_path, start, end):
         tot = q("SELECT COUNT(*) plays, COUNT(DISTINCT lower(artist)) artists, "
                 "COUNT(DISTINCT lower(album)||'|'||lower(artist)) albums, "
                 "COALESCE(SUM(COALESCE(duration_ms, 210000)), 0) / 60000.0 minutes, "
-                "SUM(CASE WHEN source='vinyl' THEN 1 ELSE 0 END) vinyl FROM plays WHERE ts>=? AND ts<?")[0]
+                "SUM(CASE WHEN source='vinyl' THEN 1 ELSE 0 END) vinyl, "
+                "SUM(CASE WHEN source='cd' THEN 1 ELSE 0 END) cd, "
+                "SUM(CASE WHEN source='cassette' THEN 1 ELSE 0 END) cassette FROM plays WHERE ts>=? AND ts<?")[0]
         albums = q("SELECT album, artist, COUNT(*) n, MAX(art) art FROM plays WHERE ts>=? AND ts<? "
                    "AND album IS NOT NULL AND album!='' GROUP BY lower(album), lower(artist) "
                    "ORDER BY n DESC, MAX(art) IS NULL, MAX(ts) DESC LIMIT 5")
@@ -179,7 +181,12 @@ def render_card(stats, title, subtitle, images, fonts_dir):
     FG, DIM, GOLD = (244, 241, 234), (186, 182, 175), (201, 160, 74)
 
     # header
-    d.text((PAD, PAD), "LINER NOTES", font=F["kicker"], fill=GOLD)
+    try:
+        import logo
+        lk = logo.draw_lockup(40, os.path.join(fonts_dir, "InterDisplay-Bold.otf"))
+        card.paste(lk, (PAD, PAD - 8), lk)
+    except Exception:
+        d.text((PAD, PAD), "LINER NOTES", font=F["kicker"], fill=GOLD)
     d.text((PAD, PAD + 44), _fit(d, title, F["title"], W - 2 * PAD), font=F["title"], fill=FG)
     d.text((PAD, PAD + 176), subtitle, font=F["sub"], fill=DIM)
 
@@ -191,8 +198,14 @@ def render_card(stats, title, subtitle, images, fonts_dir):
 
     # the numbers
     nums = [(f"{t['plays']:,}", "songs"), (_hours(t["minutes"]), "hours"), (f"{t['artists']:,}", "artists")]
-    if t["vinyl"]:
-        nums.append((f"{round(100 * t['vinyl'] / t['plays'])}%", "on vinyl"))
+    kinds = [(k, t.get(k) or 0) for k in ("vinyl", "cd", "cassette")]
+    kinds = [(k, n) for k, n in kinds if n]
+    if kinds:
+        phys = sum(n for _, n in kinds)
+        names = {"vinyl": "vinyl", "cd": "CD", "cassette": "tape"}
+        kinds.sort(key=lambda x: -x[1])
+        label = "on " + " & ".join(names[k] for k, _ in kinds[:2]) if len(kinds) <= 2 else "on vinyl, CD & tape"
+        nums.append((f"{round(100 * phys / t['plays'])}%", label))
     # lay the numbers out by their real widths; shrink them if a big count would crowd the row
     from PIL import ImageFont
     numf, size = F["num"], 88
@@ -272,7 +285,14 @@ def render_card(stats, title, subtitle, images, fonts_dir):
         d.text((PAD, fy - 46), "TOP SONG", font=F["kicker"], fill=GOLD)
         d.text((PAD, fy), _fit(d, f"{sg['title']}  ·  {sg['artist']}", F["line"], W * 0.62 - PAD), font=F["line"], fill=FG)
     mark = "made with Liner Notes"
-    d.text((W - PAD - d.textlength(mark, font=F["numlab"]), H - PAD - 26), mark, font=F["numlab"], fill=(150, 146, 140))
+    mx = W - PAD - d.textlength(mark, font=F["numlab"])
+    d.text((mx, H - PAD - 26), mark, font=F["numlab"], fill=(150, 146, 140))
+    try:
+        import logo
+        m = logo.draw_mark(34)
+        card.paste(m, (int(mx - 46), H - PAD - 28), m)
+    except Exception:
+        pass
     return _png(card)
 
 

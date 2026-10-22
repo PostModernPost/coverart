@@ -71,6 +71,7 @@ CFG = {
     "poll_seconds": 1.0,           # how often to check Spotify / PC media
     "ignore_apps": [],             # e.g. ["msedge", "chrome"] to ignore browser videos
     "phone_follows_pc": True,      # phone screen turns off when this PC sleeps, back on when it wakes
+    "room_medium": None,           # what plays music in the room: vinyl, cd, cassette, radio, other; None = ask
     "discogs_token": "",           # optional personal Discogs token (the app has its own key when built)
     "donate_url": "https://buymeacoffee.com/goodisanoun",  # shown in the info panel ("" hides it)
 }
@@ -120,8 +121,40 @@ def search_links(artist, title, album=None, shazam_url=None):
 
 
 # ---------------------------------------------------------------- shared state
+# ---------------------------------------------------------------- what's playing the music in the room
+# Songs heard through the mic could be on vinyl, CD, cassette, the radio... Discogs says so in record
+# mode; otherwise the listener's default (Settings) is used, or they're asked once per listening session.
+MEDIA = {"vinyl": "Vinyl", "cd": "CD", "cassette": "Cassette", "radio": "Radio", "other": "Other"}
+ROOM_SOURCES = ("turntable", "record", "manual")
+ROOM = {"session": None, "last": 0.0}
+SESSION_GAP = 30 * 60          # a pick lasts until the room has been quiet this long
+
+
+def discogs_medium(rel):
+    names = " ".join((f.get("name") or "") for f in rel.get("formats") or []).lower()
+    if "vinyl" in names or "lathe" in names or "acetate" in names:
+        return "vinyl"
+    if "cd" in names or "sacd" in names:
+        return "cd"
+    if "cassette" in names:
+        return "cassette"
+    return None
+
+
+def room_medium(app):
+    rec = app.get("record") if app is not None else None
+    if rec is not None and getattr(rec, "medium", None):
+        return rec.medium
+    if CFG.get("room_medium") in MEDIA:
+        return CFG["room_medium"]
+    if ROOM["session"] and time.time() - ROOM["last"] < SESSION_GAP:
+        return ROOM["session"]
+    return None
+
+
 class State:
     def __init__(self):
+        self.app = None            # set by build_app
         self.track = None          # what the screen shows
         self.version = 0
         self.db = None             # History, set by build_app
@@ -133,6 +166,11 @@ class State:
     def _bump(self, track):
         if track and track.get("label"):
             track = {**track, "label": tidy_label(track["label"])}
+        if track and track.get("source") in ROOM_SOURCES:
+            if not track.get("medium"):
+                track = {**track, "medium": room_medium(self.app)}
+            if track.get("status") == "playing":
+                ROOM["last"] = time.time()
         self.track = track
         self.version += 1
         if track and track.get("id"):
@@ -978,6 +1016,7 @@ class RecordSession:
         self.track_started = 0.0
         self.last_active = time.time()
         self.auto = False          # True when Liner Notes worked out the record itself
+        self.medium = discogs_medium(rel)
 
     # ---- positions
     def last_on_side(self, i):
@@ -1054,7 +1093,9 @@ class RecordSession:
         side, n, count = self.side_info(self.idx)
         artist = t["artist"] if (self.various or t["artist"]) else self.artist
         return {"id": make_id(artist, t["title"]), "title": t["title"], "artist": artist, "album": self.title,
-                "art": self.cover, "source": "record", "app": f"Side {side} · {n} of {count}", "status": "playing",
+                "art": self.cover, "source": "record", "medium": self.medium,
+                "app": (f"Track {n} of {count}" if self.medium == "cd" or not side.isalpha() else f"Side {side} · {n} of {count}"),
+                "status": "playing",
                 "year": self.year, "label": self.label, "genre": self.genre,
                 "duration_ms": (t["duration"] or 0) * 1000 or None, "record_pos": t["pos"],
                 "links": search_links(artist, t["title"], self.title)}
@@ -1067,7 +1108,7 @@ class RecordSession:
         return {"id": self.id, "title": self.title, "artist": self.artist, "year": self.year, "label": self.label,
                 "catno": self.catno, "cover": self.cover, "tracks": self.tracks, "idx": self.idx,
                 "side_done": self.side_done, "done_side": self.tracks[self.idx]["side"] if self.side_done else None,
-                "next_side": nxt, "auto": self.auto}
+                "next_side": nxt, "auto": self.auto, "medium": self.medium}
 
 
 # ---------------------------------------------------------------- turntable (mic + Shazam)
@@ -1614,7 +1655,7 @@ class History:
                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
                        (tid, time.time(), t.get("title"), t.get("artist"), t.get("album"), t.get("year"),
                         t.get("label"), t.get("genre"), art,
-                        "vinyl" if t.get("source") in ("turntable", "manual", "record") else (t.get("app") or "PC")))
+                        (t.get("medium") or "room") if t.get("source") in ROOM_SOURCES else (t.get("app") or "PC")))
         self.saved_ids.add(tid)
 
     def set_spotify_uri(self, tid, uri):
@@ -1644,6 +1685,12 @@ class History:
             recent = [r for r in recent if not (r["album"] or "").lower() == (last.get("album") or "").lower()][:8]
         return {"last": last, "recent": recent, "saved": saved, "covers": covers, "now": time.time()}
 
+    def set_room_medium(self, medium, since):
+        """Plays heard before anyone said what they were on get filled in."""
+        with self._db() as db:
+            db.execute("UPDATE plays SET source=? WHERE source='room' AND ts>=?", (medium, since))
+            db.execute("UPDATE saved SET source=? WHERE source='room' AND ts>=?", (medium, since))
+
     def saved_list(self):
         with self._db() as db:
             db.row_factory = sqlite3.Row
@@ -1660,7 +1707,7 @@ class History:
             db.execute("INSERT INTO plays (ts,title,artist,album,year,label,genre,source,art,duration_ms) "
                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
                        (time.time(), t.get("title"), t.get("artist"), t.get("album"), t.get("year"),
-                        t.get("label"), t.get("genre"), "vinyl" if t.get("source") in ("turntable", "manual", "record")
+                        t.get("label"), t.get("genre"), (t.get("medium") or "room") if t.get("source") in ROOM_SOURCES
                         else (t.get("app") or "PC"), art, t.get("duration_ms")))
 
     def stats(self, days):
@@ -1723,13 +1770,16 @@ MANIFEST = {"id": "/", "scope": "/", "name": APP_NAME, "short_name": APP_NAME, "
             "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
                       {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
                       {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]}
-ICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#0b0b0c"/>'
-        '<circle cx="50" cy="50" r="40" fill="#1b1b1b"/><circle cx="50" cy="50" r="28" fill="#121212"/>'
-        '<circle cx="50" cy="50" r="12" fill="#c9a04a"/></svg>')
+import logo
+ICON = logo.LOGO_TILE_SVG
 
 
 async def manifest(request):
     return web.json_response(MANIFEST, content_type="application/manifest+json")
+
+
+async def logo_svg(request):
+    return web.Response(text=logo.LOGO_SVG, content_type="image/svg+xml")
 
 
 async def icon(request):
@@ -1772,13 +1822,8 @@ async def api_stats(request):
 
 
 def icon_png(size):
-    from PIL import Image, ImageDraw
-    img = Image.new("RGB", (size, size), (11, 11, 12))
-    d = ImageDraw.Draw(img)
-    c = size / 2
-    for r, col in ((0.40, (20, 20, 22)), (0.34, (40, 40, 44)), (0.27, (24, 24, 26)),
-                   (0.20, (40, 40, 44)), (0.14, (201, 160, 74)), (0.025, (20, 20, 22))):
-        d.ellipse([c - r * size, c - r * size, c + r * size, c + r * size], fill=col)
+    """Home-screen icon for the phone (the logo on a dark tile)."""
+    img = logo.draw_mark(size, tile=True)
     bio = io.BytesIO()
     img.save(bio, "PNG")
     return bio.getvalue()
@@ -1983,6 +2028,8 @@ async def api_config(request):
         cfg["discogs_token"] = CFG["discogs_token"] = (body.get("discogs_token") or "").strip()
     if "phone_follows_pc" in body:
         cfg["phone_follows_pc"] = CFG["phone_follows_pc"] = bool(body.get("phone_follows_pc"))
+    if "room_medium" in body:
+        cfg["room_medium"] = CFG["room_medium"] = body["room_medium"] if body["room_medium"] in MEDIA else None
     if "lastfm_include_pc" in body:
         cfg["lastfm_include_pc"] = CFG["lastfm_include_pc"] = bool(body.get("lastfm_include_pc"))
     if body.get("spotify_save_to") in ("playlist", "liked"):
@@ -2170,6 +2217,24 @@ async def api_save(request):
             result = "error"
     return web.json_response({"saved": True, "spotify": result,
                               "where": "Liked Songs" if CFG.get("spotify_save_to") == "liked" else PLAYLIST_NAME})
+
+
+async def api_medium(request):
+    """The listener says what's playing the music in the room (and maybe makes it the default)."""
+    body = await request.json()
+    m = body.get("medium")
+    if m not in MEDIA:
+        return web.json_response({"error": "unknown medium"}, status=400)
+    ROOM["session"], ROOM["last"] = m, time.time()
+    if body.get("default"):
+        save_config_value("room_medium", m)
+    st: State = request.app["state"]
+    st.db.set_room_medium(m, time.time() - 6 * 3600)
+    if st.track and st.track.get("source") in ROOM_SOURCES and not st.track.get("medium"):
+        st.track = {**st.track, "medium": m}
+        st.history[st.track["id"]] = st.track
+        st.version += 1
+    return web.json_response({"ok": True, "medium": m, "default": CFG.get("room_medium")})
 
 
 async def api_idle(request):
@@ -2402,7 +2467,8 @@ async def lastfm_loop(app):
                 cur = None
                 continue
             t = st.track
-            ok_source = t and (t.get("source") in VINYL_SOURCES or CFG.get("lastfm_include_pc"))
+            ok_source = t and ((t.get("source") in VINYL_SOURCES and t.get("medium") != "radio") or
+                               (t.get("source") not in VINYL_SOURCES and CFG.get("lastfm_include_pc")))
             if not t or t.get("status") != "playing" or not ok_source or not t.get("artist"):
                 cur = None if not t or t.get("status") != "playing" else cur
                 continue
@@ -2724,6 +2790,9 @@ async def api_now(request):
                               "progress": progress_now(request.app),
                               "phone_follows_pc": CFG.get("phone_follows_pc", True),
                               "saved": bool(st.track and st.track.get("id") in st.db.saved_ids),
+                              "media_default": CFG.get("room_medium"),
+                              "ask_medium": bool(st.track and st.track.get("source") in ROOM_SOURCES and st.track.get("status") == "playing"
+                                                 and not st.track.get("medium") and not room_medium(request.app)),
                               "discogs_ready": discogs_ready(),
                               "listen": {"mode": request.app.get("listen_mode", "off"),
                                          "next_try": request.app.get("next_try"), "now": time.time()}})
@@ -2803,6 +2872,7 @@ async def on_cleanup(app):
 def build_app(demo=False):
     app = web.Application(middlewares=[local_only_guard])
     app["state"] = State()
+    app["state"].app = app
     app["state"].db = History(os.path.join(DATA_DIR, "history.db"))
     app["demo"] = demo
     app.router.add_get("/", index)
@@ -2828,6 +2898,7 @@ def build_app(demo=False):
     app.router.add_post("/api/save", api_save)
     app.router.add_get("/api/saved", api_saved)
     app.router.add_get("/api/idle", api_idle)
+    app.router.add_post("/api/medium", api_medium)
     app.router.add_get("/api/recap", api_recap)
     app.router.add_get("/api/recap.png", api_recap_png)
     app.router.add_post("/api/recap/save", api_recap_save)
@@ -2846,6 +2917,7 @@ def build_app(demo=False):
     app.router.add_get("/api/qr.svg", api_qr)
     app.router.add_post("/api/update", api_update)
     app.router.add_get("/icon.svg", icon)
+    app.router.add_get("/logo.svg", logo_svg)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
     return app

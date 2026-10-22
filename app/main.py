@@ -135,13 +135,8 @@ def port_in_use():
 
 
 def make_image(size=64):
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    c = size / 2
-    for r, col in ((0.48, (20, 20, 22, 255)), (0.40, (40, 40, 44, 255)), (0.32, (24, 24, 26, 255)),
-                   (0.24, (40, 40, 44, 255)), (0.17, (201, 160, 74, 255)), (0.03, (20, 20, 22, 255))):
-        d.ellipse([c - r * size, c - r * size, c + r * size, c + r * size], fill=col)
-    return img
+    import logo
+    return logo.draw_mark(size)
 
 
 WINDOW = {}

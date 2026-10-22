@@ -283,6 +283,19 @@
   #rcWrap.loading #rcImg { opacity: .25; }
   #rcWrap:not(.loading) #rcLoading { display: none; }
 
+  /* which medium is playing the music in the room */
+  #mediumAsk { display: none; margin-top: 1.4em; padding: .9em 1.1em; border: 1px solid rgba(255,255,255,.16); border-radius: 14px;
+    background: rgba(0,0,0,.25); font-size: calc(var(--ts) * clamp(12px, 2.3vmin, 18px)); max-width: 30em; }
+  #mediumAsk.on { display: block; }
+  #mediumAsk > span { display: block; margin-bottom: .6em; color: var(--fg); font-weight: 600; }
+  #mediumAsk .row { gap: .5em; }
+  #mediumAsk .pill { font-size: 1em; padding: .35em .9em; }
+  #mediumAsk label { display: flex; align-items: center; gap: .5em; margin-top: .7em; color: var(--dim); cursor: pointer; }
+  #mediumAsk input { width: 1.1em; height: 1.1em; accent-color: var(--gold); }
+  @media (max-aspect-ratio: 7/5) { #mediumAsk { margin-left: auto; margin-right: auto; } #mediumAsk .row { justify-content: center; } #mediumAsk label { justify-content: center; } }
+  #mediaRow .sizes { display: flex; flex-wrap: wrap; gap: 1vmin; justify-content: flex-end; }
+  #aboutMark { width: 44px; height: 44px; vertical-align: middle; margin-right: .7em; }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -347,6 +360,9 @@
     <p id="details"></p>
     <div id="progress"><div class="bar"><div id="progFill"></div></div><span id="progText"></span></div>
     <div class="metaRow"><span id="source"></span><button class="heart" id="heartBtn" aria-label="Save this song" title="Save this song"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button><button id="infoBtn" aria-label="More about this song" title="More about this song">i</button></div>
+    <div id="mediumAsk"><span>What's playing it?</span>
+      <div class="row"><button class="pill" data-m="vinyl">Vinyl</button><button class="pill" data-m="cd">CD</button><button class="pill" data-m="cassette">Cassette</button><button class="pill" data-m="radio">Radio</button><button class="pill" data-m="other">Other</button></div>
+      <label><input type="checkbox" id="mediumDefault"> Always use this</label></div>
     <div class="looking" id="looking"><i></i><span id="lookingText">Still listening</span></div>
     <button id="findBtn">Search for it</button>
   </div>
@@ -532,7 +548,7 @@
 <div id="settings" class="panel">
   <button class="close" aria-label="Close">&times;</button>
   <h2>Settings</h2>
-  <div class="sub">These apply to this screen only, except Spotify, Last.fm and the phone setting, which are for the whole app.</div>
+  <div class="sub">These apply to this screen only, except Music in the room, the phone setting, Spotify and Last.fm, which are for the whole app.</div>
   <div class="setting" data-key="lyricsBeside">
     <div>Lyrics beside the album art<small>The words scroll along with the song when timed lyrics exist. The screen then shows just the title, artist and album around the cover.</small></div><div class="switch"></div></div>
   <div class="setting" id="textSize" style="cursor:default">
@@ -545,6 +561,11 @@
   <div class="setting" data-key="showLabel"><div>Record label</div><div class="switch"></div></div>
   <div class="setting" data-key="showGenre"><div>Genre</div><div class="switch"></div></div>
   <div class="setting" data-key="showProgress"><div>Song length and position<small>Exact for Spotify and other apps on this PC, and for records Shazam recognizes. Songs known only from a record's tracklist are estimated (~).</small></div><div class="switch"></div></div>
+  <div class="setting" id="mediaRow" style="cursor:default">
+    <div>Music in the room<small>What Liner Notes says songs it hears are playing on. Ask: it asks once each time you start listening.</small></div>
+    <div class="sizes">
+      <button class="pill" data-rm="">Ask</button><button class="pill" data-rm="vinyl">Vinyl</button><button class="pill" data-rm="cd">CD</button>
+      <button class="pill" data-rm="cassette">Cassette</button><button class="pill" data-rm="radio">Radio</button><button class="pill" data-rm="other">Other</button></div></div>
   <div class="setting" data-key="idleShow"><div>Between records<small>When nothing is playing, show the album you just played and your recent records, then a slow slideshow of album covers from your history. Off shows a spinning record.</small></div><div class="switch"></div></div>
   <div class="setting" data-key="showBpm"><div>BPM<small>Tempo of the song, when it can be found. ≈ means estimated from the sound.</small></div><div class="switch"></div></div>
   <div class="setting" id="fsSetting">
@@ -576,6 +597,7 @@
   </div>
   <div id="about">
     <h3>About</h3>
+    <div style="display:flex;align-items:center;margin:.4em 0 .8em"><img id="aboutMark" src="/logo.svg" alt=""><b style="font-size:1.25em">Liner Notes</b></div>
     <div id="verLine"></div>
     <div class="row" id="updRow"></div>
     <div id="updNotes"></div>
@@ -681,8 +703,12 @@ function render(t, keepArt) {
   const det = detailsText(t);
   $("details").textContent = det;
   $("details").style.display = det ? "block" : "none";
-  $("source").textContent = t.app || t.source || "";
-  $("source").style.display = t.app && !unknown ? "inline-block" : "none";
+  const ROOM = ["turntable", "record", "manual"];
+  let badge = t.app || t.source || "";
+  if (t.source === "turntable") badge = MEDIA[t.medium] || "In the room";
+  else if (t.source === "record" && t.medium) badge = `${MEDIA[t.medium]} · ${t.app}`;
+  $("source").textContent = badge;
+  $("source").style.display = badge && !unknown ? "inline-block" : "none";
   $("findBtn").style.display = unknown ? "inline-block" : "none";
   $("infoBtn").style.display = unknown ? "none" : "grid";
   $("heartBtn").style.display = unknown ? "none" : "grid";
@@ -709,6 +735,9 @@ async function poll() {
     if (d.update) showUpdate(d.update);
     $("followRow").classList.toggle("on", d.phone_follows_pc !== false);
     if (!saveBusy) setHearts(!!d.saved);
+    mediaDefault = d.media_default || "";
+    document.querySelectorAll("#mediaRow [data-rm]").forEach(b => b.classList.toggle("on", b.dataset.rm === mediaDefault));
+    $("mediumAsk").classList.toggle("on", !!d.ask_medium && !mediumBusy);
     if (d.listen) showListening(d.listen);
     showProgress(d.progress || null);
     showRecord(d.record || null, d.discogs_ready !== false);
@@ -968,7 +997,7 @@ function showJustPlayed() {
   $("jpArt").classList.toggle("record", !lastArt);
   $("jpAlbum").textContent = l.album || l.title || "";
   $("jpArtist").textContent = l.artist || "";
-  $("jpWhen").textContent = agoText(l.ts) + (l.source === "vinyl" ? " · on the turntable" : "");
+  $("jpWhen").textContent = agoText(l.ts) + (ON_MEDIUM[l.source] || "");
   $("jpRecent").innerHTML = d.recent.slice(0, 6).map(r => `<img src="${esc(r.art)}" alt="" title="${esc(r.album + " · " + r.artist)}" loading="lazy">`).join("");
   $("jpSaved").innerHTML = d.saved.length ? `<p class="kicker" style="margin:0 0 .5em">Saved lately</p>` +
     d.saved.slice(0, 3).map(x => `<div><i>♥</i><b>${esc(x.title)}</b> · ${esc(x.artist)}</div>`).join("") : "";
@@ -978,7 +1007,7 @@ function idleTick() {
   const l = idleData.last;
   // the "just played" card for a few minutes after a record ends (or right away if it ended long ago)
   const fresh = l && (Date.now() - idleSince < JP_MINUTES * 60000);
-  if (l) $("jpWhen").textContent = agoText(l.ts) + (l.source === "vinyl" ? " · on the turntable" : "");
+  if (l) $("jpWhen").textContent = agoText(l.ts) + (ON_MEDIUM[l.source] || "");
   if (fresh || idleData.covers.length < 2) { $("jp").classList.remove("off"); $("slides").classList.add("off"); return; }
   if (!slideTimer) startSlides();
 }
@@ -1005,6 +1034,28 @@ function nextSlide() {
   img.onerror = () => { slideOrder.splice((slideIdx - 1) % slideOrder.length, 1); };
   img.src = c.art;
 }
+
+// ---------------------------------------------------------------- which medium is playing
+let mediaDefault = "", mediumBusy = false;
+$("mediumAsk").addEventListener("click", async e => {
+  e.stopPropagation();
+  const b = e.target.closest("[data-m]"); if (!b) return;
+  mediumBusy = true; $("mediumAsk").classList.remove("on");
+  const def = $("mediumDefault").checked;
+  try {
+    await fetch("/api/medium", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ medium: b.dataset.m, default: def }) });
+    toast(def ? `Got it. Songs Liner Notes hears count as ${MEDIA[b.dataset.m]} from now on (change it in Settings).`
+              : `${MEDIA[b.dataset.m]} it is, until you stop listening for a while.`);
+  } catch (err) {}
+  setTimeout(() => { mediumBusy = false; }, 2500);
+});
+$("mediaRow").addEventListener("click", async e => {
+  const b = e.target.closest("[data-rm]"); if (!b) return;
+  e.stopPropagation();
+  mediaDefault = b.dataset.rm;
+  document.querySelectorAll("#mediaRow [data-rm]").forEach(x => x.classList.toggle("on", x === b));
+  try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_medium: b.dataset.rm || null }) }); } catch (err) {}
+});
 
 // ---------------------------------------------------------------- panels
 function openPanel(id) { document.querySelectorAll(".panel.open").forEach(p => p.classList.remove("open")); $(id).classList.add("open"); }
@@ -1059,7 +1110,9 @@ $("ranges").addEventListener("click", e => {
   document.querySelectorAll("#ranges button").forEach(x => x.classList.toggle("on", x === b));
   loadStats();
 });
-function sourceName(s) { return s === "vinyl" ? "Records" : s; }
+const MEDIA = { vinyl: "Vinyl", cd: "CD", cassette: "Cassette", radio: "Radio", other: "Other" };
+function sourceName(s) { return s === "room" ? "In the room" : (MEDIA[s] || s); }
+const ON_MEDIUM = { vinyl: " · on vinyl", cd: " · on CD", cassette: " · on cassette", radio: " · on the radio" };
 function timeAgo(ts) {
   const s = Date.now() / 1000 - ts;
   if (s < 3600) return Math.max(1, Math.round(s / 60)) + " min ago";

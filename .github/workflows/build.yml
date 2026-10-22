@@ -73,6 +73,7 @@ jobs:
           --add-data "app/fonts;fonts"
           --hidden-import core
           --hidden-import recap
+          --hidden-import logo
           --hidden-import _version
           --hidden-import _secrets
           --hidden-import pystray._win32
