@@ -1,1 +1,3 @@
-- The fullscreen button now works in Liner Notes' own window on the PC (Esc also exits fullscreen)
+- Lyrics follow the song: with "Lyrics beside the album art" on, timed lyrics scroll along and highlight the current line (Spotify, and records Shazam recognizes; songs without timed lyrics show the plain words)
+- Lyrics mode is cleaner: just the title above the cover and the artist and album below it, with the lyrics in their own column. On a phone held upright, the lyrics sit under the cover
+- Scroll the lyrics yourself any time; they pick back up a few seconds later

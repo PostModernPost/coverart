@@ -61,15 +61,36 @@
     font: italic 600 calc(var(--ts) * clamp(13px, 2.6vmin, 19px)) Georgia, serif; display: grid; place-items: center; padding: 0; }
   #infoBtn:hover { background: rgba(255,255,255,.12); }
 
-  /* lyrics beside the art (setting) */
-  #sideLyrics { display: none; margin-top: 3vmin; overflow-y: auto; white-space: pre-wrap; color: var(--dim);
-    font-size: calc(var(--ts) * clamp(12px, 2.5vmin, 20px)); line-height: 1.6; min-height: 0; flex: 1 1 auto; user-select: text;
-    -webkit-mask-image: linear-gradient(transparent 0, #000 6%, #000 90%, transparent 100%);
-            mask-image: linear-gradient(transparent 0, #000 6%, #000 90%, transparent 100%); padding: 1em 0; }
-  body.lyrics-show #sideLyrics { display: block; }
-  @media (min-aspect-ratio: 7/5) { body.lyrics-show #side { flex: 1; max-width: none; height: 92vh; justify-content: flex-start; } }
-  @media (max-aspect-ratio: 7/5) { body.lyrics-show #art { height: min(42vh, 80vw); } body.lyrics-show #stage { justify-content: flex-start; }
-    body.lyrics-show #side { flex: 1; width: 100%; } }
+  /* lyrics mode: title above the art, artist and album below it, lyrics in their own column */
+  #artCol { display: contents; }
+  #lyTitle, #lyBelow, #lyricsCol { display: none; }
+  body.lyrics-show #side { display: none; }
+  body.lyrics-show #artCol { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: none; min-width: 0; }
+  body.lyrics-show #lyTitle, body.lyrics-show #lyBelow { display: block; text-align: center; max-width: 100%; }
+  #lyTitle { font-size: calc(var(--ts) * clamp(16px, 4.4vmin, 44px)); font-weight: 650; line-height: 1.15; margin: 0 0 1.6vmin; }
+  #lyBelow { margin-top: 1.8vmin; }
+  #lyArtist { font-size: calc(var(--ts) * clamp(13px, 3.2vmin, 30px)); margin: 0; opacity: .92; }
+  #lyAlbum { font-size: calc(var(--ts) * clamp(11px, 2.4vmin, 21px)); margin: .2em 0 0; color: var(--dim); }
+  body.lyrics-show #lyricsCol { display: block; flex: 1; min-width: 0; align-self: stretch; overflow-y: auto; scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(transparent 0, #000 14%, #000 86%, transparent 100%);
+            mask-image: linear-gradient(transparent 0, #000 14%, #000 86%, transparent 100%); user-select: text; }
+  #lyricsCol::-webkit-scrollbar { display: none; }
+  #lyricLines { padding: 40vh 0; }
+  #lyricLines p { margin: 0; padding: .32em 0; color: var(--dim); opacity: .55; line-height: 1.3; transition: opacity .35s, color .35s, transform .35s;
+    font-size: calc(var(--ts) * clamp(15px, 3.6vmin, 34px)); font-weight: 600; transform-origin: left center; }
+  #lyricLines p.past { opacity: .32; }
+  #lyricLines p.now { opacity: 1; color: var(--fg); }
+  #lyricLines.plain p { opacity: .85; font-weight: 500; }
+  #lyricLines .gap { height: .8em; }
+  #lyricLines .none { opacity: .6; font-weight: 500; }
+  @media (min-aspect-ratio: 7/5) {
+    body.lyrics-show #stage { gap: 6vmin; padding: 4vmin 6vmin; }
+    body.lyrics-show #art { height: min(62vh, 44vw); } }
+  @media (max-aspect-ratio: 7/5) {
+    body.lyrics-show #stage { justify-content: flex-start; gap: 2vmin; padding-top: max(7vmin, calc(var(--ts) * 54px)); }
+    body.lyrics-show #art { height: min(30vh, 62vw); }
+    body.lyrics-show #lyricsCol { width: 100%; text-align: center; }
+    #lyricLines p { transform-origin: center; } }
 
   .record, #art.record { background: radial-gradient(circle, #c9a04a 0 14%, #111 15% 16%, #1b1b1b 17% 30%, #121212 31% 45%,
     #1b1b1b 46% 60%, #121212 61% 70%, #0d0d0d 71%); border-radius: 50% !important; animation: spin 6s linear infinite; }
@@ -226,7 +247,12 @@
 <div id="bg"></div>
 
 <div id="stage">
-  <img id="art" alt="">
+  <div id="artCol">
+    <p id="lyTitle" class="clamp"></p>
+    <img id="art" alt="">
+    <div id="lyBelow"><p id="lyArtist" class="clamp"></p><p id="lyAlbum" class="clamp"></p></div>
+  </div>
+  <div id="lyricsCol"><div id="lyricLines"></div></div>
   <div id="side">
     <p id="title" class="clamp"></p>
     <p id="artist" class="clamp"></p>
@@ -236,7 +262,6 @@
     <div class="metaRow"><span id="source"></span><button id="infoBtn" aria-label="More about this song" title="More about this song">i</button></div>
     <div class="looking" id="looking"><i></i><span id="lookingText">Still listening</span></div>
     <button id="findBtn">Search for it</button>
-    <div id="sideLyrics"></div>
   </div>
 </div>
 
@@ -393,7 +418,7 @@
   <h2>Settings</h2>
   <div class="sub">These apply to this screen only.</div>
   <div class="setting" data-key="lyricsBeside">
-    <div>Lyrics beside the album art<small>Shows the words next to the cover when they're available.</small></div><div class="switch"></div></div>
+    <div>Lyrics beside the album art<small>The words scroll along with the song when timed lyrics exist. The screen then shows just the title, artist and album around the cover.</small></div><div class="switch"></div></div>
   <div class="setting" id="textSize" style="cursor:default">
     <div>Text size<small>Auto makes words bigger on small screens like phones.</small></div>
     <div class="sizes">
@@ -486,7 +511,7 @@ function render(t, keepArt) {
   $("idle").style.display = idle ? "flex" : "none";
   $("stage").style.display = idle ? "none" : "flex";
   $("bg").style.opacity = idle ? 0 : 1;
-  if (idle) { closePanel("info"); document.body.classList.remove("lyrics-show"); return; }
+  if (idle) { closePanel("info"); document.body.classList.remove("lyrics-show"); lyr = { id: null }; return; }
   const unknown = t.status !== "playing";
 
   const art = $("art");
@@ -516,15 +541,13 @@ function render(t, keepArt) {
   $("infoBtn").style.display = unknown ? "none" : "grid";
   $("stage").title = unknown ? "" : "Tap for more info";
 
-  // lyrics beside the art
-  const side = $("sideLyrics");
-  document.body.classList.toggle("lyrics-show", !!settings.lyricsBeside && !unknown);
-  if (settings.lyricsBeside && !unknown) {
-    if (side.dataset.for !== t.id) {
-      side.dataset.for = t.id; side.textContent = ""; side.scrollTop = 0;
-      getInfo(t.id).then(d => { if (side.dataset.for === t.id) side.textContent = d.lyrics || ""; });
-    }
-  } else { side.textContent = ""; side.dataset.for = ""; }
+  // lyrics beside the art: just title, artist and album around the cover; lyrics scroll on their own
+  const lyricsOn = !!settings.lyricsBeside && !unknown;
+  document.body.classList.toggle("lyrics-show", lyricsOn);
+  $("lyTitle").textContent = t.title || "";
+  $("lyArtist").textContent = t.artist || "";
+  $("lyAlbum").textContent = t.album || "";
+  if (lyricsOn) loadLyrics(t); else { lyr = { id: null }; $("lyricLines").innerHTML = ""; }
 
   if ($("info").classList.contains("open")) openInfo();
 }
@@ -634,6 +657,48 @@ function stopScan() {
 }
 $("scanBtn").addEventListener("click", startScan);
 $("scanStop").addEventListener("click", stopScan);
+
+// ---------------------------------------------------------------- lyrics that follow the song
+let lyr = { id: null, synced: null, lines: [], idx: -1 }, lyrUserScroll = 0;
+function loadLyrics(t) {
+  if (lyr.id === t.id) return;
+  lyr = { id: t.id, synced: null, lines: [], idx: -1 };
+  const box = $("lyricLines"); box.innerHTML = ""; box.className = ""; $("lyricsCol").scrollTop = 0;
+  getInfo(t.id).then(d => {
+    if (lyr.id !== t.id) return;
+    if (d.synced && d.synced.length) {
+      lyr.synced = d.synced;
+      box.innerHTML = d.synced.map(([, w]) => w ? `<p>${esc(w)}</p>` : `<div class="gap"></div>`).join("");
+      lyr.lines = [...box.children];
+    } else if (d.lyrics) {
+      box.className = "plain";
+      box.innerHTML = d.lyrics.split("\n").map(w => w.trim() ? `<p>${esc(w)}</p>` : `<div class="gap"></div>`).join("");
+      $("lyricsCol").scrollTop = 0;
+    } else {
+      box.innerHTML = `<p class="none">No lyrics found for this one.</p>`;
+    }
+  });
+}
+function songPosition() {
+  if (!prog || prog.pos == null) return null;
+  return prog.pos + (performance.now() - progAt) / 1000;
+}
+function followLyrics() {
+  if (!lyr.synced || !document.body.classList.contains("lyrics-show")) return;
+  const pos = songPosition();
+  if (pos == null) return;
+  let i = -1;
+  for (let k = 0; k < lyr.synced.length; k++) { if (lyr.synced[k][0] <= pos + 0.25) i = k; else break; }
+  if (i === lyr.idx) return;
+  lyr.idx = i;
+  lyr.lines.forEach((el, k) => { el.classList.toggle("now", k === i); el.classList.toggle("past", k < i); });
+  if (Date.now() - lyrUserScroll < 4000) return;          // you scrolled by hand: leave it for a moment
+  const el = lyr.lines[Math.max(i, 0)], col = $("lyricsCol");
+  if (el) col.scrollTo({ top: el.offsetTop - col.clientHeight / 2 + el.offsetHeight / 2, behavior: "smooth" });
+}
+setInterval(followLyrics, 200);
+["wheel", "touchmove"].forEach(ev => $("lyricsCol").addEventListener(ev, () => { lyrUserScroll = Date.now(); }, { passive: true }));
+$("lyricsCol").addEventListener("click", e => e.stopPropagation());   // reading lyrics shouldn't open the info page
 
 // ---------------------------------------------------------------- song length and position
 let prog = null, progAt = 0;

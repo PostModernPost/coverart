@@ -259,20 +259,39 @@ async def itunes_track(http, track_id):
     return info
 
 
-async def fetch_lyrics(http, artist, title, album):
+def parse_lrc(text):
+    """'[01:23.45] words' lines -> [[83.45, 'words'], ...] (timed lyrics from LRCLIB)."""
+    out = []
+    for line in (text or "").splitlines():
+        stamps = re.findall(r"\[(\d+):(\d+(?:\.\d+)?)\]", line)
+        words = re.sub(r"\[[^\]]*\]", "", line).strip()
+        for m, sec in stamps:
+            out.append([int(m) * 60 + float(sec), words])
+    out.sort(key=lambda x: x[0])
+    return out
+
+
+async def fetch_lyrics(http, artist, title, album, duration_s=None):
+    """Lyrics from LRCLIB: (plain text, timed lines or None). Prefers timed lyrics of the right length."""
     try:
         q = urllib.parse.urlencode({"artist_name": artist, "track_name": title})
         async with http.get("https://lrclib.net/api/search?" + q,
                             headers={"User-Agent": "LinerNotes/1.0"}) as r:
             data = await r.json(content_type=None)
-        for res in data or []:
+        results = data or []
+        if duration_s:      # versions of the same song (live, edits) differ in length; take the closest
+            results = sorted(results, key=lambda x: abs((x.get("duration") or 0) - duration_s))
+        for res in results:
+            if res.get("syncedLyrics"):
+                return res.get("plainLyrics") or "", parse_lrc(res["syncedLyrics"])
+        for res in results:
             if res.get("plainLyrics"):
-                return res["plainLyrics"]
+                return res["plainLyrics"], None
             if res.get("instrumental"):
-                return "(Instrumental)"
+                return "(Instrumental)", None
     except Exception as e:
         log("lyrics lookup failed:", e)
-    return None
+    return None, None
 
 
 MUSIC_WORDS = ("band", "musician", "singer", "rapper", "group", "duo", "songwriter", "music",
@@ -1913,11 +1932,11 @@ async def api_info(request):
     if not t or not t.get("artist"):
         return web.json_response({"lyrics": None, "bio": None})
     http = request.app["http"]
-    lyrics, bio = await asyncio.gather(
-        fetch_lyrics(http, t["artist"], t["title"], t.get("album")),
+    (lyrics, synced), bio = await asyncio.gather(
+        fetch_lyrics(http, t["artist"], t["title"], t.get("album"), (t.get("duration_ms") or 0) / 1000 or None),
         fetch_bio(http, t["artist"]),
     )
-    info = {"lyrics": lyrics, "bio": bio}
+    info = {"lyrics": lyrics, "synced": synced, "bio": bio}
     st.info_cache[tid] = info
     return web.json_response(info)
 
