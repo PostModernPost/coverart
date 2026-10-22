@@ -11,6 +11,7 @@ Also:
 
 - **Details**: year, record label and genre under the album name.
 - **Lyrics beside the art** (a setting, per screen).
+- **Record mode**: tell Cover Art which record is on the turntable (search Discogs, or scan the barcode with the phone). It follows the tracklist song by song, shows "Side A · 2 of 5", fills in songs Shazam doesn't know, and reminds you to flip the record.
 - **Search**: when a record can't be identified (small indie releases often aren't in Shazam), tap "Search for it", type what's on the sleeve, and pick the right song.
 - **Listening history and stats**: top artists, albums and songs, records vs Spotify, songs per day, recently played. Stored on your PC in `%APPDATA%\Cover Art\history.db`.
 
@@ -37,6 +38,10 @@ Windows may warn that the installer is from an unknown publisher (it isn't code-
 3. Plug the phone in, tap **Allow** on the USB debugging prompt.
 4. In Chrome on the phone open `localhost:8765`, then menu > **Install app** (or Add to Home screen > Install). Open it from the new icon: it runs fullscreen with no address bar.
 5. To use the phone's mic: right-click the tray icon > Microphone > **Phone**. Tap the phone screen once when the gold banner asks.
+
+## Discogs key (record mode)
+
+Record search uses the Discogs API. Builds include the app's own Discogs key when the repo has `DISCOGS_KEY` and `DISCOGS_SECRET` secrets (create an application at discogs.com/settings/developers). Without them, the Records panel asks for a personal Discogs token instead.
 
 ## Building from source
 

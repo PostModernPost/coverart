@@ -55,6 +55,7 @@ CFG = {
     "idle_after_seconds": 20,      # silence this long = turntable stopped
     "poll_seconds": 1.0,           # how often to check Spotify / PC media
     "ignore_apps": [],             # e.g. ["msedge", "chrome"] to ignore browser videos
+    "discogs_token": "",           # optional personal Discogs token (the app has its own key when built)
     "donate_url": "https://buymeacoffee.com/goodisanoun",  # shown in the info panel ("" hides it)
 }
 cfg_path = os.path.join(DATA_DIR, "config.json")
@@ -385,6 +386,203 @@ async def pc_media_loop(app):
         await asyncio.sleep(CFG["poll_seconds"])
 
 
+# ---------------------------------------------------------------- record mode (Discogs)
+#
+# You tell Cover Art which record is on the turntable. It loads the tracklist from Discogs, then
+# follows along: a gap between songs moves to the next track, Shazam matches correct the position,
+# and songs Shazam doesn't know still get their real title and artist from the tracklist.
+
+DISCOGS = "https://api.discogs.com"
+try:
+    from _secrets import DISCOGS_KEY, DISCOGS_SECRET          # written by the build from GitHub secrets
+except Exception:
+    DISCOGS_KEY = DISCOGS_SECRET = ""
+
+
+def discogs_headers():
+    h = {"User-Agent": "CoverArt/1.0 +https://github.com/PostModernPost/coverart"}
+    token = (CFG.get("discogs_token") or "").strip()
+    if token:
+        h["Authorization"] = f"Discogs token={token}"
+    elif DISCOGS_KEY and DISCOGS_SECRET:
+        h["Authorization"] = f"Discogs key={DISCOGS_KEY}, secret={DISCOGS_SECRET}"
+    return h
+
+
+def discogs_ready():
+    return "Authorization" in discogs_headers()
+
+
+async def discogs_get(http, path, params=None):
+    async with http.get(DISCOGS + path, params=params or {}, headers=discogs_headers()) as r:
+        if r.status == 401:
+            raise PermissionError("Discogs didn't accept the key")
+        if r.status == 429:
+            raise RuntimeError("Discogs is busy, try again in a minute")
+        r.raise_for_status()
+        return await r.json(content_type=None)
+
+
+async def discogs_search(http, q="", barcode=""):
+    params = {"type": "release", "per_page": 20}
+    if barcode:
+        params["barcode"] = barcode
+    else:
+        params["q"] = q
+    data = await discogs_get(http, "/database/search", params)
+    out = []
+    for r in data.get("results", []):
+        out.append({"id": r.get("id"), "title": r.get("title"), "year": r.get("year"),
+                    "format": ", ".join(r.get("format") or []), "label": ", ".join((r.get("label") or [])[:2]),
+                    "catno": r.get("catno"), "thumb": r.get("thumb") or r.get("cover_image"),
+                    "country": r.get("country")})
+    return out
+
+
+def clean_artist(name):
+    return re.sub(r"\s*\(\d+\)$", "", name or "").strip()      # Discogs adds "(2)" to tell artists apart
+
+
+def join_artists(artists):
+    out = ""
+    for a in artists or []:
+        out += clean_artist(a.get("anv") or a.get("name"))
+        j = (a.get("join") or "").strip()
+        if j == ",":
+            out += ", "
+        elif j:
+            out += f" {j} "
+    return out.strip(" ,")
+
+
+def parse_duration(d):
+    try:
+        parts = [int(x) for x in str(d).split(":")]
+        return parts[0] * 60 + parts[1] if len(parts) == 2 else (parts[0] * 3600 + parts[1] * 60 + parts[2])
+    except Exception:
+        return None
+
+
+class RecordSession:
+    def __init__(self, rel):
+        self.id = rel.get("id")
+        self.title = rel.get("title")
+        self.artist = join_artists(rel.get("artists"))
+        self.various = self.artist.lower() in ("various", "various artists", "")
+        self.year = str(rel.get("year") or "") or None
+        labels = rel.get("labels") or [{}]
+        self.label = clean_artist(labels[0].get("name")) or None
+        self.catno = labels[0].get("catno")
+        self.genre = (rel.get("styles") or rel.get("genres") or [None])[0]
+        imgs = rel.get("images") or []
+        prim = next((i for i in imgs if i.get("type") == "primary"), imgs[0] if imgs else {})
+        self.cover = prim.get("uri") or prim.get("uri150")
+        self.tracks = []
+        for t in rel.get("tracklist") or []:
+            if t.get("type_", "track") != "track":
+                continue                                   # side headings, index tracks
+            pos = (t.get("position") or "").strip()
+            m = re.match(r"^([A-Za-z]+)", pos)
+            side = m.group(1).upper() if m else (pos.split("-")[0] if "-" in pos else "1")
+            self.tracks.append({"pos": pos, "side": side, "title": t.get("title"),
+                                "artist": join_artists(t.get("artists")) or self.artist,
+                                "duration": parse_duration(t.get("duration"))})
+        self.idx = None
+        self.side_done = False
+        self.track_started = 0.0
+        self.last_active = time.time()
+
+    # ---- positions
+    def last_on_side(self, i):
+        return i >= len(self.tracks) - 1 or self.tracks[i + 1]["side"] != self.tracks[i]["side"]
+
+    def next_side_start(self, i):
+        side = self.tracks[i]["side"]
+        for j in range(i + 1, len(self.tracks)):
+            if self.tracks[j]["side"] != side:
+                return j
+        return None
+
+    def side_info(self, i):
+        side = self.tracks[i]["side"]
+        on_side = [k for k, t in enumerate(self.tracks) if t["side"] == side]
+        return side, on_side.index(i) + 1, len(on_side)
+
+    def set_index(self, i):
+        self.idx = max(0, min(int(i), len(self.tracks) - 1))
+        self.side_done = False
+        self.track_started = time.time()
+        self.last_active = time.time()
+        return self.track()
+
+    # ---- events from the listening loop
+    def on_music_start(self):
+        """Music started after a silence (needle down, or a flipped record)."""
+        if self.idx is None:
+            return self.set_index(0)
+        if self.side_done:
+            j = self.next_side_start(self.idx)
+            return self.set_index(j if j is not None else 0)
+        self.last_active = time.time()
+        return self.track()
+
+    def on_stop(self):
+        """The room went quiet for a while."""
+        if self.idx is not None and self.last_on_side(self.idx):
+            self.side_done = True
+
+    def gap_means_next(self, now):
+        """Is this gap a real song change? (Quiet passages inside a song can look like gaps.)"""
+        if self.idx is None or self.last_on_side(self.idx):
+            return False
+        dur = self.tracks[self.idx]["duration"] or 0
+        return now - self.track_started >= max(30, 0.5 * dur)
+
+    def overdue(self, now):
+        """Songs that run straight into each other have no gap: use the listed length instead."""
+        if self.idx is None or self.last_on_side(self.idx):
+            return False
+        dur = self.tracks[self.idx]["duration"]
+        return bool(dur) and now - self.track_started > dur + 10
+
+    def advance(self):
+        return self.set_index(self.idx + 1)
+
+    def find(self, title, artist):
+        nt, na = norm(title), norm(artist)
+        best = None
+        for i, t in enumerate(self.tracks):
+            tt, ta = norm(t["title"]), norm(t["artist"])
+            if not tt:
+                continue
+            if tt == nt or (len(nt) > 3 and (nt in tt or tt in nt)):
+                if not na or not ta or na in ta or ta in na:
+                    return i
+                best = best if best is not None else i
+        return best
+
+    # ---- what goes on screen
+    def track(self):
+        t = self.tracks[self.idx]
+        side, n, count = self.side_info(self.idx)
+        artist = t["artist"] if (self.various or t["artist"]) else self.artist
+        return {"id": make_id(artist, t["title"]), "title": t["title"], "artist": artist, "album": self.title,
+                "art": self.cover, "source": "record", "app": f"Side {side} · {n} of {count}", "status": "playing",
+                "year": self.year, "label": self.label, "genre": self.genre,
+                "duration_ms": (t["duration"] or 0) * 1000 or None, "record_pos": t["pos"],
+                "links": search_links(artist, t["title"], self.title)}
+
+    def summary(self):
+        nxt = None
+        if self.side_done and self.idx is not None:
+            j = self.next_side_start(self.idx)
+            nxt = self.tracks[j]["side"] if j is not None else None
+        return {"id": self.id, "title": self.title, "artist": self.artist, "year": self.year, "label": self.label,
+                "catno": self.catno, "cover": self.cover, "tracks": self.tracks, "idx": self.idx,
+                "side_done": self.side_done, "done_side": self.tracks[self.idx]["side"] if self.side_done else None,
+                "next_side": nxt}
+
+
 # ---------------------------------------------------------------- turntable (mic + Shazam)
 #
 # The mic is NOT on all the time. In standby it takes a short sample every
@@ -416,6 +614,8 @@ class AudioBuffer:
         self.quiet_for = 0.0
         self.sound_for = 0.0
         self.gap_seen = False
+        self.in_gap = False
+        self.gap_count = 0        # every gap between songs, for record mode
         self.last_sound = 0.0
         self.level = 0.0
 
@@ -446,8 +646,12 @@ class AudioBuffer:
             if self.quiet_for >= CFG["gap_seconds"]:
                 self.gap_seen = True
                 self.sound_for = 0.0
+                if not self.in_gap:
+                    self.in_gap = True
+                    self.gap_count += 1
         else:
             self.quiet_for = 0.0
+            self.in_gap = False
             self.sound_for += dur
         if rms >= thr:
             self.last_sound = time.time()
@@ -644,20 +848,25 @@ async def _turntable_inner(app, mic, shz):
     last_level_log = 0.0
     misses = 0
     not_before = 0.0          # Shazam asked us to wait, or we're backing off after misses
+    rec_gaps = 0              # gaps already used to move along the tracklist
     set_mode(app, mic, "standby")
 
     while True:
         await asyncio.sleep(0.5)
         now = time.time()
         t = st.track
-        # "mine" = what the mic side put on screen: an identified record, or one the user picked by search
-        on_tt = bool(t and t.get("source") in ("turntable", "manual"))
+        rec = app.get("record")            # a record you told Cover Art about (record mode), or None
+        # "mine" = what the mic side put on screen: an identified song, a picked one, or one from the tracklist
+        on_tt = bool(t and t.get("source") in ("turntable", "manual", "record"))
         picked = bool(t and t.get("source") == "manual")
 
         # Spotify etc. on the PC wins; no need for the mic at all
         if app.get("pc_playing"):
             set_mode(app, mic, "off")
             continue
+
+        if rec and app["listen_mode"] != "active" and now - rec.last_active > 3 * 3600:
+            app["record"] = rec = None       # forget a record that hasn't played in hours
 
         mode = app["listen_mode"]
         if mode == "off":
@@ -690,6 +899,9 @@ async def _turntable_inner(app, mic, shz):
                     last_level_log = now
                     log(f"sample level {level:.4f}")
                     set_mode(app, mic, "active")
+                    if rec and rec.tracks:
+                        rec_gaps = L.gap_count
+                        st.show(rec.on_music_start())
                     break
             continue
 
@@ -706,11 +918,26 @@ async def _turntable_inner(app, mic, shz):
                     f"(music cutoff {CFG['silence_threshold']})")
 
         if now - L.last_sound > CFG["idle_after_seconds"]:
+            if rec:
+                rec.on_stop()
+                if rec.side_done:
+                    log(f"side {rec.tracks[rec.idx]['side']} finished")
             if on_tt:
                 st.idle()
             set_mode(app, mic, "standby")
             last_probe = now
             continue
+
+        # Record mode: follow the tracklist between Shazam checks
+        if rec and rec.tracks and rec.idx is not None:
+            if L.gap_count != rec_gaps and L.sound_for >= 1.0:
+                rec_gaps = L.gap_count
+                if rec.gap_means_next(now):
+                    st.show(rec.advance())
+                    log(f"gap: next track {rec.tracks[rec.idx]['pos']}")
+            elif rec.overdue(now):
+                st.show(rec.advance())
+                log(f"track length passed: next track {rec.tracks[rec.idx]['pos']}")
 
         if L.sound_for < CFG["clip_seconds"]:
             continue          # wait for a full clip of music since the start or the last gap
@@ -719,7 +946,7 @@ async def _turntable_inner(app, mic, shz):
         # After misses, wait longer each time (15 s, 30 s, 60 s, then every 90 s) so an unknown song
         # doesn't hammer Shazam; a gap (new song) resets this.
         retry_wait = min(CFG["retry_seconds"] * (2 ** max(0, misses - 1)), 90)
-        due = (L.gap_seen
+        due = (L.gap_seen or app.pop("force_check", False)
                or (not identified and now - last_try >= retry_wait)
                or (misses > 0 and now - last_try >= retry_wait)
                or (now - last_try >= CFG["recheck_seconds"]))
@@ -742,6 +969,13 @@ async def _turntable_inner(app, mic, shz):
             log("shazam error:", repr(e))
             res = None
 
+        on_record = rec.find(res["title"], res["artist"]) if (rec and res and res.get("title")) else None
+        if on_record is not None:
+            misses = 0
+            if rec.idx != on_record:
+                log(f"Shazam says track {rec.tracks[on_record]['pos']}: moving there")
+                st.show(rec.set_index(on_record))
+            continue
         if res and res.get("title"):
             misses = 0
             tid = make_id(res["artist"], res["title"])
@@ -765,7 +999,8 @@ async def _turntable_inner(app, mic, shz):
             # The song changed to one Shazam doesn't know (common on Vinyl Moon). Don't keep showing
             # the previous song: right after a gap, one miss is enough; otherwise two in a row.
             # A song the user picked by search stays until the next gap.
-            if gap or (misses >= 2 and not picked):
+            # In record mode the tracklist already says what's playing, so keep showing that.
+            if (gap or (misses >= 2 and not picked)) and not (rec and rec.idx is not None):
                 st.show(UNKNOWN)
 
 
@@ -792,7 +1027,7 @@ class History:
             db.execute("INSERT INTO plays (ts,title,artist,album,year,label,genre,source,art,duration_ms) "
                        "VALUES (?,?,?,?,?,?,?,?,?,?)",
                        (time.time(), t.get("title"), t.get("artist"), t.get("album"), t.get("year"),
-                        t.get("label"), t.get("genre"), "vinyl" if t.get("source") in ("turntable", "manual")
+                        t.get("label"), t.get("genre"), "vinyl" if t.get("source") in ("turntable", "manual", "record")
                         else (t.get("app") or "PC"), art, t.get("duration_ms")))
 
     def stats(self, days):
@@ -1034,6 +1269,79 @@ async def api_window(request):
     return web.json_response({"ok": bool(fn)})
 
 
+# ---------------------------------------------------------------- record mode endpoints
+async def api_records_search(request):
+    if not discogs_ready():
+        return web.json_response({"results": [], "need_key": True})
+    q = (request.query.get("q") or "").strip()
+    barcode = re.sub(r"\D", "", request.query.get("barcode") or "")
+    if not q and not barcode:
+        return web.json_response({"results": []})
+    try:
+        return web.json_response({"results": await discogs_search(request.app["http"], q, barcode)})
+    except PermissionError as e:
+        return web.json_response({"results": [], "need_key": True, "error": str(e)})
+    except Exception as e:
+        log("discogs search failed:", repr(e))
+        return web.json_response({"results": [], "error": "Discogs isn't reachable right now."})
+
+
+async def api_records_load(request):
+    app = request.app
+    body = await request.json()
+    try:
+        rel = await discogs_get(app["http"], f"/releases/{int(body.get('id'))}")
+    except Exception as e:
+        log("discogs release failed:", repr(e))
+        return web.json_response({"ok": False, "error": "Couldn't load that record from Discogs."})
+    rec = RecordSession(rel)
+    if not rec.tracks:
+        return web.json_response({"ok": False, "error": "Discogs doesn't list the songs on this one."})
+    app["record"] = rec
+    log(f"record loaded: {rec.artist} - {rec.title} ({len(rec.tracks)} tracks)")
+    if app.get("listen_mode") == "active":          # already playing: start at track 1, Shazam will correct it
+        app["state"].show(rec.set_index(0))
+        app["force_check"] = True
+    return web.json_response({"ok": True, "record": rec.summary()})
+
+
+async def api_records_position(request):
+    """You tapped a song in the tracklist: that's what's playing now."""
+    app = request.app
+    rec = app.get("record")
+    if not rec:
+        return web.json_response({"ok": False})
+    body = await request.json()
+    app["state"].show(rec.set_index(body.get("index", 0)))
+    return web.json_response({"ok": True, "record": rec.summary()})
+
+
+async def api_records_clear(request):
+    app = request.app
+    rec = app.pop("record", None)
+    st = app["state"]
+    if rec and st.track and st.track.get("source") == "record":
+        st.idle()
+    return web.json_response({"ok": True})
+
+
+async def api_config(request):
+    """Settings changed from the app (currently: a personal Discogs token)."""
+    body = await request.json()
+    cfg = {}
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+    if "discogs_token" in body:
+        cfg["discogs_token"] = CFG["discogs_token"] = (body.get("discogs_token") or "").strip()
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    return web.json_response({"ok": True, "discogs_ready": discogs_ready()})
+
+
 def mic_info(app):
     mic = app.get("mic")
     if not mic or mic.kind != "phone":
@@ -1048,6 +1356,8 @@ async def api_now(request):
         request.app["last_window_poll"] = time.time()      # a Cover Art window on the PC is open
     return web.json_response({"version": st.version, "track": st.track, "mic": mic_info(request.app),
                               "donate": CFG.get("donate_url") or "", "update": update_info(request.app),
+                              "record": request.app["record"].summary() if request.app.get("record") else None,
+                              "discogs_ready": discogs_ready(),
                               "listen": {"mode": request.app.get("listen_mode", "off"),
                                          "next_try": request.app.get("next_try"), "now": time.time()}})
 
@@ -1132,6 +1442,11 @@ def build_app(demo=False):
     app.router.add_get("/sw.js", service_worker)
     app.router.add_get("/api/update", api_update)
     app.router.add_post("/api/window", api_window)
+    app.router.add_get("/api/records/search", api_records_search)
+    app.router.add_post("/api/records/load", api_records_load)
+    app.router.add_post("/api/records/position", api_records_position)
+    app.router.add_post("/api/records/clear", api_records_clear)
+    app.router.add_post("/api/config", api_config)
     app.router.add_post("/api/update", api_update)
     app.router.add_get("/icon.svg", icon)
     app.on_startup.append(on_startup)

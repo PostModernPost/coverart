@@ -119,6 +119,24 @@
   .result b, .line b { display: block; font-size: calc(var(--ts) * clamp(13px, 2.7vmin, 20px)); font-weight: 600; }
   .result span, .line span { color: var(--dim); font-size: calc(var(--ts) * clamp(11px, 2.2vmin, 16px)); }
 
+  /* records */
+  .recHead { display: flex; gap: 3vmin; align-items: center; margin-bottom: 3vmin; }
+  .recHead img { width: calc(var(--ts) * clamp(80px, 20vmin, 160px)); aspect-ratio: 1; border-radius: 6px; object-fit: cover; background: #1a1a1d; flex: none; }
+  .sideHead { margin: 3vmin 0 1vmin; }
+  .trk { display: flex; gap: 2vmin; align-items: baseline; padding: 1.2vmin 1.4vmin; border-radius: 8px; cursor: pointer;
+    border-left: 3px solid transparent; font-size: calc(var(--ts) * clamp(13px, 2.6vmin, 19px)); }
+  .trk:hover { background: rgba(255,255,255,.07); }
+  .trk.now { background: rgba(201,160,74,.14); border-left-color: var(--gold); }
+  .trk .pos { color: var(--dim); width: 2.4em; flex: none; }
+  .trk .ttl { flex: 1; min-width: 0; } .trk .ttl span { color: var(--dim); }
+  .trk .dur { color: var(--dim); font-variant-numeric: tabular-nums; }
+  #scanBox video { width: 100%; max-width: 520px; border-radius: 8px; background: #000; display: block; margin-bottom: 1em; }
+  #recKey input { width: 100%; margin: .6em 0; }
+  #recKey a { color: var(--gold); }
+  .field { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); border-radius: 99px; color: var(--fg);
+    padding: .7em 1.1em; font: inherit; font-size: calc(var(--ts) * clamp(14px, 3vmin, 22px)); outline: none; min-width: 0; }
+  .field:focus { border-color: var(--gold); }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -182,6 +200,8 @@
 <div id="idle"><div class="record"></div><div id="idleText">Nothing playing</div></div>
 
 <div id="toolbar">
+  <button id="tb-records" title="What's on the turntable" aria-label="Records">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r=".6"/></svg></button>
   <button id="tb-search" title="Search for a song" aria-label="Search">
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
   <button id="tb-stats" title="Listening history" aria-label="Listening history">
@@ -202,6 +222,41 @@
     <section><h3>Lyrics</h3><div id="lyrics" class="muted">Loading…</div></section>
   </div>
   <p id="donate">Enjoying Cover Art? <a id="donate-link" href="#" target="_blank" rel="noopener">Buy me a coffee</a></p>
+</div>
+
+<!-- records -->
+<div id="records" class="panel">
+  <button class="close" aria-label="Close">&times;</button>
+  <div id="recPick">
+    <h2>What's on the turntable?</h2>
+    <div class="sub">Pick the record and Cover Art follows along song by song, even the ones Shazam doesn't know.</div>
+    <div id="recKey" style="display:none">
+      <p>Record search uses Discogs, which needs a free access token the first time.
+        <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">Get one here</a>
+        (sign in, then "Generate new token"), and paste it below.</p>
+      <div class="row"><input id="recToken" class="field" placeholder="Paste your Discogs token" autocomplete="off" style="flex:1">
+        <button class="pill" id="recTokenSave">Save</button></div>
+      <p class="muted" id="recKeyMsg"></p>
+    </div>
+    <form id="recForm" style="display:flex;gap:1.5vmin;flex-wrap:wrap;margin:1em 0 3vmin">
+      <input id="rq" class="field" type="search" placeholder="Artist, album, or catalog number" autocomplete="off" enterkeyhint="search" style="flex:1">
+      <button class="pill" type="submit">Search</button>
+      <button class="pill" type="button" id="scanBtn" style="display:none">Scan barcode</button>
+    </form>
+    <div id="scanBox" style="display:none">
+      <video id="scanVideo" playsinline muted></video>
+      <p class="muted">Point the camera at the barcode on the back of the sleeve.</p>
+      <button class="pill" id="scanStop">Cancel</button>
+    </div>
+    <div id="recResults"></div>
+  </div>
+  <div id="recLoaded" style="display:none">
+    <div class="recHead"><img id="recCover" alt="">
+      <div><h2 id="recTitle"></h2><div class="sub" id="recSub"></div>
+        <div class="row"><button class="pill" id="recChange">Change record</button><button class="pill" id="recDone">Done with this record</button></div></div></div>
+    <p class="muted">Tap the song that's playing if Cover Art is on the wrong one, or to tell it which side you started on.</p>
+    <div id="recTracks"></div>
+  </div>
 </div>
 
 <!-- search -->
@@ -353,10 +408,102 @@ async function poll() {
     donateUrl = d.donate || "";
     if (d.update) showUpdate(d.update);
     if (d.listen) showListening(d.listen);
+    showRecord(d.record || null, d.discogs_ready !== false);
     if (d.version !== version) { version = d.version; render(d.track); }
     if (IS_PHONE && d.mic) micTick(d.mic);
   } catch (e) { /* server restarting; keep last screen */ }
 }
+
+// ---------------------------------------------------------------- records (record mode)
+let record = null, discogsReady = true, recView = "auto";
+function fmtDur(sec) { return sec ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : ""; }
+function showRecord(r, ready) {
+  const changed = JSON.stringify(r) !== JSON.stringify(record);
+  record = r; discogsReady = ready;
+  updateIdleText();
+  if (changed && $("records").classList.contains("open")) renderRecords();
+}
+function renderRecords() {
+  const loaded = record && recView !== "pick";
+  $("recPick").style.display = loaded ? "none" : "block";
+  $("recLoaded").style.display = loaded ? "block" : "none";
+  $("recKey").style.display = discogsReady ? "none" : "block";
+  $("recForm").style.display = discogsReady ? "flex" : "none";
+  $("scanBtn").style.display = "BarcodeDetector" in window ? "inline-block" : "none";
+  if (!loaded) return;
+  $("recCover").src = record.cover || BLANK;
+  $("recTitle").textContent = record.title;
+  $("recSub").textContent = [record.artist, record.label, record.catno, record.year].filter(Boolean).join(" · ");
+  let html = "", side = null;
+  record.tracks.forEach((t, i) => {
+    if (t.side !== side) { side = t.side; html += `<h3 class="sideHead">Side ${esc(side)}</h3>`; }
+    html += `<div class="trk${i === record.idx ? " now" : ""}" data-i="${i}"><span class="pos">${esc(t.pos)}</span>
+      <span class="ttl">${esc(t.title)}${t.artist && t.artist !== record.artist ? ` <span>· ${esc(t.artist)}</span>` : ""}</span>
+      <span class="dur">${fmtDur(t.duration)}</span></div>`;
+  });
+  $("recTracks").innerHTML = html;
+}
+function openRecords() { recView = "auto"; renderRecords(); openPanel("records"); if (!record && discogsReady) setTimeout(() => $("rq").focus(), 50); }
+
+async function recSearch(params) {
+  $("recResults").innerHTML = `<p class="muted">Searching Discogs…</p>`;
+  try {
+    const d = await (await fetch("/api/records/search?" + new URLSearchParams(params))).json();
+    if (d.need_key) { discogsReady = false; renderRecords(); $("recKeyMsg").textContent = d.error || ""; $("recResults").innerHTML = ""; return; }
+    if (d.error) { $("recResults").innerHTML = `<p class="muted">${esc(d.error)}</p>`; return; }
+    if (!d.results.length) { $("recResults").innerHTML = `<p class="muted">No records found. Try the catalog number from the spine, or just the album name.</p>`; return; }
+    $("recResults").innerHTML = d.results.map(r => `
+      <div class="result" data-id="${r.id}"><img src="${esc(r.thumb || BLANK)}" alt="" loading="lazy">
+        <div><b>${esc(r.title)}</b><span>${esc([r.year, r.label, r.catno, r.format, r.country].filter(Boolean).join(" · "))}</span></div></div>`).join("");
+  } catch (e) { $("recResults").innerHTML = `<p class="muted">Discogs isn't reachable right now.</p>`; }
+}
+$("recForm").addEventListener("submit", e => { e.preventDefault(); const q = $("rq").value.trim(); if (q) recSearch(/^\d{8,14}$/.test(q) ? { barcode: q } : { q }); });
+$("recResults").addEventListener("click", async e => {
+  const row = e.target.closest(".result"); if (!row) return;
+  row.style.opacity = .5;
+  const d = await (await fetch("/api/records/load", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                      body: JSON.stringify({ id: row.dataset.id }) })).json();
+  if (!d.ok) { row.style.opacity = 1; $("recResults").insertAdjacentHTML("afterbegin", `<p class="muted">${esc(d.error || "Couldn't load it.")}</p>`); return; }
+  record = d.record; recView = "auto"; $("recResults").innerHTML = ""; $("rq").value = ""; renderRecords(); poll();
+});
+$("recTracks").addEventListener("click", async e => {
+  const row = e.target.closest(".trk"); if (!row) return;
+  const d = await (await fetch("/api/records/position", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                          body: JSON.stringify({ index: +row.dataset.i }) })).json();
+  if (d.record) { record = d.record; renderRecords(); poll(); }
+});
+$("recChange").addEventListener("click", () => { recView = "pick"; renderRecords(); setTimeout(() => $("rq").focus(), 50); });
+$("recDone").addEventListener("click", async () => { await fetch("/api/records/clear", { method: "POST" }); record = null; recView = "auto"; renderRecords(); poll(); });
+$("recTokenSave").addEventListener("click", async () => {
+  const d = await (await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                body: JSON.stringify({ discogs_token: $("recToken").value }) })).json();
+  discogsReady = d.discogs_ready; $("recKeyMsg").textContent = d.discogs_ready ? "" : "That didn't look right. Paste the whole token.";
+  renderRecords(); if (discogsReady) $("rq").focus();
+});
+
+// barcode scanning (phones; Chrome on Android has a built-in barcode reader)
+let scanStream = null, scanTimer = null;
+async function startScan() {
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  } catch (e) { $("recResults").innerHTML = `<p class="muted">Couldn't open the camera.</p>`; return; }
+  const v = $("scanVideo"); v.srcObject = scanStream; await v.play();
+  $("scanBox").style.display = "block"; $("recForm").style.display = "none"; $("recResults").innerHTML = "";
+  const det = new BarcodeDetector({ formats: ["ean_13", "upc_a", "ean_8", "upc_e"] });
+  scanTimer = setInterval(async () => {
+    try {
+      const codes = await det.detect(v);
+      if (codes.length) { const code = codes[0].rawValue; stopScan(); $("rq").value = code; recSearch({ barcode: code }); }
+    } catch (e) {}
+  }, 300);
+}
+function stopScan() {
+  clearInterval(scanTimer); scanTimer = null;
+  if (scanStream) scanStream.getTracks().forEach(t => t.stop());
+  scanStream = null; $("scanBox").style.display = "none"; renderRecords();
+}
+$("scanBtn").addEventListener("click", startScan);
+$("scanStop").addEventListener("click", stopScan);
 
 // ---------------------------------------------------------------- "still looking" indicator
 function showListening(l) {
@@ -369,16 +516,25 @@ function showListening(l) {
     const wait = l.next_try ? Math.round(l.next_try - l.now) : 0;
     $("lookingText").textContent = wait > 1 ? `Still listening · trying again in ${wait}s` : "Still listening · trying now";
   }
-  // Nothing on screen yet but the mic hears music: say so
+  lastListenActive = active;
+  updateIdleText();
+}
+let lastListenActive = false;
+function updateIdleText() {
+  // Nothing on screen yet but the mic hears music: say so. A finished side: remind to flip.
+  const active = lastListenActive;
   $("idle").classList.toggle("listening", !current && active);
-  $("idleText").textContent = !current && active ? "Hearing music, figuring out what it is…" : "Nothing playing";
+  let msg = "Nothing playing";
+  if (!current && active) msg = "Hearing music, figuring out what it is…";
+  else if (record && record.side_done) msg = record.next_side ? `Side ${record.done_side} is done · flip to side ${record.next_side}` : `That's the end of ${record.title}`;
+  $("idleText").textContent = msg;
 }
 
 // ---------------------------------------------------------------- panels
 function openPanel(id) { document.querySelectorAll(".panel.open").forEach(p => p.classList.remove("open")); $(id).classList.add("open"); }
-function closePanel(id) { $(id).classList.remove("open"); }
-document.querySelectorAll(".panel .close").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); b.parentElement.classList.remove("open"); }));
-document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll(".panel.open").forEach(p => p.classList.remove("open")); });
+function closePanel(id) { $(id).classList.remove("open"); if (id === "records" && scanStream) stopScan(); }
+document.querySelectorAll(".panel .close").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); closePanel(b.parentElement.id); }));
+document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll(".panel.open").forEach(p => closePanel(p.id)); });
 
 function getInfo(id) {
   if (!infoCache[id]) infoCache[id] = fetch("/api/info?id=" + encodeURIComponent(id)).then(r => r.json()).catch(() => { delete infoCache[id]; return {}; });
@@ -553,6 +709,7 @@ $("updPill").addEventListener("click", e => { e.stopPropagation(); applySettings
 $("stage").addEventListener("click", e => { if (e.target.id === "findBtn") return; openInfo(); });
 $("findBtn").addEventListener("click", e => { e.stopPropagation(); openSearch(); });
 $("tb-search").addEventListener("click", e => { e.stopPropagation(); openSearch(); });
+$("tb-records").addEventListener("click", e => { e.stopPropagation(); openRecords(); });
 $("tb-stats").addEventListener("click", e => { e.stopPropagation(); openPanel("stats"); loadStats(); });
 $("tb-settings").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
 

@@ -46,6 +46,14 @@ jobs:
           "RELEASE=$release" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "VERSION = `"$v`"" | Out-File -FilePath app\_version.py -Encoding utf8
 
+      - name: App keys
+        shell: pwsh
+        env:
+          DISCOGS_KEY: ${{ secrets.DISCOGS_KEY }}
+          DISCOGS_SECRET: ${{ secrets.DISCOGS_SECRET }}
+        run: |
+          "DISCOGS_KEY = `"$env:DISCOGS_KEY`"`nDISCOGS_SECRET = `"$env:DISCOGS_SECRET`"" | Out-File -FilePath app\_secrets.py -Encoding utf8
+
       - name: Icon
         run: python packaging/make_icon.py
 
@@ -57,6 +65,7 @@ jobs:
           --add-data "app/display.html;."
           --hidden-import core
           --hidden-import _version
+          --hidden-import _secrets
           --hidden-import pystray._win32
           --collect-all shazamio
           --collect-all shazamio_core

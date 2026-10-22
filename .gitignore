@@ -4,3 +4,4 @@ build/
 dist/
 *.spec
 packaging/coverart.ico
+app/_secrets.py
