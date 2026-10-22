@@ -1035,7 +1035,7 @@ function showJustPlayed() {
   $("jpArt").classList.toggle("record", !lastArt);
   $("jpAlbum").textContent = l.album || l.title || "";
   $("jpArtist").textContent = l.artist || "";
-  $("jpWhen").textContent = agoText(l.ts) + (ON_MEDIUM[l.source] || "");
+  $("jpWhen").textContent = agoText(l.ended || l.ts) + (ON_MEDIUM[l.source] || "");
   $("jpRecent").innerHTML = d.recent.slice(0, 6).map(r => `<img src="${esc(r.art)}" alt="" title="${esc(r.album + " · " + r.artist)}" loading="lazy">`).join("");
   $("jpSaved").innerHTML = d.saved.length ? `<p class="kicker" style="margin:0 0 .5em">Saved lately</p>` +
     d.saved.slice(0, 3).map(x => `<div><i>♥</i><b>${esc(x.title)}</b> · ${esc(x.artist)}</div>`).join("") : "";
@@ -1046,7 +1046,7 @@ function idleTick() {
   // the "just played" card for a few minutes after a record ends (or right away if it ended long ago)
   const mode = idleMode();
   const fresh = mode === "recent" || (mode === "both" && l && (Date.now() - idleSince < JP_MINUTES * 60000));
-  if (l) $("jpWhen").textContent = agoText(l.ts) + (ON_MEDIUM[l.source] || "");
+  if (l) $("jpWhen").textContent = agoText(l.ended || l.ts) + (ON_MEDIUM[l.source] || "");
   if ((fresh && l) || idleData.covers.length < 2) { $("jp").classList.remove("off"); $("slides").classList.add("off"); return; }
   if (!slideTimer) startSlides();
 }
@@ -1181,6 +1181,8 @@ async function openInfo() {
     $("bio").textContent = "No bio found. Try the Bandcamp or Discogs links above.";
   }
   loadCredits(t);
+  if (d.shazam && !$("links").querySelector("[data-shazam]"))
+    $("links").insertAdjacentHTML("afterbegin", `<a class="pill" data-shazam href="${esc(d.shazam)}" target="_blank" rel="noopener">Shazam</a>`);
   if (d.lyrics) { $("lyrics").className = ""; $("lyrics").textContent = d.lyrics; }
   else $("lyrics").innerHTML = `<p style="margin-top:0">No lyrics found.</p>` +
     (d.genius ? `<a class="pill" href="${esc(d.genius)}" target="_blank" rel="noopener">Look up the lyrics on Genius</a>` : "");

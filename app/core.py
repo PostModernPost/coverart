@@ -155,6 +155,7 @@ def room_medium(app):
 class State:
     def __init__(self):
         self.app = None            # set by build_app
+        self.idle_at = 0.0
         self.track = None          # what the screen shows
         self.version = 0
         self.db = None             # History, set by build_app
@@ -199,6 +200,7 @@ class State:
 
     def idle(self):
         if self.track is not None:
+            self.idle_at = time.time()          # when the last song ended (or the room went quiet)
             self._bump(None)
 
     def enrich(self, tid, fields):
@@ -1680,7 +1682,7 @@ class History:
         with self._db() as db:
             db.row_factory = sqlite3.Row
             rows = lambda sql: [dict(r) for r in db.execute(sql)]
-            last = rows("SELECT ts, title, artist, album, year, label, source, art FROM plays ORDER BY ts DESC LIMIT 1")
+            last = rows("SELECT ts, title, artist, album, year, label, source, art, duration_ms FROM plays ORDER BY ts DESC LIMIT 1")
             recent = rows("SELECT album, artist, MAX(art) art, MAX(ts) ts, source FROM plays WHERE album IS NOT NULL AND album!='' "
                           "AND art IS NOT NULL GROUP BY lower(album), lower(artist) ORDER BY MAX(ts) DESC LIMIT 9")
             saved = rows("SELECT title, artist, album, art, ts FROM saved ORDER BY ts DESC LIMIT 4")
@@ -2273,7 +2275,16 @@ async def api_medium(request):
 
 
 async def api_idle(request):
-    return web.json_response(request.app["state"].db.idle_data())
+    st: State = request.app["state"]
+    d = st.db.idle_data()
+    last = d.get("last")
+    if last:
+        # "Finished 2 min ago" counts from when it stopped playing, not when it started
+        if st.track is None and st.idle_at > last["ts"]:
+            last["ended"] = st.idle_at
+        else:
+            last["ended"] = min(time.time(), last["ts"] + (last.get("duration_ms") or 210000) / 1000)
+    return web.json_response(d)
 
 
 async def api_saved(request):
@@ -2995,6 +3006,32 @@ async def api_art(request):
     return web.Response(body=data, content_type=mime.split(";")[0])
 
 
+_shazam_pages = {}
+
+
+async def shazam_page(artist, title):
+    """The song's page on Shazam, for songs that came from Spotify or a tracklist rather than Shazam itself."""
+    key = (norm(artist), norm(title))
+    if key in _shazam_pages:
+        return _shazam_pages[key]
+    url = None
+    try:
+        from shazamio import Shazam
+        res = await asyncio.wait_for(Shazam().search_track(f"{main_artist(artist)} {clean_title(title)}", limit=5), 8)
+        hits = ((res or {}).get("tracks") or {}).get("hits") or (res or {}).get("hits") or []
+        for h in hits:
+            tr = h.get("track") or h
+            if norm(clean_title(tr.get("title"))) == norm(clean_title(title)) and \
+                    norm(main_artist(artist)) in norm(tr.get("subtitle") or tr.get("artist") or ""):
+                url = tr.get("url") or (tr.get("share") or {}).get("href")
+                break
+    except Exception as e:
+        log("shazam page lookup failed:", repr(e))
+        return None                     # not cached: try again next time
+    _shazam_pages[key] = url
+    return url
+
+
 async def api_info(request):
     st: State = request.app["state"]
     tid = request.query.get("id", "")
@@ -3008,7 +3045,10 @@ async def api_info(request):
         fetch_lyrics(http, t["artist"], t["title"], t.get("album"), (t.get("duration_ms") or 0) / 1000 or None),
         fetch_bio(http, t["artist"]),
     )
-    info = {"lyrics": lyrics, "synced": synced, "bio": bio,
+    shazam = None
+    if not any(l.get("name") == "Shazam" for l in t.get("links") or []):
+        shazam = await shazam_page(t["artist"], t["title"])
+    info = {"lyrics": lyrics, "synced": synced, "bio": bio, "shazam": shazam,
             "genius": "https://genius.com/search?q=" + urllib.parse.quote(f"{main_artist(t['artist'])} {clean_title(t['title'])}")}
     st.info_cache[tid] = info
     return web.json_response(info)

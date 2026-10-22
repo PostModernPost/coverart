@@ -1,1 +1,2 @@
-- The close button (×) on Settings, Search, Saved songs, Your listening, the song info page and the other panels stays in the top corner while you scroll, so you can go back to the main screen from anywhere on the page.
+- The song info page links to the song on Shazam for every song, including ones from Spotify or a record's tracklist (when Shazam has it).
+- Fixed: the between-records screen said "Finished 6 min ago" counting from when the last song started. It now counts from when it stopped.
