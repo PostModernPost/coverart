@@ -1,3 +1,2 @@
-- Fixed: with lyrics on in portrait (a phone standing up), the current line could scroll out of view. It now stays in the middle of the lyrics.
-- Fixed: in a square-ish window the cover was so big the song details below it were cut off.
-- Liner Notes has a website: liner-notes.app.
+- Liner Notes only shows music from this PC now: Spotify, Apple Music, Tidal and other music players, plus music sites in a browser (Spotify, YouTube Music, Bandcamp). YouTube, Reddit and other videos no longer take over the screen. Settings > Apps on this PC > Everything brings back the old behavior.
+- Firefox shows up as "Firefox" instead of a code.

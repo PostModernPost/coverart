@@ -310,7 +310,8 @@
   #mediumAsk input { width: 1.1em; height: 1.1em; accent-color: var(--gold); }
   @media (max-aspect-ratio: 7/5) { #mediumAsk { margin-left: auto; margin-right: auto; } #mediumAsk .row { justify-content: center; } #mediumAsk label { justify-content: center; } }
   /* settings with several choices: the choices go on their own line under the label */
-  #textSize, #mediaRow, #idleModeRow, #idleOffRow { flex-wrap: wrap; }
+  #textSize, #mediaRow, #idleModeRow, #idleOffRow, #pcMediaRow { flex-wrap: wrap; }
+  #pcMediaRow .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
   #textSize .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
   #mediaRow .sizes, #idleModeRow .sizes, #idleOffRow .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
   #aboutMark { width: 44px; height: 44px; vertical-align: middle; margin-right: .7em; }
@@ -624,6 +625,9 @@
     <div class="sizes">
       <button class="pill" data-rm="">Ask</button><button class="pill" data-rm="vinyl">Vinyl</button><button class="pill" data-rm="cd">CD</button>
       <button class="pill" data-rm="cassette">Cassette</button><button class="pill" data-rm="radio">Radio</button><button class="pill" data-rm="other">Other</button></div></div>
+  <div class="setting" id="pcMediaRow" style="cursor:default">
+    <div>Apps on this PC<small>What Liner Notes shows from this PC. Music apps only: Spotify, Apple Music, Tidal and other music players, plus music sites in a browser (Spotify, YouTube Music, Bandcamp). Everything: anything Windows says is playing, YouTube and Reddit videos included.</small></div>
+    <div class="sizes"><button class="pill" data-pm="music">Music apps only</button><button class="pill" data-pm="all">Everything</button></div></div>
   <div class="setting" id="followAlbumRow">
     <div>Follow the album<small>When a song on a record, CD or tape is recognized, Liner Notes assumes the album is playing and shows the next songs in order, switching when each one's length is up, even if Shazam can't match them. Turn off for mixtapes and compilations, or load the compilation with Manual search.</small></div><div class="switch"></div></div>
   <div class="setting" id="idleModeRow" style="cursor:default">
@@ -824,6 +828,7 @@ async function poll() {
     if (!saveBusy) setHearts(!!d.saved);
     mediaDefault = d.media_default || "";
     $("followAlbumRow").classList.toggle("on", d.follow_album !== false);
+    document.querySelectorAll("#pcMediaRow [data-pm]").forEach(b => b.classList.toggle("on", b.dataset.pm === (d.pc_media || "music")));
     document.querySelectorAll("#mediaRow [data-rm]").forEach(b => b.classList.toggle("on", b.dataset.rm === mediaDefault));
     $("mediumAsk").classList.toggle("on", !!d.ask_medium && !mediumBusy);
     if (d.listen) showListening(d.listen);
@@ -1710,6 +1715,12 @@ document.addEventListener("click", async e => {
   if (e.target.id === "useMic") { e.target.disabled = true; e.target.textContent = "Switching…"; await fetch("/api/phone/use-mic", { method: "POST" }); }
 });
 $("phoneSetupRow").addEventListener("click", openPhoneSetup);
+$("pcMediaRow").addEventListener("click", async e => {
+  const b = e.target.closest("[data-pm]"); if (!b) return;
+  e.stopPropagation();
+  document.querySelectorAll("#pcMediaRow [data-pm]").forEach(x => x.classList.toggle("on", x === b));
+  try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pc_media: b.dataset.pm }) }); } catch (err) {}
+});
 $("followAlbumRow").addEventListener("click", async () => {
   const on = !$("followAlbumRow").classList.contains("on");
   $("followAlbumRow").classList.toggle("on", on);

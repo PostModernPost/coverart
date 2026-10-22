@@ -69,6 +69,7 @@ CFG = {
     "recheck_seconds": 45,         # while a record is playing, re-check this often (catches gapless track changes)
     "idle_after_seconds": 20,      # silence this long = turntable stopped
     "poll_seconds": 1.0,           # how often to check Spotify / PC media
+    "pc_media": "music",           # "music": only music apps on this PC; "all": anything Windows says is playing
     "ignore_apps": [],             # e.g. ["msedge", "chrome"] to ignore browser videos
     "phone_follows_pc": True,      # phone screen turns off when this PC sleeps, back on when it wakes
     "room_medium": None,
@@ -549,8 +550,30 @@ async def read_thumbnail(props):
     return data, (stream.content_type or "image/png")
 
 
+# Apps that play music. Anything else (YouTube, Reddit or Netflix in a browser, video players) only counts
+# when Settings > Apps on this PC is set to Everything, or when it clearly reports an album (Spotify's web
+# player, YouTube Music and Bandcamp in a browser do; videos don't).
+MUSIC_APPS = ("spotify", "applemusic", "itunes", "zunemusic", "tidal", "amazonmusic", "amazon music", "deezer",
+              "qobuz", "foobar2000", "musicbee", "aimp", "winamp", "plexamp", "youtube-music", "youtubemusic",
+              "cider", "soundcloud", "pandora", "audacious", "clementine", "strawberry", "mediamonkey", "dopamine",
+              "tauon", "roon", "sonos", "nugs", "bandcamp")
+VIDEO_APPS = ("vlc", "mpc-hc", "mpc-be", "potplayer", "netflix", "zunevideo", "disney", "primevideo", "hulu", "plex.")
+BROWSERS = ("chrome", "msedge", "firefox", "308046b0af4a39cb", "opera", "brave", "vivaldi", "arc", "zen")
+
+
+def is_music_session(app_id, props):
+    a = (app_id or "").lower()
+    if any(k in a for k in MUSIC_APPS):
+        return True
+    if any(k in a for k in VIDEO_APPS):
+        return False
+    # a browser or an app we don't know: only when it reports a real track with an album
+    return bool(props and props.title and (props.artist or props.album_artist) and props.album_title)
+
+
 async def current_pc_media(mgr):
     best = None
+    music_only = CFG.get("pc_media", "music") != "all"
     for s in mgr.get_sessions():
         try:
             app_id = s.source_app_user_model_id or ""
@@ -559,17 +582,19 @@ async def current_pc_media(mgr):
             pb = s.get_playback_info()
             if pb is None or pb.playback_status != PlaybackStatus.PLAYING:
                 continue
+            props = await s.try_get_media_properties_async()
+            if not props or not props.title:
+                continue
+            if music_only and not is_music_session(app_id, props):
+                continue
             score = 2 if "spotify" in app_id.lower() else 1
             if best is None or score > best[0]:
-                best = (score, s, app_id)
+                best = (score, s, app_id, props)
         except Exception:
             continue
     if not best:
         return None
-    _, s, app_id = best
-    props = await s.try_get_media_properties_async()
-    if not props or not props.title:
-        return None
+    _, s, app_id, props = best
     return props, app_id, s
 
 
@@ -601,6 +626,9 @@ def timeline_position(session):
 def app_label(app_id):
     a = app_id.lower()
     for key, name in (("spotify", "Spotify"), ("msedge", "Edge"), ("chrome", "Chrome"), ("firefox", "Firefox"),
+                      ("308046b0af4a39cb", "Firefox"), ("tidal", "Tidal"), ("amazonmusic", "Amazon Music"),
+                      ("deezer", "Deezer"), ("itunes", "iTunes"), ("foobar2000", "foobar2000"), ("musicbee", "MusicBee"),
+                      ("youtube-music", "YouTube Music"), ("opera", "Opera"), ("brave", "Brave"),
                       ("applemusic", "Apple Music"), ("zune", "Media Player"), ("vlc", "VLC")):
         if key in a:
             return name
@@ -2241,6 +2269,8 @@ async def api_config(request):
         cfg["discogs_token"] = CFG["discogs_token"] = (body.get("discogs_token") or "").strip()
     if "phone_follows_pc" in body:
         cfg["phone_follows_pc"] = CFG["phone_follows_pc"] = bool(body.get("phone_follows_pc"))
+    if body.get("pc_media") in ("music", "all"):
+        cfg["pc_media"] = CFG["pc_media"] = body["pc_media"]
     if "follow_album" in body:
         cfg["follow_album"] = CFG["follow_album"] = bool(body.get("follow_album"))
     if body.get("mic_sensitivity") in SENSITIVITY:
@@ -3200,6 +3230,7 @@ async def api_now(request):
                               "saved": bool(st.track and st.track.get("id") in st.db.saved_ids),
                               "media_default": CFG.get("room_medium"),
                               "follow_album": CFG.get("follow_album", True),
+                              "pc_media": CFG.get("pc_media", "music"),
                               "ask_medium": bool(st.track and st.track.get("source") in ROOM_SOURCES and st.track.get("status") == "playing"
                                                  and not st.track.get("medium") and not room_medium(request.app)),
                               "discogs_ready": discogs_ready(),
