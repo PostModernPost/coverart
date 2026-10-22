@@ -20,6 +20,8 @@ import hashlib
 import io
 import json
 import os
+import re
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -105,6 +107,8 @@ class State:
     def __init__(self):
         self.track = None          # what the screen shows
         self.version = 0
+        self.db = None             # History, set by build_app
+        self.last_logged = None
         self.art = {}              # id -> (bytes, mime) for thumbnails from Windows
         self.history = {}          # id -> track, so info lookups work after a change
         self.info_cache = {}
@@ -114,6 +118,12 @@ class State:
         self.version += 1
         if track and track.get("id"):
             self.history[track["id"]] = track
+        if track and track.get("status") == "playing" and track.get("id") != self.last_logged and self.db:
+            self.last_logged = track["id"]
+            try:
+                self.db.add(track)
+            except Exception as e:
+                log("history write failed:", e)
         if track:
             log(f"[{track['source']}] {track.get('status')}: {track.get('artist')} - {track.get('title')}")
         else:
@@ -131,19 +141,98 @@ class State:
 
 
 # ---------------------------------------------------------------- lookups
-async def itunes_art(http, artist, title):
-    """Big album art from the iTunes catalog, only if the artist matches."""
+ITUNES = "https://itunes.apple.com"
+_itunes_cache = {}
+
+
+def clean_label(copyright_text):
+    """'℗ 2019 Dead Oceans' -> 'Dead Oceans'"""
+    if not copyright_text:
+        return None
+    c = re.sub(r"^.*?[℗©]\s*(\d{4})?\s*", "", copyright_text).strip()
+    c = re.split(r"\s+(under exclusive|distributed by|marketed by|under license)", c, flags=re.I)[0].strip(" ,.")
+    return c or None
+
+
+def itunes_fields(res):
+    """Turn an iTunes song result into our track fields."""
+    art = res.get("artworkUrl100")
+    return {
+        "title": res.get("trackName"), "artist": res.get("artistName"), "album": res.get("collectionName"),
+        "year": (res.get("releaseDate") or "")[:4] or None, "genre": res.get("primaryGenreName"),
+        "art": art.replace("100x100bb", "1000x1000bb") if art else None,
+        "thumb": art.replace("100x100bb", "300x300bb") if art else None,
+        "duration_ms": res.get("trackTimeMillis"), "collection_id": res.get("collectionId"),
+        "track_id": res.get("trackId"),
+    }
+
+
+async def itunes_label(http, collection_id):
+    if not collection_id:
+        return None
+    key = ("label", collection_id)
+    if key not in _itunes_cache:
+        try:
+            async with http.get(f"{ITUNES}/lookup?id={collection_id}") as r:
+                data = await r.json(content_type=None)
+            res = (data.get("results") or [{}])[0]
+            _itunes_cache[key] = clean_label(res.get("copyright"))
+        except Exception as e:
+            log("label lookup failed:", e)
+            return None
+    return _itunes_cache[key]
+
+
+async def itunes_lookup(http, artist, title):
+    """Best iTunes catalog match for this artist + title (artist must match): art, album, year, genre, label."""
+    key = (norm(artist), norm(title))
+    if key in _itunes_cache:
+        return _itunes_cache[key]
+    info = None
     try:
-        q = urllib.parse.urlencode({"term": f"{artist} {title}", "entity": "song", "limit": 8})
-        async with http.get("https://itunes.apple.com/search?" + q) as r:
+        q = urllib.parse.urlencode({"term": f"{artist} {title}", "entity": "song", "limit": 10})
+        async with http.get(f"{ITUNES}/search?" + q) as r:
             data = await r.json(content_type=None)
+        best = None
         for res in data.get("results", []):
             a, b = norm(artist), norm(res.get("artistName"))
-            if a and b and (a in b or b in a) and res.get("artworkUrl100"):
-                return res["artworkUrl100"].replace("100x100bb", "1000x1000bb"), res.get("collectionName")
+            if not (a and b and (a in b or b in a)):
+                continue
+            if norm(res.get("trackName")) == norm(title):
+                best = res
+                break
+            best = best or res
+        if best:
+            info = itunes_fields(best)
+            info["label"] = await itunes_label(http, info["collection_id"])
     except Exception as e:
         log("itunes lookup failed:", e)
-    return None, None
+        return None
+    _itunes_cache[key] = info
+    return info
+
+
+async def itunes_art(http, artist, title):
+    info = await itunes_lookup(http, artist, title)
+    return (info["art"], info["album"]) if info else (None, None)
+
+
+async def itunes_search(http, query, limit=15):
+    q = urllib.parse.urlencode({"term": query, "entity": "song", "limit": limit})
+    async with http.get(f"{ITUNES}/search?" + q) as r:
+        data = await r.json(content_type=None)
+    return [itunes_fields(res) for res in data.get("results", []) if res.get("trackId")]
+
+
+async def itunes_track(http, track_id):
+    async with http.get(f"{ITUNES}/lookup?id={int(track_id)}") as r:
+        data = await r.json(content_type=None)
+    res = (data.get("results") or [None])[0]
+    if not res:
+        return None
+    info = itunes_fields(res)
+    info["label"] = await itunes_label(http, info["collection_id"])
+    return info
 
 
 async def fetch_lyrics(http, artist, title, album):
@@ -278,13 +367,14 @@ async def pc_media_loop(app):
                         art = f"/api/art/{tid}"
                 except Exception as e:
                     log("thumbnail read failed:", e)
-                big, it_album = await itunes_art(http, artist, title)
-                if big:
-                    art = big
+                info = await itunes_lookup(http, artist, title) or {}
+                album = album or info.get("album")
                 st.show({
-                    "id": tid, "title": title, "artist": artist, "album": album or it_album,
-                    "art": art, "source": "pc", "app": app_label(app_id), "status": "playing",
-                    "links": search_links(artist, title, album or it_album),
+                    "id": tid, "title": title, "artist": artist, "album": album,
+                    "art": info.get("art") or art, "source": "pc", "app": app_label(app_id), "status": "playing",
+                    "year": info.get("year"), "label": info.get("label"), "genre": info.get("genre"),
+                    "duration_ms": info.get("duration_ms"),
+                    "links": search_links(artist, title, album),
                 })
         else:
             app["pc_playing"] = False
@@ -480,14 +570,16 @@ async def shazam_identify(shz, wav_bytes):
     tr = (out or {}).get("track")
     if not tr:
         return None
-    album = None
+    meta = {}
     for sec in tr.get("sections", []) or []:
         for m in sec.get("metadata", []) or []:
-            if m.get("title") == "Album":
-                album = m.get("text")
+            if m.get("title") and m.get("text"):
+                meta[m["title"]] = m["text"]
     imgs = tr.get("images") or {}
     return {
-        "title": tr.get("title"), "artist": tr.get("subtitle"), "album": album,
+        "title": tr.get("title"), "artist": tr.get("subtitle"), "album": meta.get("Album"),
+        "label": meta.get("Label"), "year": (meta.get("Released") or "")[:4] or None,
+        "genre": (tr.get("genres") or {}).get("primary"),
         "art": imgs.get("coverarthq") or imgs.get("coverart"), "shazam_url": tr.get("url"),
     }
 
@@ -549,7 +641,9 @@ async def _turntable_inner(app, mic, shz):
         await asyncio.sleep(0.5)
         now = time.time()
         t = st.track
-        on_tt = bool(t and t.get("source") == "turntable")
+        # "mine" = what the mic side put on screen: an identified record, or one the user picked by search
+        on_tt = bool(t and t.get("source") in ("turntable", "manual"))
+        picked = bool(t and t.get("source") == "manual")
 
         # Spotify etc. on the PC wins; no need for the mic at all
         if app.get("pc_playing"):
@@ -635,18 +729,78 @@ async def _turntable_inner(app, mic, shz):
         if res and res.get("title"):
             misses = 0
             tid = make_id(res["artist"], res["title"])
-            st.show({
-                "id": tid, "title": res["title"], "artist": res["artist"], "album": res["album"],
-                "art": res["art"], "source": "turntable", "app": "Turntable", "status": "playing",
-                "links": search_links(res["artist"], res["title"], res["album"], res["shazam_url"]),
-            })
+            if not (t and t.get("id") == tid):
+                info = await itunes_lookup(app["http"], res["artist"], res["title"]) or {}
+                album = res["album"] or info.get("album")
+                st.show({
+                    "id": tid, "title": res["title"], "artist": res["artist"], "album": album,
+                    "art": res["art"] or info.get("art"), "source": "turntable", "app": "Turntable",
+                    "status": "playing", "year": res["year"] or info.get("year"),
+                    "label": res["label"] or info.get("label"), "genre": res["genre"] or info.get("genre"),
+                    "duration_ms": info.get("duration_ms"),
+                    "links": search_links(res["artist"], res["title"], album, res["shazam_url"]),
+                })
         else:
             misses += 1
             log("no match")
             # The song changed to one Shazam doesn't know (common on Vinyl Moon). Don't keep showing
             # the previous song: right after a gap, one miss is enough; otherwise two in a row.
-            if gap or misses >= 2:
+            # A song the user picked by search stays until the next gap.
+            if gap or (misses >= 2 and not picked):
                 st.show(UNKNOWN)
+
+
+# ---------------------------------------------------------------- listening history
+class History:
+    """Every song shown, stored on this PC (DATA_DIR/history.db)."""
+
+    def __init__(self, path):
+        self.path = path
+        with self._db() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS plays (
+                id INTEGER PRIMARY KEY, ts REAL NOT NULL, title TEXT, artist TEXT, album TEXT,
+                year TEXT, label TEXT, genre TEXT, source TEXT, art TEXT, duration_ms INTEGER)""")
+            db.execute("CREATE INDEX IF NOT EXISTS plays_ts ON plays(ts)")
+
+    def _db(self):
+        return sqlite3.connect(self.path)
+
+    def add(self, t):
+        art = t.get("art")
+        if art and art.startswith("/api/art/"):
+            art = None                  # Windows thumbnails aren't kept, so don't store a dead link
+        with self._db() as db:
+            db.execute("INSERT INTO plays (ts,title,artist,album,year,label,genre,source,art,duration_ms) "
+                       "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (time.time(), t.get("title"), t.get("artist"), t.get("album"), t.get("year"),
+                        t.get("label"), t.get("genre"), "vinyl" if t.get("source") in ("turntable", "manual")
+                        else (t.get("app") or "PC"), art, t.get("duration_ms")))
+
+    def stats(self, days):
+        since = time.time() - days * 86400 if days else 0
+        with self._db() as db:
+            db.row_factory = sqlite3.Row
+            q = lambda sql, *a: [dict(r) for r in db.execute(sql, (since, *a))]
+            total = q("SELECT COUNT(*) plays, COUNT(DISTINCT lower(artist)) artists, "
+                      "COUNT(DISTINCT lower(artist)||'|'||lower(title)) songs, "
+                      "COALESCE(SUM(COALESCE(duration_ms, 210000)),0)/60000 minutes FROM plays WHERE ts>=?")[0]
+            by_source = q("SELECT source, COUNT(*) n FROM plays WHERE ts>=? GROUP BY source ORDER BY n DESC")
+            artists = q("SELECT artist, COUNT(*) n, MAX(art) art FROM plays WHERE ts>=? AND artist!='' "
+                        "GROUP BY lower(artist) ORDER BY n DESC LIMIT 10")
+            albums = q("SELECT album, artist, COUNT(*) n, MAX(art) art, MAX(year) year FROM plays "
+                       "WHERE ts>=? AND album IS NOT NULL AND album!='' "
+                       "GROUP BY lower(album), lower(artist) ORDER BY n DESC LIMIT 12")
+            songs = q("SELECT title, artist, COUNT(*) n, MAX(art) art FROM plays WHERE ts>=? "
+                      "GROUP BY lower(title), lower(artist) ORDER BY n DESC LIMIT 10")
+            genres = q("SELECT genre, COUNT(*) n FROM plays WHERE ts>=? AND genre IS NOT NULL "
+                       "GROUP BY genre ORDER BY n DESC LIMIT 6")
+            span = days or 30
+            per_day = q("SELECT date(ts,'unixepoch','localtime') day, COUNT(*) n FROM plays "
+                        "WHERE ts>=? GROUP BY day ORDER BY day")
+            recent = q("SELECT ts, title, artist, album, year, source, art FROM plays WHERE ts>=? "
+                       "ORDER BY ts DESC LIMIT 40")
+        return {"days": days, "total": total, "by_source": by_source, "artists": artists, "albums": albums,
+                "songs": songs, "genres": genres, "per_day": per_day[-span:], "recent": recent}
 
 
 # ---------------------------------------------------------------- demo mode
@@ -675,9 +829,11 @@ async def index(request):
     return web.FileResponse(os.path.join(HERE, "display.html"))
 
 
-MANIFEST = {"name": APP_NAME, "short_name": APP_NAME, "start_url": "/", "display": "fullscreen",
+MANIFEST = {"id": "/", "scope": "/", "name": APP_NAME, "short_name": APP_NAME, "start_url": "/", "display": "fullscreen",
             "orientation": "any", "background_color": "#0b0b0c", "theme_color": "#0b0b0c",
-            "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]}
+            "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                      {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                      {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}]}
 ICON = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#0b0b0c"/>'
         '<circle cx="50" cy="50" r="40" fill="#1b1b1b"/><circle cx="50" cy="50" r="28" fill="#121212"/>'
         '<circle cx="50" cy="50" r="12" fill="#c9a04a"/></svg>')
@@ -689,6 +845,75 @@ async def manifest(request):
 
 async def icon(request):
     return web.Response(text=ICON, content_type="image/svg+xml")
+
+
+async def api_search(request):
+    q = (request.query.get("q") or "").strip()
+    if not q:
+        return web.json_response({"results": []})
+    try:
+        results = await itunes_search(request.app["http"], q)
+    except Exception as e:
+        log("search failed:", e)
+        return web.json_response({"results": [], "error": "Search isn't reachable right now."})
+    return web.json_response({"results": results})
+
+
+async def api_pick(request):
+    """The user picked a song by search: show it until the next song starts."""
+    body = await request.json()
+    info = await itunes_track(request.app["http"], body.get("track_id"))
+    if not info:
+        return web.json_response({"ok": False}, status=404)
+    st: State = request.app["state"]
+    st.show({
+        "id": make_id(info["artist"], info["title"]), "title": info["title"], "artist": info["artist"],
+        "album": info["album"], "art": info["art"], "source": "manual", "app": "Picked by you",
+        "status": "playing", "year": info["year"], "label": info["label"], "genre": info["genre"],
+        "duration_ms": info["duration_ms"], "links": search_links(info["artist"], info["title"], info["album"]),
+    })
+    return web.json_response({"ok": True})
+
+
+async def api_stats(request):
+    try:
+        days = int(request.query.get("days", "30"))
+    except ValueError:
+        days = 30
+    return web.json_response(request.app["state"].db.stats(days))
+
+
+def icon_png(size):
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (size, size), (11, 11, 12))
+    d = ImageDraw.Draw(img)
+    c = size / 2
+    for r, col in ((0.40, (20, 20, 22)), (0.34, (40, 40, 44)), (0.27, (24, 24, 26)),
+                   (0.20, (40, 40, 44)), (0.14, (201, 160, 74)), (0.025, (20, 20, 22))):
+        d.ellipse([c - r * size, c - r * size, c + r * size, c + r * size], fill=col)
+    bio = io.BytesIO()
+    img.save(bio, "PNG")
+    return bio.getvalue()
+
+
+_icons = {}
+
+
+async def icon_file(request):
+    size = 512 if "512" in request.path else 192
+    if size not in _icons:
+        _icons[size] = icon_png(size)
+    return web.Response(body=_icons[size], content_type="image/png")
+
+
+SW = """self.addEventListener('install', e => self.skipWaiting());
+self.addEventListener('activate', e => self.clients.claim());
+self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
+"""
+
+
+async def service_worker(request):
+    return web.Response(text=SW, content_type="application/javascript")
 
 
 def mic_info(app):
@@ -768,6 +993,7 @@ async def on_cleanup(app):
 def build_app(demo=False):
     app = web.Application()
     app["state"] = State()
+    app["state"].db = History(os.path.join(DATA_DIR, "history.db"))
     app["demo"] = demo
     app.router.add_get("/", index)
     app.router.add_get("/api/now", api_now)
@@ -775,6 +1001,12 @@ def build_app(demo=False):
     app.router.add_get("/api/art/{tid}", api_art)
     app.router.add_post("/api/audio", api_audio)
     app.router.add_get("/manifest.json", manifest)
+    app.router.add_get("/api/search", api_search)
+    app.router.add_post("/api/pick", api_pick)
+    app.router.add_get("/api/stats", api_stats)
+    app.router.add_get("/icon-192.png", icon_file)
+    app.router.add_get("/icon-512.png", icon_file)
+    app.router.add_get("/sw.js", service_worker)
     app.router.add_get("/icon.svg", icon)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
