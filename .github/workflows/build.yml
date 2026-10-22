@@ -52,6 +52,7 @@ jobs:
           DISCOGS_KEY: ${{ secrets.DISCOGS_KEY }}
           DISCOGS_SECRET: ${{ secrets.DISCOGS_SECRET }}
         run: |
+          if ($env:DISCOGS_KEY -and $env:DISCOGS_SECRET) { "Discogs key: included" } else { "::warning::No Discogs key: record search will ask users for a token" }
           "DISCOGS_KEY = `"$env:DISCOGS_KEY`"`nDISCOGS_SECRET = `"$env:DISCOGS_SECRET`"" | Out-File -FilePath app\_secrets.py -Encoding utf8
 
       - name: Icon

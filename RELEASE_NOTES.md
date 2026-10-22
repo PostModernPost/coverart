@@ -1,1 +1,1 @@
-- Recognizes a needle drop at the start of a side: if the first song it hears opens side A (or B, C, D) of its own album, it loads that album right away instead of waiting for a second song
+- Record search works out of the box: Liner Notes now has its own Discogs key, so nobody needs to create a Discogs token
