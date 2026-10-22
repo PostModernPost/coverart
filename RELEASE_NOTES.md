@@ -1,5 +1,1 @@
-- Record mode: tap the new record button (top right) and pick what's on the turntable. Search Discogs by artist, album or catalog number, or scan the barcode with the phone
-- Cover Art follows the tracklist: moves to the next song at each gap, shows "Side A · 2 of 5", and fills in songs Shazam doesn't know with their real title and artist
-- When Shazam recognizes a song, it jumps to the right spot on the tracklist
-- Tap a song in the tracklist to correct it or to start on side B
-- "Side A is done · flip to side B" when a side ends
+- Cover Art is now **Liner Notes**. Your listening history, settings and Discogs token carry over automatically, and the old shortcuts are replaced with new ones

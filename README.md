@@ -1,4 +1,6 @@
-# Cover Art
+# Liner Notes
+
+*Formerly Cover Art.*
 
 Shows the album art of whatever is playing, on your screen or an old phone next to your monitor. Tap it for the artist's bio, lyrics, and links to Spotify, YouTube, Bandcamp, Discogs, Genius and Last.fm.
 
@@ -11,15 +13,15 @@ Also:
 
 - **Details**: year, record label and genre under the album name.
 - **Lyrics beside the art** (a setting, per screen).
-- **Record mode**: tell Cover Art which record is on the turntable (search Discogs, or scan the barcode with the phone). It follows the tracklist song by song, shows "Side A · 2 of 5", fills in songs Shazam doesn't know, and reminds you to flip the record.
+- **Record mode**: tell Liner Notes which record is on the turntable (search Discogs, or scan the barcode with the phone). It follows the tracklist song by song, shows "Side A · 2 of 5", fills in songs Shazam doesn't know, and reminds you to flip the record.
 - **Search**: when a record can't be identified (small indie releases often aren't in Shazam), tap "Search for it", type what's on the sleeve, and pick the right song.
-- **Listening history and stats**: top artists, albums and songs, records vs Spotify, songs per day, recently played. Stored on your PC in `%APPDATA%\Cover Art\history.db`.
+- **Listening history and stats**: top artists, albums and songs, records vs Spotify, songs per day, recently played. Stored on your PC in `%APPDATA%\Liner Notes\history.db`.
 
 Free. If you enjoy it, you can [buy me a coffee](https://buymeacoffee.com/goodisanoun).
 
 ## Install (Windows 10/11)
 
-Download `CoverArt-Setup-x.y.z.exe` from [Releases](https://github.com/PostModernPost/coverart/releases) and run it. No admin password needed. Cover Art opens in its own window (no browser needed) and keeps a record icon by the clock. Closing the window keeps it running there:
+Download `LinerNotes-Setup-x.y.z.exe` from [Releases](https://github.com/PostModernPost/coverart/releases) and run it. No admin password needed. Liner Notes opens in its own window (no browser needed) and keeps a record icon by the clock. Closing the window keeps it running there:
 
 - **Left-click** the icon to open the window.
 - **Right-click** for the microphone choice, Start with Windows, the settings folder, and Quit.
@@ -29,12 +31,12 @@ Windows may warn that the installer is from an unknown publisher (it isn't code-
 ## Microphone tips
 
 - Webcam and headset mics often have noise cancelling that filters music out as "background noise". Turn it off for the mic you use, or use the phone's mic (below).
-- Settings and the log live in `%APPDATA%\Cover Art`.
+- Settings and the log live in `%APPDATA%\Liner Notes`.
 
 ## Using an Android phone as the screen and mic
 
 1. On the phone: Settings > About phone, tap **Build number** 7 times to unlock Developer options. Then in Developer options turn on **USB debugging** and **Stay awake**.
-2. On the PC, install Android's USB tool once: `winget install Google.PlatformTools`. Restart Cover Art.
+2. On the PC, install Android's USB tool once: `winget install Google.PlatformTools`. Restart Liner Notes.
 3. Plug the phone in, tap **Allow** on the USB debugging prompt.
 4. In Chrome on the phone open `localhost:8765`, then menu > **Install app** (or Add to Home screen > Install). Open it from the new icon: it runs fullscreen with no address bar.
 5. To use the phone's mic: right-click the tray icon > Microphone > **Phone**. Tap the phone screen once when the gold banner asks.

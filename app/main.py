@@ -1,7 +1,7 @@
 """
-Cover Art launcher: tray icon, background server, display window.
+Liner Notes launcher: tray icon, background server, display window.
 
-Installed: runs as CoverArt.exe (built with PyInstaller).
+Installed: runs as LinerNotes.exe (built with PyInstaller).
 From source: `pythonw app/main.py` (installs its Python packages on first run).
 """
 
@@ -15,13 +15,26 @@ import threading
 import time
 import webbrowser
 
-APP_NAME = "Cover Art"
+APP_NAME = "Liner Notes"
 FROZEN = getattr(sys, "frozen", False)
 SELF = os.path.abspath(sys.executable if FROZEN else __file__)
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), APP_NAME)
+
+def _move_old_data(new_dir):
+    """Cover Art was renamed Liner Notes: carry its history and settings over, once."""
+    old_dir = os.path.join(os.path.dirname(new_dir), "Cover Art")
+    if os.path.isdir(old_dir) and not os.path.exists(new_dir):
+        try:
+            import shutil
+            shutil.move(old_dir, new_dir)
+        except Exception:
+            pass
+
+
+_move_old_data(DATA_DIR)
 os.makedirs(DATA_DIR, exist_ok=True)
-LOG = os.path.join(DATA_DIR, "coverart.log")
+LOG = os.path.join(DATA_DIR, "linernotes.log")
 CONFIG = os.path.join(DATA_DIR, "config.json")
 NO_WINDOW = 0x08000000
 SELFTEST = "--selftest" in sys.argv
@@ -136,7 +149,7 @@ QUITTING = {"now": False}
 
 
 def show_window():
-    """Show Cover Art's own window (or bring it to the front)."""
+    """Show Liner Notes's own window (or bring it to the front)."""
     w = WINDOW.get("w")
     if w is None:
         webbrowser.open(URL)            # no built-in window available: use the default browser
@@ -184,7 +197,7 @@ def run_window(show):
         if QUITTING["now"]:
             return True
         WINDOW["visible"] = False
-        win.hide()                      # closing the window keeps Cover Art running by the clock
+        win.hide()                      # closing the window keeps Liner Notes running by the clock
         return False
 
     win.events.closing += on_closing
@@ -213,13 +226,13 @@ def make_source_shortcut():
     flag = os.path.join(DATA_DIR, ".shortcut_made")
     if os.path.exists(flag):
         return
-    ico = os.path.join(DATA_DIR, "coverart.ico")
+    ico = os.path.join(DATA_DIR, "linernotes.ico")
     make_image(256).save(ico, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     target, script = relaunch_cmd()
     ps = (
         "$d=[Environment]::GetFolderPath('Desktop');"
-        "foreach ($o in 'Now Playing.lnk','Who''s This.lnk') { $p=Join-Path $d $o; if (Test-Path $p) { Remove-Item $p } };"
-        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Cover Art.lnk'));"
+        "foreach ($o in 'Now Playing.lnk','Who''s This.lnk','Cover Art.lnk') { $p=Join-Path $d $o; if (Test-Path $p) { Remove-Item $p } };"
+        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Liner Notes.lnk'));"
         f"$s.TargetPath='{target}';$s.Arguments='\"{script}\"';$s.IconLocation='{ico}';"
         "$s.Description='Shows the album art of whatever is playing';$s.Save()"
     )
@@ -238,7 +251,7 @@ def startup_enabled():
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
-            winreg.QueryValueEx(k, "CoverArt")
+            winreg.QueryValueEx(k, "LinerNotes")
             return True
     except OSError:
         return False
@@ -249,12 +262,27 @@ def set_startup(on):
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
         if on:
             cmd = " ".join(f'"{p}"' for p in relaunch_cmd()) + " --quiet"
-            winreg.SetValueEx(k, "CoverArt", 0, winreg.REG_SZ, cmd)
+            winreg.SetValueEx(k, "LinerNotes", 0, winreg.REG_SZ, cmd)
         else:
             try:
-                winreg.DeleteValue(k, "CoverArt")
+                winreg.DeleteValue(k, "LinerNotes")
             except OSError:
                 pass
+
+
+def migrate_startup_entry():
+    """Cover Art's Start-with-Windows entry becomes Liner Notes'."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_READ | winreg.KEY_SET_VALUE) as k:
+            try:
+                winreg.QueryValueEx(k, "CoverArt")
+            except OSError:
+                return
+            winreg.DeleteValue(k, "CoverArt")
+        set_startup(True)
+    except Exception as e:
+        print("startup entry migration failed:", e, flush=True)
 
 
 def load_cfg():
@@ -389,7 +417,7 @@ def build_menu():
         if app.get("update"):
             asyncio.run_coroutine_threadsafe(core.install_update(app), loop)
             try:
-                icon.notify("Downloading the update. Cover Art will reopen in a minute.", APP_NAME)
+                icon.notify("Downloading the update. Liner Notes will reopen in a minute.", APP_NAME)
             except Exception:
                 pass
         else:
@@ -404,7 +432,7 @@ def build_menu():
     return pystray.Menu(
         pystray.MenuItem(status_text, None, enabled=False),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Open Cover Art", lambda i, it: show_window(), default=True),
+        pystray.MenuItem("Open Liner Notes", lambda i, it: show_window(), default=True),
         pystray.MenuItem("Open in browser", lambda i, it: webbrowser.open(URL)),
         pystray.MenuItem("Microphone", pystray.Menu(*mics)),
         pystray.MenuItem("Start with Windows", lambda i, it: set_startup(not startup_enabled()),
@@ -448,13 +476,14 @@ def main():
             webbrowser.open(URL)
         return
 
+    migrate_startup_entry()
     first_flag = os.path.join(DATA_DIR, ".first_run_done")
     first_run = not os.path.exists(first_flag)
     make_source_shortcut()
     threading.Thread(target=server_thread, daemon=True).start()
     threading.Thread(target=adb_loop, daemon=True).start()
 
-    icon = pystray.Icon("CoverArt", make_image(), APP_NAME, build_menu())
+    icon = pystray.Icon("LinerNotes", make_image(), APP_NAME, build_menu())
     icon.run_detached()
     icon.visible = True
     threading.Thread(target=refresher, args=(icon,), daemon=True).start()
@@ -463,7 +492,7 @@ def main():
         def hello():
             time.sleep(3)
             try:
-                icon.notify("Closing the window keeps Cover Art running by the clock. Right-click the record icon for options.",
+                icon.notify("Closing the window keeps Liner Notes running by the clock. Right-click the record icon for options.",
                             APP_NAME)
             except Exception:
                 pass

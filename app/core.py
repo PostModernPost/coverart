@@ -1,5 +1,5 @@
 """
-Cover Art: shows the album art of whatever is playing.
+Liner Notes: shows the album art and story of whatever is playing.
 
 Shows the album art of whatever is playing:
   1. Anything playing on this PC (Spotify app, Spotify web, etc.) via Windows media info.
@@ -31,11 +31,24 @@ import wave
 
 from aiohttp import web, ClientSession, ClientTimeout
 
-APP_NAME = "Cover Art"
+APP_NAME = "Liner Notes"
 # Bundled files (display.html) live next to this file, or in PyInstaller's unpack folder when installed.
 HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 # Settings and the log live in the user's AppData, since Program Files is read-only.
 DATA_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), APP_NAME)
+
+def _move_old_data(new_dir):
+    """Cover Art was renamed Liner Notes: carry its history and settings over, once."""
+    old_dir = os.path.join(os.path.dirname(new_dir), "Cover Art")
+    if os.path.isdir(old_dir) and not os.path.exists(new_dir):
+        try:
+            import shutil
+            shutil.move(old_dir, new_dir)
+        except Exception:
+            pass
+
+
+_move_old_data(DATA_DIR)
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------- settings
@@ -240,7 +253,7 @@ async def fetch_lyrics(http, artist, title, album):
     try:
         q = urllib.parse.urlencode({"artist_name": artist, "track_name": title})
         async with http.get("https://lrclib.net/api/search?" + q,
-                            headers={"User-Agent": "CoverArt/1.0"}) as r:
+                            headers={"User-Agent": "LinerNotes/1.0"}) as r:
             data = await r.json(content_type=None)
         for res in data or []:
             if res.get("plainLyrics"):
@@ -262,7 +275,7 @@ async def fetch_bio(http, artist):
     for title in (f"{artist} (band)", f"{artist} (musician)", f"{artist} (singer)", f"{artist} (rapper)", artist):
         try:
             url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title.replace(" ", "_"))
-            async with http.get(url, headers={"User-Agent": "CoverArt/1.0"}) as r:
+            async with http.get(url, headers={"User-Agent": "LinerNotes/1.0"}) as r:
                 if r.status != 200:
                     continue
                 d = await r.json(content_type=None)
@@ -388,7 +401,7 @@ async def pc_media_loop(app):
 
 # ---------------------------------------------------------------- record mode (Discogs)
 #
-# You tell Cover Art which record is on the turntable. It loads the tracklist from Discogs, then
+# You tell Liner Notes which record is on the turntable. It loads the tracklist from Discogs, then
 # follows along: a gap between songs moves to the next track, Shazam matches correct the position,
 # and songs Shazam doesn't know still get their real title and artist from the tracklist.
 
@@ -400,7 +413,7 @@ except Exception:
 
 
 def discogs_headers():
-    h = {"User-Agent": "CoverArt/1.0 +https://github.com/PostModernPost/coverart"}
+    h = {"User-Agent": "LinerNotes/1.0 +https://github.com/PostModernPost/coverart"}
     token = (CFG.get("discogs_token") or "").strip()
     if token:
         h["Authorization"] = f"Discogs token={token}"
@@ -769,7 +782,7 @@ SHAZAM_REPLY = {}
 
 
 async def shazam_identify(shz, wav_bytes):
-    path = os.path.join(tempfile.gettempdir(), "coverart_clip.wav")
+    path = os.path.join(tempfile.gettempdir(), "linernotes_clip.wav")
     with open(path, "wb") as f:
         f.write(wav_bytes)
     fn = getattr(shz, "recognize", None) or shz.recognize_song
@@ -855,7 +868,7 @@ async def _turntable_inner(app, mic, shz):
         await asyncio.sleep(0.5)
         now = time.time()
         t = st.track
-        rec = app.get("record")            # a record you told Cover Art about (record mode), or None
+        rec = app.get("record")            # a record you told Liner Notes about (record mode), or None
         # "mine" = what the mic side put on screen: an identified song, a picked one, or one from the tracklist
         on_tt = bool(t and t.get("source") in ("turntable", "manual", "record"))
         picked = bool(t and t.get("source") == "manual")
@@ -1193,7 +1206,7 @@ async def check_for_update(app):
         return None
     try:
         async with app["http"].get(RELEASES_API, headers={"Accept": "application/vnd.github+json",
-                                                          "User-Agent": "CoverArt"}) as r:
+                                                          "User-Agent": "LinerNotes"}) as r:
             if r.status != 200:
                 return None
             rel = await r.json(content_type=None)
@@ -1225,7 +1238,7 @@ async def install_update(app):
     if not upd:
         return False
     app["updating"] = True
-    path = os.path.join(tempfile.gettempdir(), f"CoverArt-Setup-{upd['version']}.exe")
+    path = os.path.join(tempfile.gettempdir(), f"LinerNotes-Setup-{upd['version']}.exe")
     log(f"downloading update {upd['version']}")
     async with app["http"].get(upd["url"], timeout=ClientTimeout(total=600)) as r:
         r.raise_for_status()
@@ -1262,7 +1275,7 @@ async def api_update(request):
 
 
 async def api_window(request):
-    """A second launch of Cover Art asks the running one to show its window."""
+    """A second launch of Liner Notes asks the running one to show its window."""
     fn = request.app.get("on_show_window")
     if fn:
         fn()
@@ -1353,7 +1366,7 @@ def mic_info(app):
 async def api_now(request):
     st: State = request.app["state"]
     if "Android" not in request.headers.get("User-Agent", ""):
-        request.app["last_window_poll"] = time.time()      # a Cover Art window on the PC is open
+        request.app["last_window_poll"] = time.time()      # a Liner Notes window on the PC is open
     return web.json_response({"version": st.version, "track": st.track, "mic": mic_info(request.app),
                               "donate": CFG.get("donate_url") or "", "update": update_info(request.app),
                               "record": request.app["record"].summary() if request.app.get("record") else None,

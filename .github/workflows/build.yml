@@ -59,8 +59,8 @@ jobs:
 
       - name: Bundle the app
         run: >
-          pyinstaller --noconfirm --windowed --name CoverArt
-          --icon packaging/coverart.ico
+          pyinstaller --noconfirm --windowed --name LinerNotes
+          --icon packaging/linernotes.ico
           --paths app
           --add-data "app/display.html;."
           --hidden-import core
@@ -78,8 +78,8 @@ jobs:
       - name: Self-test (every bundled part loads)
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath dist\CoverArt\CoverArt.exe -ArgumentList "--selftest" -Wait -PassThru
-          Get-Content "$env:APPDATA\Cover Art\selftest.txt"
+          $p = Start-Process -FilePath dist\LinerNotes\LinerNotes.exe -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content "$env:APPDATA\Liner Notes\selftest.txt"
           if ($p.ExitCode -ne 0) { exit 1 }
 
       - name: Sign the app
@@ -92,7 +92,7 @@ jobs:
           endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
           trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
           certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
-          files-folder: dist/CoverArt
+          files-folder: dist/LinerNotes
           files-folder-filter: exe
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
@@ -126,15 +126,15 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: CoverArt-Setup-${{ env.VERSION }}
-          path: dist/CoverArt-Setup-*.exe
+          name: LinerNotes-Setup-${{ env.VERSION }}
+          path: dist/LinerNotes-Setup-*.exe
 
       - name: Publish release
         if: env.RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION }}
-          name: Cover Art ${{ env.VERSION }}
+          name: Liner Notes ${{ env.VERSION }}
           body_path: RELEASE_NOTES.md
           target_commitish: ${{ github.sha }}
-          files: dist/CoverArt-Setup-*.exe
+          files: dist/LinerNotes-Setup-*.exe

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Cover Art</title>
+<title>Liner Notes</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icon-192.png">
 <link rel="apple-touch-icon" href="/icon-192.png">
@@ -221,7 +221,7 @@
     <section><h3>About the artist</h3><div id="bio" class="muted">Loading…</div></section>
     <section><h3>Lyrics</h3><div id="lyrics" class="muted">Loading…</div></section>
   </div>
-  <p id="donate">Enjoying Cover Art? <a id="donate-link" href="#" target="_blank" rel="noopener">Buy me a coffee</a></p>
+  <p id="donate">Enjoying Liner Notes? <a id="donate-link" href="#" target="_blank" rel="noopener">Buy me a coffee</a></p>
 </div>
 
 <!-- records -->
@@ -229,7 +229,7 @@
   <button class="close" aria-label="Close">&times;</button>
   <div id="recPick">
     <h2>What's on the turntable?</h2>
-    <div class="sub">Pick the record and Cover Art follows along song by song, even the ones Shazam doesn't know.</div>
+    <div class="sub">Pick the record and Liner Notes follows along song by song, even the ones Shazam doesn't know.</div>
     <div id="recKey" style="display:none">
       <p>Record search uses Discogs, which needs a free access token the first time.
         <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">Get one here</a>
@@ -254,7 +254,7 @@
     <div class="recHead"><img id="recCover" alt="">
       <div><h2 id="recTitle"></h2><div class="sub" id="recSub"></div>
         <div class="row"><button class="pill" id="recChange">Change record</button><button class="pill" id="recDone">Done with this record</button></div></div></div>
-    <p class="muted">Tap the song that's playing if Cover Art is on the wrong one, or to tell it which side you started on.</p>
+    <p class="muted">Tap the song that's playing if Liner Notes is on the wrong one, or to tell it which side you started on.</p>
     <div id="recTracks"></div>
   </div>
 </div>
@@ -626,7 +626,7 @@ async function loadStats() {
   try { d = await (await fetch("/api/stats?days=" + statsDays)).json(); }
   catch (e) { body.innerHTML = `<p class="muted">Couldn't load your history.</p>`; return; }
   const t = d.total;
-  if (!t.plays) { body.innerHTML = `<p class="muted" style="margin-top:4vmin">Nothing yet for this period. Every song Cover Art shows gets added here.</p>`; return; }
+  if (!t.plays) { body.innerHTML = `<p class="muted" style="margin-top:4vmin">Nothing yet for this period. Every song Liner Notes shows gets added here.</p>`; return; }
   const hours = t.minutes / 60;
   const colors = ["#c9a04a", "#6f8fb5", "#8a7bb0", "#7aa37a"];
   const srcTotal = d.by_source.reduce((a, s) => a + s.n, 0);
@@ -673,15 +673,15 @@ function showUpdate(u) {
   $("updDot").style.display = avail ? "block" : "none";
   $("updPill").style.display = avail && !IS_PHONE ? "block" : "none";
   $("updPill").textContent = avail ? `Update to ${avail.version}` : "";
-  $("verLine").textContent = u.current === "dev" ? "Cover Art (running from source)" : `Cover Art ${u.current}`;
+  $("verLine").textContent = u.current === "dev" ? "Liner Notes (running from source)" : `Liner Notes ${u.current}`;
   if (updBusy || u.updating) {
-    $("updRow").innerHTML = `<span class="muted">Downloading the update. Cover Art will close and reopen in a minute.</span>`;
+    $("updRow").innerHTML = `<span class="muted">Downloading the update. Liner Notes will close and reopen in a minute.</span>`;
     $("updNotes").textContent = ""; return;
   }
   if (u.current === "dev") { $("updRow").innerHTML = ""; $("updNotes").textContent = ""; return; }
   if (avail) {
     $("updRow").innerHTML = `<button class="pill gold" id="updInstall">Install ${esc(avail.version)}</button>
-      <span class="muted">Cover Art closes and reopens with the new version.</span>`;
+      <span class="muted">Liner Notes closes and reopens with the new version.</span>`;
     $("updNotes").textContent = avail.notes || "";
   } else {
     $("updRow").innerHTML = `<span class="muted">Up to date.</span> <button class="pill" id="updCheck">Check now</button>`;
@@ -744,12 +744,12 @@ async function openMic() {
   if (!mic.ctx) mic.ctx = new (window.AudioContext || window.webkitAudioContext)();
   // resume() never settles until the user taps, so don't wait on it for long
   if (mic.ctx.state !== "running") { try { await Promise.race([mic.ctx.resume(), sleep(400)]); } catch (e) {} }
-  if (mic.ctx.state !== "running") { mic.needsTap = true; banner("Tap once so Cover Art can listen for records"); return false; }
+  if (mic.ctx.state !== "running") { mic.needsTap = true; banner("Tap once so Liner Notes can listen for records"); return false; }
   try {
     mic.stream = await navigator.mediaDevices.getUserMedia({ audio: {
       echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
   } catch (e) {
-    banner("Allow the microphone so Cover Art can hear records"); return false;
+    banner("Allow the microphone so Liner Notes can hear records"); return false;
   }
   banner(null);
   mic.src = mic.ctx.createMediaStreamSource(mic.stream);
