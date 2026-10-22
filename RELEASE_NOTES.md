@@ -1,2 +1,2 @@
-- When a song can't be identified yet, the record breathes with a gold glow and shows "Still listening · trying again in 30s" so you can tell it's still working on it
-- When the mic first hears music, the screen says so instead of "Nothing playing"
+- Bigger, easier-to-read text on phones and other small screens
+- New Text size setting (Auto, Normal, Large, Extra large), separate for each screen

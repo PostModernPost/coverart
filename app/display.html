@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#0b0b0c">
 <meta name="mobile-web-app-capable" content="yes">
 <style>
-  :root { --fg: #f4f1ea; --dim: rgba(244,241,234,.6); --faint: rgba(244,241,234,.14); --gold: #c9a04a;
+  :root { --ts: 1; --fg: #f4f1ea; --dim: rgba(244,241,234,.6); --faint: rgba(244,241,234,.14); --gold: #c9a04a;
           --panel: rgba(12,12,14,.94); }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #0b0b0c; color: var(--fg); overflow: hidden;
@@ -31,23 +31,25 @@
   @media (max-aspect-ratio: 7/5) {
     #stage { flex-direction: column; } #side { text-align: center; align-items: center; } #art { height: min(66vh, 92vw); } }
 
+  @media (min-aspect-ratio: 7/5) and (max-height: 520px) { #art { height: 78vh; } #side { max-width: 58vw; } }
+  .sizes { display: flex; gap: 1.2vmin; flex-wrap: wrap; justify-content: flex-end; }
   #art { aspect-ratio: 1; border-radius: 6px; object-fit: cover; box-shadow: 0 20px 60px rgba(0,0,0,.6);
     background: #1a1a1d; transition: opacity .6s; flex: none; }
-  #title { font-size: clamp(18px, 5.5vmin, 56px); font-weight: 650; line-height: 1.1; margin: 0 0 .25em; }
-  #artist { font-size: clamp(14px, 4vmin, 38px); margin: 0; opacity: .92; }
-  #album { font-size: clamp(12px, 2.9vmin, 26px); margin: .35em 0 0; color: var(--dim); }
-  #details { font-size: clamp(11px, 2.3vmin, 19px); margin: .35em 0 0; color: var(--dim); }
-  #source { display: inline-block; margin-top: 1.1em; font-size: clamp(10px, 1.9vmin, 15px); letter-spacing: .08em;
+  #title { font-size: calc(var(--ts) * clamp(18px, 5.5vmin, 56px)); font-weight: 650; line-height: 1.1; margin: 0 0 .25em; }
+  #artist { font-size: calc(var(--ts) * clamp(14px, 4vmin, 38px)); margin: 0; opacity: .92; }
+  #album { font-size: calc(var(--ts) * clamp(12px, 2.9vmin, 26px)); margin: .35em 0 0; color: var(--dim); }
+  #details { font-size: calc(var(--ts) * clamp(11px, 2.3vmin, 19px)); margin: .35em 0 0; color: var(--dim); }
+  #source { display: inline-block; margin-top: 1.1em; font-size: calc(var(--ts) * clamp(10px, 1.9vmin, 15px)); letter-spacing: .08em;
     text-transform: uppercase; color: var(--dim); border: 1px solid rgba(255,255,255,.2); padding: .3em .7em; border-radius: 99px; align-self: flex-start; }
   @media (max-aspect-ratio: 7/5) { #source { align-self: center; } }
   .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   #findBtn { display: none; margin-top: 1.4em; background: var(--gold); color: #111; border: 0; border-radius: 99px;
-    padding: .7em 1.4em; font-weight: 650; font-size: clamp(13px, 2.8vmin, 20px); cursor: pointer; align-self: flex-start; }
+    padding: .7em 1.4em; font-weight: 650; font-size: calc(var(--ts) * clamp(13px, 2.8vmin, 20px)); cursor: pointer; align-self: flex-start; }
   @media (max-aspect-ratio: 7/5) { #findBtn { align-self: center; } }
 
   /* lyrics beside the art (setting) */
   #sideLyrics { display: none; margin-top: 3vmin; overflow-y: auto; white-space: pre-wrap; color: var(--dim);
-    font-size: clamp(12px, 2.5vmin, 20px); line-height: 1.6; min-height: 0; flex: 1 1 auto; user-select: text;
+    font-size: calc(var(--ts) * clamp(12px, 2.5vmin, 20px)); line-height: 1.6; min-height: 0; flex: 1 1 auto; user-select: text;
     -webkit-mask-image: linear-gradient(transparent 0, #000 6%, #000 90%, transparent 100%);
             mask-image: linear-gradient(transparent 0, #000 6%, #000 90%, transparent 100%); padding: 1em 0; }
   body.lyrics-show #sideLyrics { display: block; }
@@ -63,13 +65,13 @@
   #art.searching { animation: spin 6s linear infinite, breathe 2.4s ease-in-out infinite; }
   @keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 rgba(201,160,74,.0), 0 20px 60px rgba(0,0,0,.6); }
                        50% { box-shadow: 0 0 0 2.4vmin rgba(201,160,74,.30), 0 0 9vmin 3vmin rgba(201,160,74,.22), 0 20px 60px rgba(0,0,0,.6); } }
-  .looking { display: none; align-items: center; gap: .6em; color: var(--dim); font-size: clamp(12px, 2.5vmin, 19px); margin-top: .8em; }
+  .looking { display: none; align-items: center; gap: .6em; color: var(--dim); font-size: calc(var(--ts) * clamp(12px, 2.5vmin, 19px)); margin-top: .8em; }
   .looking i { width: .7em; height: .7em; border-radius: 50%; background: var(--gold); animation: pulse 1.6s ease-in-out infinite; flex: none; }
   @keyframes pulse { 0%, 100% { opacity: .25; transform: scale(.75); } 50% { opacity: 1; transform: scale(1); } }
   #idle.listening .record { animation: spin 6s linear infinite, breathe 2.4s ease-in-out infinite; opacity: .9; }
 
   #idle { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
-    color: var(--dim); font-size: clamp(14px, 3.5vmin, 30px); gap: 3vmin; }
+    color: var(--dim); font-size: calc(var(--ts) * clamp(14px, 3.5vmin, 30px)); gap: 3vmin; }
   #idle .record { width: 30vmin; height: 30vmin; animation-duration: 20s; opacity: .5; }
 
   /* ---------- toolbar ---------- */
@@ -83,64 +85,64 @@
   .panel { position: fixed; inset: 0; background: var(--panel); backdrop-filter: blur(12px); display: none; z-index: 8;
     overflow-y: auto; padding: 5vmin 6vmin 8vmin; user-select: text; cursor: default; }
   .panel.open { display: block; }
-  .close { position: fixed; top: 2vmin; right: 3vmin; background: none; border: 0; font-size: clamp(24px, 5vmin, 44px);
+  .close { position: fixed; top: 2vmin; right: 3vmin; background: none; border: 0; font-size: calc(var(--ts) * clamp(24px, 5vmin, 44px));
     cursor: pointer; line-height: 1; z-index: 9; }
-  .panel h2 { margin: 0; font-size: clamp(18px, 4.5vmin, 40px); }
-  .panel h3 { font-size: clamp(11px, 2vmin, 14px); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin: 0 0 1em; }
-  .sub { color: var(--dim); margin: .3em 0 1.2em; font-size: clamp(13px, 2.8vmin, 22px); }
+  .panel h2 { margin: 0; font-size: calc(var(--ts) * clamp(18px, 4.5vmin, 40px)); }
+  .panel h3 { font-size: calc(var(--ts) * clamp(11px, 2vmin, 14px)); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin: 0 0 1em; }
+  .sub { color: var(--dim); margin: .3em 0 1.2em; font-size: calc(var(--ts) * clamp(13px, 2.8vmin, 22px)); }
   .muted { color: var(--dim); }
   .pill { color: var(--fg); text-decoration: none; border: 1px solid rgba(255,255,255,.25); border-radius: 99px;
-    padding: .45em 1em; font-size: clamp(12px, 2.4vmin, 17px); background: none; cursor: pointer; }
+    padding: .45em 1em; font-size: calc(var(--ts) * clamp(12px, 2.4vmin, 17px)); background: none; cursor: pointer; }
   .pill:hover, .pill.on { background: rgba(255,255,255,.14); }
   .row { display: flex; flex-wrap: wrap; gap: 1.5vmin; }
   .cols { display: grid; gap: 5vmin; grid-template-columns: 1fr; }
   @media (min-aspect-ratio: 7/5) { .cols { grid-template-columns: 1fr 1fr; } }
 
   /* info */
-  #i-details { color: var(--dim); font-size: clamp(12px, 2.4vmin, 18px); margin: -.6em 0 1.2em; }
+  #i-details { color: var(--dim); font-size: calc(var(--ts) * clamp(12px, 2.4vmin, 18px)); margin: -.6em 0 1.2em; }
   #links { margin-bottom: 4vmin; }
-  #bio, #lyrics { font-size: clamp(13px, 2.6vmin, 20px); line-height: 1.55; }
+  #bio, #lyrics { font-size: calc(var(--ts) * clamp(13px, 2.6vmin, 20px)); line-height: 1.55; }
   #lyrics { white-space: pre-wrap; }
   #bio img { float: right; width: 26%; max-width: 160px; margin: 0 0 1em 1em; border-radius: 4px; }
   #bio a { color: var(--fg); }
-  #donate { display: none; margin-top: 5vmin; color: var(--dim); font-size: clamp(12px, 2.4vmin, 17px); }
+  #donate { display: none; margin-top: 5vmin; color: var(--dim); font-size: calc(var(--ts) * clamp(12px, 2.4vmin, 17px)); }
   #donate a { color: var(--gold); }
 
   /* search */
   #searchForm { display: flex; gap: 1.5vmin; margin: 1em 0 3vmin; }
   #q { flex: 1; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); border-radius: 99px; color: var(--fg);
-    padding: .7em 1.1em; font: inherit; font-size: clamp(14px, 3vmin, 22px); outline: none; min-width: 0; }
+    padding: .7em 1.1em; font: inherit; font-size: calc(var(--ts) * clamp(14px, 3vmin, 22px)); outline: none; min-width: 0; }
   #q:focus { border-color: var(--gold); }
   .result { display: flex; gap: 2vmin; align-items: center; padding: 1.2vmin; border-radius: 8px; cursor: pointer; }
   .result:hover { background: rgba(255,255,255,.08); }
   .result img, .thumb { width: clamp(44px, 9vmin, 72px); height: clamp(44px, 9vmin, 72px); border-radius: 4px; object-fit: cover; background: #1a1a1d; flex: none; }
-  .result b, .line b { display: block; font-size: clamp(13px, 2.7vmin, 20px); font-weight: 600; }
-  .result span, .line span { color: var(--dim); font-size: clamp(11px, 2.2vmin, 16px); }
+  .result b, .line b { display: block; font-size: calc(var(--ts) * clamp(13px, 2.7vmin, 20px)); font-weight: 600; }
+  .result span, .line span { color: var(--dim); font-size: calc(var(--ts) * clamp(11px, 2.2vmin, 16px)); }
 
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
-  .card b { display: block; font-size: clamp(22px, 6vmin, 46px); font-weight: 650; }
-  .card span { color: var(--dim); font-size: clamp(11px, 2.2vmin, 15px); }
+  .card b { display: block; font-size: calc(var(--ts) * clamp(22px, 6vmin, 46px)); font-weight: 650; }
+  .card span { color: var(--dim); font-size: calc(var(--ts) * clamp(11px, 2.2vmin, 15px)); }
   .bars { display: flex; align-items: flex-end; gap: 3px; height: 16vmin; min-height: 70px; margin-bottom: 1vmin; }
   .bars div { flex: 1; background: var(--gold); border-radius: 2px 2px 0 0; min-height: 2px; opacity: .85; }
   .split { display: flex; height: 12px; border-radius: 99px; overflow: hidden; margin: .4em 0 .8em; background: var(--faint); }
   .split div:nth-child(1) { background: var(--gold); } .split div:nth-child(2) { background: #6f8fb5; }
   .split div:nth-child(3) { background: #8a7bb0; } .split div:nth-child(4) { background: #7aa37a; }
-  .legend span { margin-right: 1.5em; color: var(--dim); font-size: clamp(11px, 2.2vmin, 15px); }
+  .legend span { margin-right: 1.5em; color: var(--dim); font-size: calc(var(--ts) * clamp(11px, 2.2vmin, 15px)); }
   .legend i { display: inline-block; width: .8em; height: .8em; border-radius: 50%; margin-right: .4em; vertical-align: -1px; }
   .line { display: flex; gap: 2vmin; align-items: center; padding: .9vmin 0; }
-  .line .n { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; font-size: clamp(12px, 2.3vmin, 16px); }
+  .line .n { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; font-size: calc(var(--ts) * clamp(12px, 2.3vmin, 16px)); }
   .rank { width: 1.6em; color: var(--dim); text-align: right; flex: none; font-variant-numeric: tabular-nums; }
   .albums { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(90px, 18vmin, 150px), 1fr)); gap: 2.5vmin; }
   .albums img, .albums .noart { width: 100%; aspect-ratio: 1; border-radius: 5px; object-fit: cover; background: #1a1a1d; display: block; }
-  .albums b { display: block; font-size: clamp(12px, 2.3vmin, 16px); margin-top: .5em; }
-  .albums span { color: var(--dim); font-size: clamp(11px, 2vmin, 14px); }
+  .albums b { display: block; font-size: calc(var(--ts) * clamp(12px, 2.3vmin, 16px)); margin-top: .5em; }
+  .albums span { color: var(--dim); font-size: calc(var(--ts) * clamp(11px, 2vmin, 14px)); }
   section { margin-bottom: 5vmin; }
 
   /* settings */
   .setting { display: flex; justify-content: space-between; align-items: center; gap: 3vmin; padding: 2.2vmin 0;
-    border-bottom: 1px solid var(--faint); font-size: clamp(14px, 2.8vmin, 20px); cursor: pointer; }
+    border-bottom: 1px solid var(--faint); font-size: calc(var(--ts) * clamp(14px, 2.8vmin, 20px)); cursor: pointer; }
   .setting small { display: block; color: var(--dim); font-size: .78em; margin-top: .2em; }
   .switch { width: 2.6em; height: 1.5em; border-radius: 99px; background: var(--faint); position: relative; flex: none; transition: background .2s; }
   .switch::after { content: ""; position: absolute; top: .15em; left: .15em; width: 1.2em; height: 1.2em; border-radius: 50%; background: var(--fg); transition: left .2s; }
@@ -149,15 +151,15 @@
   #updDot { position: absolute; top: 18%; right: 18%; width: 9px; height: 9px; border-radius: 50%; background: var(--gold); display: none; }
   #tb-settings { position: relative; }
   #updPill { position: fixed; left: 2vmin; bottom: max(2vmin, env(safe-area-inset-bottom)); display: none; z-index: 5; background: rgba(201,160,74,.92);
-    color: #111; border: 0; border-radius: 99px; padding: .5em 1em; font-weight: 600; font-size: clamp(12px, 2.3vmin, 16px); cursor: pointer; }
-  #about { margin-top: 5vmin; font-size: clamp(13px, 2.6vmin, 18px); }
+    color: #111; border: 0; border-radius: 99px; padding: .5em 1em; font-weight: 600; font-size: calc(var(--ts) * clamp(12px, 2.3vmin, 16px)); cursor: pointer; }
+  #about { margin-top: 5vmin; font-size: calc(var(--ts) * clamp(13px, 2.6vmin, 18px)); }
   #about .row { margin-top: 1.2em; align-items: center; }
   #updNotes { white-space: pre-wrap; color: var(--dim); font-size: .9em; margin-top: 1em; max-height: 30vh; overflow: auto; }
   .gold { background: var(--gold) !important; color: #111 !important; border-color: var(--gold) !important; font-weight: 650; }
 
   #micbanner { position: fixed; left: 50%; bottom: 3vmin; transform: translateX(-50%); display: none; z-index: 10;
     background: rgba(201,160,74,.95); color: #111; font-weight: 600; border-radius: 99px;
-    padding: .7em 1.3em; font-size: clamp(13px, 2.8vmin, 20px); white-space: nowrap; }
+    padding: .7em 1.3em; font-size: calc(var(--ts) * clamp(13px, 2.8vmin, 20px)); white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -230,6 +232,11 @@
   <div class="sub">These apply to this screen only.</div>
   <div class="setting" data-key="lyricsBeside">
     <div>Lyrics beside the album art<small>Shows the words next to the cover when they're available.</small></div><div class="switch"></div></div>
+  <div class="setting" id="textSize" style="cursor:default">
+    <div>Text size<small>Auto makes words bigger on small screens like phones.</small></div>
+    <div class="sizes">
+      <button class="pill" data-ts="auto">Auto</button><button class="pill" data-ts="1">Normal</button>
+      <button class="pill" data-ts="1.3">Large</button><button class="pill" data-ts="1.6">Extra large</button></div></div>
   <div class="setting" data-key="showDetails">
     <div>Show year, label and genre<small>Under the album name.</small></div><div class="switch"></div></div>
   <div class="setting" id="fsSetting">
@@ -254,15 +261,25 @@ const infoCache = {};
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 // ---------------------------------------------------------------- settings (per screen)
-const SETTINGS_DEFAULT = { lyricsBeside: false, showDetails: true };
+const SETTINGS_DEFAULT = { lyricsBeside: false, showDetails: true, textSize: "auto" };
 let settings = { ...SETTINGS_DEFAULT };
 try { Object.assign(settings, JSON.parse(localStorage.getItem("coverart-settings") || "{}")); } catch (e) {}
 function saveSettings() { try { localStorage.setItem("coverart-settings", JSON.stringify(settings)); } catch (e) {} }
+function textScale() {
+  if (settings.textSize && settings.textSize !== "auto") return +settings.textSize;
+  return Math.min(innerWidth, innerHeight) < 520 ? 1.4 : 1;     // phones get bigger words by default
+}
 function applySettings() {
+  document.documentElement.style.setProperty("--ts", textScale());
+  document.querySelectorAll("#textSize [data-ts]").forEach(b => b.classList.toggle("on", String(settings.textSize || "auto") === b.dataset.ts));
   document.querySelectorAll(".setting[data-key]").forEach(el => el.classList.toggle("on", !!settings[el.dataset.key]));
   $("fsSetting").classList.toggle("on", !!document.fullscreenElement);
   if (current) render(current, true);
 }
+document.querySelectorAll("#textSize [data-ts]").forEach(b => b.addEventListener("click", e => {
+  e.stopPropagation(); settings.textSize = b.dataset.ts; saveSettings(); applySettings();
+}));
+addEventListener("resize", () => document.documentElement.style.setProperty("--ts", textScale()));
 document.querySelectorAll(".setting[data-key]").forEach(el => el.addEventListener("click", () => {
   settings[el.dataset.key] = !settings[el.dataset.key]; saveSettings(); applySettings();
 }));
