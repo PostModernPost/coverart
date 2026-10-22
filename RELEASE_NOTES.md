@@ -1,2 +1,1 @@
-- Your listening and Saved songs stay a readable width on wide monitors instead of stretching across the screen.
-- Big counts get commas (3,254), and the songs-per-day chart says "Oct 1 to Oct 22".
+- Settings, Search, Saved songs, Your listening and recap cards sit in a centered column on wide screens.

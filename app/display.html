@@ -297,7 +297,8 @@
   #aboutMark { width: 44px; height: 44px; vertical-align: middle; margin-right: .7em; }
 
   /* listening history and saved songs: a readable width on big screens */
-  #stats > :not(.close), #saved > :not(.close) { max-width: 960px; }
+  #stats > :not(.close), #saved > :not(.close), #records > :not(.close), #recap > :not(.close) { max-width: 960px; margin-left: auto; margin-right: auto; }
+  #settings > :not(.close) { max-width: 640px; margin-left: auto; margin-right: auto; }
 
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
@@ -325,7 +326,7 @@
     border-bottom: 1px solid var(--faint); font-size: calc(var(--ts) * clamp(14px, 2.8vmin, 20px)); cursor: pointer; }
   .setting small { display: block; color: var(--dim); font-size: .78em; margin-top: .2em; }
   /* keep each switch close to its label: rows are a readable width instead of the full screen */
-  #settings .setting, #spotifyBox, #lastfmBox, #about { max-width: 640px; }
+
   #settings .setting .pill { white-space: nowrap; }
   #settings .setting:hover { background: linear-gradient(90deg, transparent, rgba(255,255,255,.04) 30%, rgba(255,255,255,.04) 70%, transparent); }
   .switch { width: 2.6em; height: 1.5em; border-radius: 99px; background: var(--faint); position: relative; flex: none; transition: background .2s; }
@@ -420,7 +421,7 @@
       <p>Record search uses Discogs, which needs a free access token the first time.
         <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener">Get one here</a>
         (sign in, then "Generate new token"), and paste it below.</p>
-      <div class="row"><input id="recToken" class="field" placeholder="Paste your Discogs token" autocomplete="off" style="flex:1">
+      <div class="row" style="align-items:center"><input id="recToken" class="field" placeholder="Paste your Discogs token" autocomplete="off" style="flex:1">
         <button class="pill" id="recTokenSave">Save</button></div>
       <p class="muted" id="recKeyMsg"></p>
     </div>
@@ -559,7 +560,7 @@
     <div class="sizes">
       <button class="pill" data-ts="auto">Auto</button><button class="pill" data-ts="1">Normal</button>
       <button class="pill" data-ts="1.3">Large</button><button class="pill" data-ts="1.6">Extra large</button></div></div>
-  <h3 style="margin:3vmin 0 0">On the main screen</h3>
+  <h3 style="margin-top:3vmin;margin-bottom:0">On the main screen</h3>
   <div class="setting" data-key="showYear"><div>Year</div><div class="switch"></div></div>
   <div class="setting" data-key="showLabel"><div>Record label</div><div class="switch"></div></div>
   <div class="setting" data-key="showGenre"><div>Genre</div><div class="switch"></div></div>
@@ -578,7 +579,7 @@
   <div class="setting" id="phoneSetupRow" style="cursor:pointer">
     <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone or iPhone.</small></div>
     <span class="pill">Set up</span></div>
-  <h3 style="margin:3vmin 0 0">Spotify</h3>
+  <h3 style="margin-top:3vmin;margin-bottom:0">Spotify</h3>
   <div id="spotifyBox">
     <div class="muted" id="spStatus">Checking…</div>
     <div class="row" id="spButtons"></div>
@@ -591,7 +592,7 @@
       <div class="row"><input id="spId" class="field" placeholder="Client ID" autocomplete="off" style="flex:1"><button class="pill" id="spIdSave">Save</button></div>
     </details>
   </div>
-  <h3 style="margin:3vmin 0 0">Last.fm</h3>
+  <h3 style="margin-top:3vmin;margin-bottom:0">Last.fm</h3>
   <div id="lastfmBox" style="margin-top:1em">
     <div class="muted" id="lfStatus">Checking…</div>
     <div class="row" id="lfButtons" style="align-items:center;margin-top:1em"></div>
