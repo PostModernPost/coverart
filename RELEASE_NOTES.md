@@ -1,2 +1,1 @@
-- Works out which record you're playing: after it recognizes two songs in a row, it finds the record that has both (album or compilation) and follows along from there. If a later song isn't on that record, it drops the guess
-- Typing, clicks and taps near the mic no longer count as music. It listens for sound that stays loud, the way music does, and learns how loud your room normally is
+- Recognizes a needle drop at the start of a side: if the first song it hears opens side A (or B, C, D) of its own album, it loads that album right away instead of waiting for a second song

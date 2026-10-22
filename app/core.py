@@ -498,6 +498,23 @@ async def discogs_find_record(http, first, second):
     return None, None
 
 
+async def discogs_find_album_start(http, title, artist, album):
+    """The first song after the needle went down opens a side of its own album (A1, B1...):
+    you're probably playing that album. Returns (record, position) or (None, None)."""
+    if not album:
+        return None, None
+    base = {"type": "release", "artist": artist, "release_title": album, "per_page": 10}
+    results = (await discogs_get(http, "/database/search", {**base, "format": "Vinyl"})).get("results", [])
+    if not results:
+        results = (await discogs_get(http, "/database/search", base)).get("results", [])
+    for r in results[:3]:
+        rec = RecordSession(await discogs_get(http, f"/releases/{r['id']}"))
+        i = rec.find(title, artist)
+        if i is not None and (i == 0 or rec.tracks[i - 1]["side"] != rec.tracks[i]["side"]):
+            return rec, i
+    return None, None
+
+
 class RecordSession:
     def __init__(self, rel):
         self.id = rel.get("id")
@@ -907,6 +924,26 @@ async def _turntable_inner(app, mic, shz):
     rec_gaps = 0              # gaps already used to move along the tracklist
     active_since = 0.0
     heard = []                # recent songs Shazam recognized on the turntable (no record loaded)
+    needle_drop = False       # music just started after a silence: the next song recognized opens the side
+
+    async def check_album_start(song):
+        """First song after the needle drop opens a side of its album: load that album."""
+        try:
+            album = song.get("album") or ((await itunes_lookup(app["http"], song["artist"], song["title"])) or {}).get("album")
+            found, idx = await discogs_find_album_start(app["http"], song["title"], song["artist"], album)
+        except Exception as e:
+            log("album lookup failed:", repr(e))
+            return
+        if not found or app.get("record"):
+            return
+        found.auto = True
+        app["record"] = found
+        log(f"needle drop on {found.tracks[idx]['pos']}: playing {found.artist} - {found.title}")
+        cur = st.track
+        if cur and cur.get("source") == "turntable" and norm(cur.get("title")) == norm(song["title"]):
+            st.show(found.set_index(idx))
+        else:
+            found.set_index(idx)
 
     async def work_out_record(first, second):
         """Runs in the background so listening isn't held up by Discogs."""
@@ -981,6 +1018,7 @@ async def _turntable_inner(app, mic, shz):
                     log(f"sample level {level:.4f} (music cutoff {music_cutoff():.4f})")
                     set_mode(app, mic, "active")
                     active_since = now
+                    needle_drop = True
                     if rec and rec.tracks:
                         rec_gaps = L.gap_count
                         st.show(rec.on_music_start())
@@ -1064,6 +1102,10 @@ async def _turntable_inner(app, mic, shz):
         if res and res.get("title"):
             misses = 0
             tid = make_id(res["artist"], res["title"])
+            # First song after the needle drop: if it opens a side of its album, that's the record
+            if not rec and discogs_ready() and needle_drop and now - active_since < 240:
+                asyncio.create_task(check_album_start(res))
+            needle_drop = False
             # Two different songs in a row with no record chosen: work out which record this is
             if not rec and discogs_ready() and (not heard or norm(heard[-1]["title"]) != norm(res["title"])):
                 if heard and now - heard[-1]["at"] < 20 * 60:
