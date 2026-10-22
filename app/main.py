@@ -271,6 +271,7 @@ def server_thread():
     app = core.build_app()
     loop.run_until_complete(core.serve(app))
     APP["app"] = app
+    APP["loop"] = loop
     loop.run_forever()
 
 
@@ -317,6 +318,30 @@ def build_menu():
     for n in mic_choices():
         mics.append(pystray.MenuItem(n, pick(n), checked=is_current(n), radio=True))
 
+    def update_label(item):
+        u = APP.get("app", {}).get("update") if APP.get("app") else None
+        return f"Update to {u['version']}" if u else "Check for updates"
+
+    def update_action(icon, item):
+        app, loop = APP.get("app"), APP.get("loop")
+        if not app:
+            return
+        import asyncio
+        if app.get("update"):
+            asyncio.run_coroutine_threadsafe(core.install_update(app), loop)
+            try:
+                icon.notify("Downloading the update. Cover Art will reopen in a minute.", APP_NAME)
+            except Exception:
+                pass
+        else:
+            fut = asyncio.run_coroutine_threadsafe(core.check_for_update(app), loop)
+            try:
+                found = fut.result(timeout=20)
+                icon.notify(f"Version {found['version']} is available. Click the icon menu to install it."
+                            if found else "You have the latest version.", APP_NAME)
+            except Exception:
+                pass
+
     return pystray.Menu(
         pystray.MenuItem(status_text, None, enabled=False),
         pystray.Menu.SEPARATOR,
@@ -325,6 +350,7 @@ def build_menu():
         pystray.MenuItem("Start with Windows", lambda i, it: set_startup(not startup_enabled()),
                          checked=lambda it: startup_enabled()),
         pystray.MenuItem("Settings folder", lambda i, it: os.startfile(DATA_DIR)),
+        pystray.MenuItem(update_label, update_action, visible=lambda it: core.VERSION != "dev"),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit", lambda i, it: (i.stop(), os._exit(0))),
     )

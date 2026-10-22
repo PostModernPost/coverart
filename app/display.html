@@ -137,6 +137,15 @@
   .switch::after { content: ""; position: absolute; top: .15em; left: .15em; width: 1.2em; height: 1.2em; border-radius: 50%; background: var(--fg); transition: left .2s; }
   .setting.on .switch { background: var(--gold); } .setting.on .switch::after { left: 1.25em; }
 
+  #updDot { position: absolute; top: 18%; right: 18%; width: 9px; height: 9px; border-radius: 50%; background: var(--gold); display: none; }
+  #tb-settings { position: relative; }
+  #updPill { position: fixed; left: 2vmin; bottom: max(2vmin, env(safe-area-inset-bottom)); display: none; z-index: 5; background: rgba(201,160,74,.92);
+    color: #111; border: 0; border-radius: 99px; padding: .5em 1em; font-weight: 600; font-size: clamp(12px, 2.3vmin, 16px); cursor: pointer; }
+  #about { margin-top: 5vmin; font-size: clamp(13px, 2.6vmin, 18px); }
+  #about .row { margin-top: 1.2em; align-items: center; }
+  #updNotes { white-space: pre-wrap; color: var(--dim); font-size: .9em; margin-top: 1em; max-height: 30vh; overflow: auto; }
+  .gold { background: var(--gold) !important; color: #111 !important; border-color: var(--gold) !important; font-weight: 650; }
+
   #micbanner { position: fixed; left: 50%; bottom: 3vmin; transform: translateX(-50%); display: none; z-index: 10;
     background: rgba(201,160,74,.95); color: #111; font-weight: 600; border-radius: 99px;
     padding: .7em 1.3em; font-size: clamp(13px, 2.8vmin, 20px); white-space: nowrap; }
@@ -165,7 +174,7 @@
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
   <button id="tb-stats" title="Listening history" aria-label="Listening history">
     <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
-  <button id="tb-settings" title="Settings" aria-label="Settings">
+  <button id="tb-settings" title="Settings" aria-label="Settings"><span id="updDot"></span>
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </div>
 
@@ -215,8 +224,15 @@
     <div>Show year, label and genre<small>Under the album name.</small></div><div class="switch"></div></div>
   <div class="setting" id="fsSetting">
     <div>Fullscreen<small id="fsHint">Hides the browser's bars until you leave the page.</small></div><div class="switch"></div></div>
+  <div id="about">
+    <h3>About</h3>
+    <div id="verLine"></div>
+    <div class="row" id="updRow"></div>
+    <div id="updNotes"></div>
+  </div>
 </div>
 
+<button id="updPill">Update available</button>
 <div id="micbanner"></div>
 
 <script>
@@ -308,6 +324,7 @@ async function poll() {
     const r = await fetch("/api/now", { cache: "no-store" });
     const d = await r.json();
     donateUrl = d.donate || "";
+    if (d.update) showUpdate(d.update);
     if (d.version !== version) { version = d.version; render(d.track); }
     if (IS_PHONE && d.mic) micTick(d.mic);
   } catch (e) { /* server restarting; keep last screen */ }
@@ -444,6 +461,46 @@ async function loadStats() {
         <div><b>${esc(r.title)}</b><span>${esc([r.artist, r.album].filter(Boolean).join(" · "))}</span></div>
         <span class="n">${esc(sourceName(r.source))} · ${timeAgo(r.ts)}</span></div>`).join("")}</section>`;
 }
+
+// ---------------------------------------------------------------- updates
+let upd = null, updBusy = false;
+function showUpdate(u) {
+  upd = u;
+  const avail = u.available;
+  $("updDot").style.display = avail ? "block" : "none";
+  $("updPill").style.display = avail && !IS_PHONE ? "block" : "none";
+  $("updPill").textContent = avail ? `Update to ${avail.version}` : "";
+  $("verLine").textContent = u.current === "dev" ? "Cover Art (running from source)" : `Cover Art ${u.current}`;
+  if (updBusy || u.updating) {
+    $("updRow").innerHTML = `<span class="muted">Downloading the update. Cover Art will close and reopen in a minute.</span>`;
+    $("updNotes").textContent = ""; return;
+  }
+  if (u.current === "dev") { $("updRow").innerHTML = ""; $("updNotes").textContent = ""; return; }
+  if (avail) {
+    $("updRow").innerHTML = `<button class="pill gold" id="updInstall">Install ${esc(avail.version)}</button>
+      <span class="muted">Cover Art closes and reopens with the new version.</span>`;
+    $("updNotes").textContent = avail.notes || "";
+  } else {
+    $("updRow").innerHTML = `<span class="muted">Up to date.</span> <button class="pill" id="updCheck">Check now</button>`;
+    $("updNotes").textContent = "";
+  }
+}
+document.addEventListener("click", async e => {
+  if (e.target.id === "updCheck") {
+    e.target.textContent = "Checking…";
+    const r = await fetch("/api/update", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"action":"check"}' });
+    showUpdate(await r.json());
+  }
+  if (e.target.id === "updInstall") {
+    updBusy = true; showUpdate(upd);
+    try {
+      const r = await fetch("/api/update", { method: "POST", headers: { "Content-Type": "application/json" }, body: '{"action":"install"}' });
+      const d = await r.json();
+      if (d.error) { updBusy = false; showUpdate(d); $("updNotes").textContent = d.error; }
+    } catch (err) { /* the app closes itself to update, so a dropped connection is expected */ }
+  }
+});
+$("updPill").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
 
 // ---------------------------------------------------------------- wiring
 $("stage").addEventListener("click", e => { if (e.target.id === "findBtn") return; openInfo(); });

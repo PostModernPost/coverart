@@ -12,6 +12,9 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # Code signing turns on automatically once these secrets exist (see SIGNING.md)
+      HAS_SIGNING: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -26,8 +29,9 @@ jobs:
         shell: pwsh
         run: |
           if ($env:GITHUB_REF -like "refs/tags/v*") { $v = $env:GITHUB_REF_NAME.TrimStart("v") }
-          else { $v = "0.1.$env:GITHUB_RUN_NUMBER" }
+          else { $v = "0.0.$env:GITHUB_RUN_NUMBER" }
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VERSION = `"$v`"" | Out-File -FilePath app\_version.py -Encoding utf8
 
       - name: Icon
         run: python packaging/make_icon.py
@@ -39,6 +43,7 @@ jobs:
           --paths app
           --add-data "app/display.html;."
           --hidden-import core
+          --hidden-import _version
           --hidden-import pystray._win32
           --collect-all shazamio
           --collect-all shazamio_core
@@ -53,6 +58,22 @@ jobs:
           Get-Content "$env:APPDATA\Cover Art\selftest.txt"
           if ($p.ExitCode -ne 0) { exit 1 }
 
+      - name: Sign the app
+        if: env.HAS_SIGNING == 'true'
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          files-folder: dist/CoverArt
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
       - name: Build installer
         shell: pwsh
         run: |
@@ -62,6 +83,22 @@ jobs:
             $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
           }
           iscc /DAppVersion=$env:VERSION packaging\installer.iss
+
+      - name: Sign the installer
+        if: env.HAS_SIGNING == 'true'
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+          files-folder: dist
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - uses: actions/upload-artifact@v4
         with:

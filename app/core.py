@@ -916,6 +916,95 @@ async def service_worker(request):
     return web.Response(text=SW, content_type="application/javascript")
 
 
+# ---------------------------------------------------------------- updates (installed app only)
+try:
+    from _version import VERSION
+except Exception:
+    VERSION = "dev"
+RELEASES_API = "https://api.github.com/repos/PostModernPost/coverart/releases/latest"
+
+
+def version_tuple(v):
+    try:
+        return tuple(int(x) for x in str(v).lstrip("v").split("-")[0].split("."))
+    except ValueError:
+        return (0,)
+
+
+async def check_for_update(app):
+    """Ask GitHub for the newest release. Sets app['update'] when it's newer than this copy."""
+    if VERSION == "dev":
+        return None
+    try:
+        async with app["http"].get(RELEASES_API, headers={"Accept": "application/vnd.github+json",
+                                                          "User-Agent": "CoverArt"}) as r:
+            if r.status != 200:
+                return None
+            rel = await r.json(content_type=None)
+    except Exception as e:
+        log("update check failed:", e)
+        return None
+    latest = rel.get("tag_name", "")
+    asset = next((a for a in rel.get("assets", []) if a.get("name", "").lower().endswith(".exe")), None)
+    app["update_checked"] = time.time()
+    if asset and version_tuple(latest) > version_tuple(VERSION):
+        app["update"] = {"version": latest.lstrip("v"), "url": asset["browser_download_url"],
+                         "notes": (rel.get("body") or "").strip()[:2000], "page": rel.get("html_url")}
+        log(f"update available: {latest}")
+    else:
+        app["update"] = None
+    return app["update"]
+
+
+async def update_loop(app):
+    await asyncio.sleep(10)
+    while True:
+        await check_for_update(app)
+        await asyncio.sleep(6 * 3600)
+
+
+async def install_update(app):
+    """Download the new installer and run it quietly; it closes this copy and reopens the new one."""
+    upd = app.get("update")
+    if not upd:
+        return False
+    app["updating"] = True
+    path = os.path.join(tempfile.gettempdir(), f"CoverArt-Setup-{upd['version']}.exe")
+    log(f"downloading update {upd['version']}")
+    async with app["http"].get(upd["url"], timeout=ClientTimeout(total=600)) as r:
+        r.raise_for_status()
+        with open(path, "wb") as f:
+            async for chunk in r.content.iter_chunked(1 << 16):
+                f.write(chunk)
+    log("starting installer")
+    import subprocess
+    subprocess.Popen([path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/updated=1"],
+                     creationflags=0x00000008 | 0x00000200)   # detached, own process group
+    asyncio.get_running_loop().call_later(1.0, lambda: os._exit(0))
+    return True
+
+
+def update_info(app):
+    return {"current": VERSION, "available": app.get("update"), "updating": bool(app.get("updating"))}
+
+
+async def api_update(request):
+    app = request.app
+    if request.method == "POST":
+        action = (await request.json()).get("action")
+        if action == "check":
+            await check_for_update(app)
+        elif action == "install":
+            try:
+                ok = await install_update(app)
+            except Exception as e:
+                app["updating"] = False
+                log("update failed:", repr(e))
+                return web.json_response({**update_info(app), "error": "The download didn't work. Try again later."})
+            return web.json_response({**update_info(app), "ok": ok})
+    return web.json_response(update_info(app))
+
+
 def mic_info(app):
     mic = app.get("mic")
     if not mic or mic.kind != "phone":
@@ -927,7 +1016,7 @@ def mic_info(app):
 async def api_now(request):
     st: State = request.app["state"]
     return web.json_response({"version": st.version, "track": st.track, "mic": mic_info(request.app),
-                              "donate": CFG.get("donate_url") or ""})
+                              "donate": CFG.get("donate_url") or "", "update": update_info(request.app)})
 
 
 async def api_audio(request):
@@ -981,7 +1070,8 @@ async def on_startup(app):
         app["tasks"] = [asyncio.create_task(demo_loop(app))]
     else:
         app["tasks"] = [asyncio.create_task(pc_media_loop(app)),
-                        asyncio.create_task(turntable_loop(app))]
+                        asyncio.create_task(turntable_loop(app)),
+                        asyncio.create_task(update_loop(app))]
 
 
 async def on_cleanup(app):
@@ -1007,6 +1097,8 @@ def build_app(demo=False):
     app.router.add_get("/icon-192.png", icon_file)
     app.router.add_get("/icon-512.png", icon_file)
     app.router.add_get("/sw.js", service_worker)
+    app.router.add_get("/api/update", api_update)
+    app.router.add_post("/api/update", api_update)
     app.router.add_get("/icon.svg", icon)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
