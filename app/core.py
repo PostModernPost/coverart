@@ -723,6 +723,8 @@ async def _turntable_inner(app, mic, shz):
                or (not identified and now - last_try >= retry_wait)
                or (misses > 0 and now - last_try >= retry_wait)
                or (now - last_try >= CFG["recheck_seconds"]))
+        app["next_try"] = max(last_try + (CFG["recheck_seconds"] if identified and not misses else retry_wait),
+                              not_before)
         if not due or now < not_before:
             continue
         gap = L.gap_seen
@@ -1043,7 +1045,9 @@ async def api_now(request):
     if "Android" not in request.headers.get("User-Agent", ""):
         request.app["last_window_poll"] = time.time()      # a Cover Art window on the PC is open
     return web.json_response({"version": st.version, "track": st.track, "mic": mic_info(request.app),
-                              "donate": CFG.get("donate_url") or "", "update": update_info(request.app)})
+                              "donate": CFG.get("donate_url") or "", "update": update_info(request.app),
+                              "listen": {"mode": request.app.get("listen_mode", "off"),
+                                         "next_try": request.app.get("next_try"), "now": time.time()}})
 
 
 async def api_audio(request):

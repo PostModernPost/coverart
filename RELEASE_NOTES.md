@@ -1,3 +1,2 @@
-- When a song can't be identified, Cover Art now waits longer between tries (15 s, 30 s, 60 s, then every 90 s) instead of asking Shazam every 15 seconds, and starts fresh at the next song
-- Follows Shazam's requests to slow down
-- The log records Shazam's actual reply, to tell "unknown song" apart from "too many requests"
+- When a song can't be identified yet, the record breathes with a gold glow and shows "Still listening · trying again in 30s" so you can tell it's still working on it
+- When the mic first hears music, the screen says so instead of "Nothing playing"

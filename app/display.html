@@ -59,6 +59,15 @@
     #1b1b1b 46% 60%, #121212 61% 70%, #0d0d0d 71%); border-radius: 50% !important; animation: spin 6s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
+  /* still looking: breathing ring around the record + status line */
+  #art.searching { animation: spin 6s linear infinite, breathe 2.4s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 rgba(201,160,74,.0), 0 20px 60px rgba(0,0,0,.6); }
+                       50% { box-shadow: 0 0 0 2.4vmin rgba(201,160,74,.30), 0 0 9vmin 3vmin rgba(201,160,74,.22), 0 20px 60px rgba(0,0,0,.6); } }
+  .looking { display: none; align-items: center; gap: .6em; color: var(--dim); font-size: clamp(12px, 2.5vmin, 19px); margin-top: .8em; }
+  .looking i { width: .7em; height: .7em; border-radius: 50%; background: var(--gold); animation: pulse 1.6s ease-in-out infinite; flex: none; }
+  @keyframes pulse { 0%, 100% { opacity: .25; transform: scale(.75); } 50% { opacity: 1; transform: scale(1); } }
+  #idle.listening .record { animation: spin 6s linear infinite, breathe 2.4s ease-in-out infinite; opacity: .9; }
+
   #idle { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
     color: var(--dim); font-size: clamp(14px, 3.5vmin, 30px); gap: 3vmin; }
   #idle .record { width: 30vmin; height: 30vmin; animation-duration: 20s; opacity: .5; }
@@ -162,12 +171,13 @@
     <p id="album" class="clamp"></p>
     <p id="details"></p>
     <span id="source"></span>
+    <div class="looking" id="looking"><i></i><span id="lookingText">Still listening</span></div>
     <button id="findBtn">Search for it</button>
     <div id="sideLyrics"></div>
   </div>
 </div>
 
-<div id="idle"><div class="record"></div><div>Nothing playing</div></div>
+<div id="idle"><div class="record"></div><div id="idleText">Nothing playing</div></div>
 
 <div id="toolbar">
   <button id="tb-search" title="Search for a song" aria-label="Search">
@@ -325,9 +335,26 @@ async function poll() {
     const d = await r.json();
     donateUrl = d.donate || "";
     if (d.update) showUpdate(d.update);
+    if (d.listen) showListening(d.listen);
     if (d.version !== version) { version = d.version; render(d.track); }
     if (IS_PHONE && d.mic) micTick(d.mic);
   } catch (e) { /* server restarting; keep last screen */ }
+}
+
+// ---------------------------------------------------------------- "still looking" indicator
+function showListening(l) {
+  const active = l.mode === "active";
+  const unknown = current && current.status !== "playing";
+  // Unknown song: breathing ring + when the next try is
+  $("art").classList.toggle("searching", !!(unknown && active));
+  $("looking").style.display = unknown && active ? "flex" : "none";
+  if (unknown && active) {
+    const wait = l.next_try ? Math.round(l.next_try - l.now) : 0;
+    $("lookingText").textContent = wait > 1 ? `Still listening · trying again in ${wait}s` : "Still listening · trying now";
+  }
+  // Nothing on screen yet but the mic hears music: say so
+  $("idle").classList.toggle("listening", !current && active);
+  $("idleText").textContent = !current && active ? "Hearing music, figuring out what it is…" : "Nothing playing";
 }
 
 // ---------------------------------------------------------------- panels
