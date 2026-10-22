@@ -1,2 +1,3 @@
-- Better audio from the phone's mic: the phone page now converts its recording for Shazam with one continuous, filtered resampler. Before, it dropped a sample at the edge of every tenth-of-a-second chunk, adding tiny clicks that can throw off matching.
-- Settings > Microphone > Hear what Shazam heard: play back the last 12-second clip Liner Notes sent, so you can tell whether it's too faint, muffled or noisy.
+- Fixed: with lyrics on in portrait (a phone standing up), the current line could scroll out of view. It now stays in the middle of the lyrics.
+- Fixed: in a square-ish window the cover was so big the song details below it were cut off.
+- Liner Notes has a website: liner-notes.app.

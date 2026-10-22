@@ -118,6 +118,8 @@ jobs:
             $env:Path += ";${env:ProgramFiles(x86)}\Inno Setup 6"
           }
           iscc /DAppVersion=$env:VERSION packaging\installer.iss
+          # the same installer under a name that never changes, for the website's download link
+          Copy-Item "dist\LinerNotes-Setup-$env:VERSION.exe" "dist\LinerNotes-Setup.exe"
 
       - name: Sign the installer
         if: env.HAS_SIGNING == 'true'
@@ -148,4 +150,4 @@ jobs:
           name: Liner Notes ${{ env.VERSION }}
           body_path: RELEASE_NOTES.md
           target_commitish: ${{ github.sha }}
-          files: dist/LinerNotes-Setup-*.exe
+          files: dist/LinerNotes-Setup*.exe

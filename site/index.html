@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Liner Notes · album art, lyrics and credits for the record you're playing</title>
+<meta name="description" content="A free Windows app that hears the record on your turntable, or whatever Spotify is playing, and shows the cover, lyrics, credits and the band's story on a screen next to you.">
+<meta property="og:title" content="Liner Notes">
+<meta property="og:description" content="Know who's on the record. Album art, lyrics, credits and band bios for whatever you're playing, vinyl included.">
+<meta property="og:image" content="https://liner-notes.app/img/og.png">
+<meta property="og:url" content="https://liner-notes.app/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="top">
+  <a class="brand" href="/"><img src="/img/mark.svg" alt="" width="34" height="34"><span>Liner Notes</span></a>
+  <nav><a href="#tracklist">What it does</a><a href="/phone">Phone setup</a><a class="get" href="#download">Download</a></nav>
+</header>
+
+<main>
+<section class="hero">
+  <div class="hero-copy">
+    <h1>Know who's on the record.</h1>
+    <p class="lede">Liner Notes hears the record on your turntable, or whatever Spotify is playing, and puts the cover, the lyrics, the credits and the band's story on a screen next to you. No button to press. It just listens.</p>
+    <div class="cta" id="download">
+      <a class="btn" href="https://github.com/PostModernPost/linernotes/releases/latest/download/LinerNotes-Setup.exe">Download for Windows</a>
+      <p class="cta-note">Free. Windows 10 and 11<span id="ver"></span>. Windows may say the publisher is unknown: click <em>More info</em>, then <em>Run anyway</em>.</p>
+    </div>
+  </div>
+  <div class="sleeve" aria-hidden="true">
+    <div class="disc"></div>
+    <div class="jacket"><img src="/img/hero-square.webp" alt="" width="1230" height="1230"></div>
+  </div>
+</section>
+
+<section class="tracklist" id="tracklist">
+  <div class="side">
+    <h2>Side A <span>Listening</span></h2>
+    <ol>
+      <li><b>A1</b><div><h3>Hears the turntable</h3><p>A microphone in the room, or an old phone by the speakers, picks up the record and Shazam names the song. It only listens properly once there's music.</p></div></li>
+      <li><b>A2</b><div><h3>Follows the whole album</h3><p>Once one song is recognized, it loads the album's tracklist and moves to the next song when each one ends, even the ones Shazam doesn't know. It tells you when to flip the record.</p></div></li>
+      <li><b>A3</b><div><h3>Reads Spotify too</h3><p>Anything playing on the PC shows up instantly and exactly, with where you are in the song.</p></div></li>
+      <li><b>A4</b><div><h3>Lyrics that keep up</h3><p>Timed lyrics scroll along with the song beside the cover.</p></div></li>
+    </ol>
+  </div>
+  <div class="side">
+    <h2>Side B <span>Knowing</span></h2>
+    <ol>
+      <li><b>B1</b><div><h3>The band, and who played what</h3><p>A bio, the full credits from Discogs, and links to the band on Bandcamp, Spotify and more.</p></div></li>
+      <li><b>B2</b><div><h3>Save the band</h3><p>Tap the heart to keep a song you heard on a record. With Spotify connected, it lands in a playlist.</p></div></li>
+      <li><b>B3</b><div><h3>Your listening, on paper</h3><p>Top records and artists, how much was on vinyl, and recap cards for the day, week, month or year to share.</p></div></li>
+      <li><b>B4</b><div><h3>Records on Last.fm</h3><p>Your vinyl plays get scrobbled next to your Spotify ones.</p></div></li>
+    </ol>
+  </div>
+</section>
+
+<section class="phone">
+  <figure class="phone-shot"><img src="/img/shot-phone-lyrics.webp" alt="Liner Notes on a phone, with lyrics scrolling under the album cover" width="1030" height="2150" loading="lazy"></figure>
+  <div class="phone-copy">
+    <h2>That old phone in the drawer is the screen.</h2>
+    <p>Plug an Android phone into the PC and it becomes a little always-on display by the turntable, and its microphone can do the listening. It sleeps when your PC sleeps and wakes up for the next record. An iPhone works over Wi-Fi.</p>
+    <p><a class="textlink" href="/phone">How to set up the phone</a></p>
+  </div>
+</section>
+
+<section class="gallery">
+  <figure><img src="/img/shot-just-played.webp" alt="The screen between records: the album you just played and your recent records" width="1800" height="1013" loading="lazy"><figcaption>Between records: what you just played, then a slow slideshow of your covers.</figcaption></figure>
+  <figure><img src="/img/shot-song-page.webp" alt="The song page with the artist's bio and lyrics" width="1800" height="1013" loading="lazy"><figcaption>Tap any song for the bio, lyrics and credits.</figcaption></figure>
+  <figure class="card"><img src="/img/recap-card.webp" alt="A monthly recap card" width="1080" height="1350" loading="lazy"><figcaption><h3>Share your month</h3><p>Recap cards for the last 24 hours, a week, a month or a year: your top records and artists, how much was on vinyl, and the bands that were new to you. Save it, or send it straight from the phone.</p></figcaption></figure>
+</section>
+
+<section class="start">
+  <h2>Getting started</h2>
+  <ol>
+    <li><h3>Download and run the installer</h3><p>No admin password needed. Liner Notes opens in its own window and keeps a record icon by the clock.</p></li>
+    <li><h3>Put a record on</h3><p>The first time a song plays in the room it asks what's playing it: vinyl, CD, tape or radio. Set your usual one in Settings and it won't ask again.</p></li>
+    <li><h3>Add a phone, if you like</h3><p>Settings &gt; Use a phone as a second screen walks you through it, checking each step off as you go.</p></li>
+  </ol>
+</section>
+
+<section class="credits" aria-labelledby="credits-h">
+  <h2 id="credits-h">Credits</h2>
+  <dl>
+    <div><dt>Song recognition</dt><dd>Shazam</dd></div>
+    <div><dt>Covers, years and labels</dt><dd>Apple Music, Deezer, MusicBrainz</dd></div>
+    <div><dt>Tracklists and credits</dt><dd>Discogs</dd></div>
+    <div><dt>Lyrics</dt><dd>LRCLIB, lyrics.ovh</dd></div>
+    <div><dt>Bios</dt><dd>Wikipedia, Last.fm</dd></div>
+    <div><dt>Written and produced by</dt><dd>Adam Waitt, Los Angeles</dd></div>
+  </dl>
+  <p class="small">The albums and bands in these pictures are made up. Liner Notes is free and its code is on <a href="https://github.com/PostModernPost/linernotes">GitHub</a>. Song recognition uses an unofficial Shazam library, so it could stop working if Shazam changes things.</p>
+  <p class="coffee">If it earns a spot by your turntable, <a href="https://buymeacoffee.com/goodisanoun">buy me a coffee</a>.</p>
+</section>
+</main>
+
+<footer>
+  <span>Liner Notes</span>
+  <a href="/phone">Phone setup</a>
+  <a href="https://github.com/PostModernPost/linernotes/releases">All releases</a>
+  <a href="https://buymeacoffee.com/goodisanoun">Buy me a coffee</a>
+</footer>
+
+<script>
+fetch("https://api.github.com/repos/PostModernPost/linernotes/releases/latest")
+  .then(r => r.ok ? r.json() : null)
+  .then(r => { if (r && r.tag_name) document.getElementById("ver").textContent = ", version " + r.tag_name.replace(/^v/, ""); })
+  .catch(() => {});
+</script>
+</body>
+</html>

@@ -21,7 +21,7 @@ Free. If you enjoy it, you can [buy me a coffee](https://buymeacoffee.com/goodis
 
 ## Install (Windows 10/11)
 
-Download `LinerNotes-Setup-x.y.z.exe` from [Releases](https://github.com/PostModernPost/linernotes/releases) and run it. No admin password needed. Liner Notes opens in its own window (no browser needed) and keeps a record icon by the clock. Closing the window keeps it running there:
+Download it from [liner-notes.app](https://liner-notes.app) or [Releases](https://github.com/PostModernPost/linernotes/releases) and run it. No admin password needed. Liner Notes opens in its own window (no browser needed) and keeps a record icon by the clock. Closing the window keeps it running there:
 
 - **Left-click** the icon to open the window.
 - **Right-click** for the microphone choice, Start with Windows, the settings folder, and Quit.
@@ -61,3 +61,7 @@ The heart saves a song in Liner Notes. To also send it to Spotify, the build nee
 ## Last.fm
 
 Scrobbling uses the app's Last.fm API account. Create one at last.fm/api/account/create and add its API key and shared secret as the `LASTFM_KEY` and `LASTFM_SECRET` repo secrets. Builds without them hide the Connect button.
+
+## Website
+
+`site/` is the website (liner-notes.app), plain HTML and CSS deployed by Vercel from this repo. The download button links to `releases/latest/download/LinerNotes-Setup.exe`, which every release also publishes under that fixed name.
