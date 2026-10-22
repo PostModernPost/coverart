@@ -70,7 +70,9 @@ jobs:
           --icon packaging/linernotes.ico
           --paths app
           --add-data "app/display.html;."
+          --add-data "app/fonts;fonts"
           --hidden-import core
+          --hidden-import recap
           --hidden-import _version
           --hidden-import _secrets
           --hidden-import pystray._win32

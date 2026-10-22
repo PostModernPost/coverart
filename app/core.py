@@ -31,6 +31,8 @@ import wave
 
 from aiohttp import web, ClientSession, ClientTimeout
 
+import recap
+
 APP_NAME = "Liner Notes"
 # Bundled files (display.html) live next to this file, or in PyInstaller's unpack folder when installed.
 HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
@@ -2441,6 +2443,85 @@ async def lastfm_loop(app):
             log("last.fm loop:", repr(e))
 
 
+# ---------------------------------------------------------------- shareable recap cards
+_recap_art = collections.OrderedDict()      # art url -> PIL image, the last few dozen
+
+
+async def _recap_images(http, urls):
+    from PIL import Image
+
+    async def one(u):
+        if u in _recap_art:
+            return
+        try:
+            async with http.get(u, timeout=ClientTimeout(total=8)) as r:
+                if r.status == 200:
+                    img = Image.open(io.BytesIO(await r.read()))
+                    img.load()
+                    _recap_art[u] = img
+                    while len(_recap_art) > 60:
+                        _recap_art.popitem(last=False)
+        except Exception as e:
+            log("recap: cover download failed:", e)
+    await asyncio.gather(*(one(u) for u in dict.fromkeys(u for u in urls if u and u.startswith("http"))))
+    return {u: _recap_art[u] for u in urls if u in _recap_art}
+
+
+def _recap_args(request):
+    period = request.query.get("period", "month")
+    if period not in recap.PERIODS:
+        period = "month"
+    try:
+        offset = max(0, min(50, int(request.query.get("offset", "0"))))
+    except ValueError:
+        offset = 0
+    return period, offset
+
+
+async def _recap_png(app, period, offset):
+    start, end, title, sub = recap.recap_period(period, offset)
+    stats = recap.recap_stats(app["state"].db.path, start, end)
+    images = await _recap_images(app["http"], [a.get("art") for a in stats["albums"]])
+    png = await asyncio.get_running_loop().run_in_executor(
+        None, recap.render_card, stats, title, sub, images, os.path.join(HERE, "fonts"))
+    return png, title, sub, stats
+
+
+async def api_recap(request):
+    period, offset = _recap_args(request)
+    start, end, title, sub = recap.recap_period(period, offset)
+    stats = recap.recap_stats(request.app["state"].db.path, start, end)
+    with sqlite3.connect(request.app["state"].db.path) as db:
+        first = db.execute("SELECT MIN(ts) FROM plays").fetchone()[0]
+    return web.json_response({"title": title, "sub": sub, "plays": stats["total"]["plays"],
+                              "has_older": bool(first and first < start)})
+
+
+async def api_recap_png(request):
+    period, offset = _recap_args(request)
+    png, *_ = await _recap_png(request.app, period, offset)
+    return web.Response(body=png, content_type="image/png", headers={"Cache-Control": "no-store"})
+
+
+async def api_recap_save(request):
+    """Save the card to Pictures\\Liner Notes on this PC and show it in Explorer."""
+    body = await request.json()
+    period = body.get("period") if body.get("period") in recap.PERIODS else "month"
+    offset = max(0, min(50, int(body.get("offset") or 0)))
+    png, title, sub, _ = await _recap_png(request.app, period, offset)
+    folder = os.path.join(os.path.expanduser("~"), "Pictures", "Liner Notes")
+    os.makedirs(folder, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%d")
+    name = re.sub(r'[\\/:*?"<>|]', "", f"Liner Notes recap - {title} ({period}, {stamp}).png")
+    path = os.path.join(folder, name)
+    with open(path, "wb") as f:
+        f.write(png)
+    if sys.platform == "win32":
+        import subprocess
+        subprocess.Popen(["explorer", "/select,", path])
+    return web.json_response({"ok": True, "path": path})
+
+
 # ---------------------------------------------------------------- phone as a second screen (USB)
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 PLATFORM_TOOLS_URL = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
@@ -2575,7 +2656,7 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/")
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save")
 
 
 @web.middleware
@@ -2747,6 +2828,9 @@ def build_app(demo=False):
     app.router.add_post("/api/save", api_save)
     app.router.add_get("/api/saved", api_saved)
     app.router.add_get("/api/idle", api_idle)
+    app.router.add_get("/api/recap", api_recap)
+    app.router.add_get("/api/recap.png", api_recap_png)
+    app.router.add_post("/api/recap/save", api_recap_save)
     app.router.add_get("/api/spotify/status", api_spotify_status)
     app.router.add_get("/api/lastfm/status", api_lastfm_status)
     app.router.add_post("/api/lastfm/connect", api_lastfm_connect)
