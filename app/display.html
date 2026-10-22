@@ -285,6 +285,7 @@
     transition: opacity .25s, transform .25s; max-width: 90vw; text-align: center; font-size: calc(var(--ts) * clamp(12px, 2.5vmin, 17px)); }
   #toast.show { opacity: 1; transform: translate(-50%, 0); }
   #savedBody .line a { color: var(--fg); }
+  #savedBody .line b { cursor: pointer; } #savedBody .line b:hover { text-decoration: underline; }
   #savedBody .line .acts { margin-left: auto; display: flex; gap: 1vmin; align-items: center; flex: none; }
   #savedBody .line .acts .pill { padding: .3em .8em; }
   .unsave { background: none; border: 0; color: var(--dim); cursor: pointer; font-size: 1.3em; padding: 0 .3em; }
@@ -364,6 +365,11 @@
   #similar .sim .lk { display: flex; justify-content: center; gap: .7em; margin-top: .35em; font-size: .82em; }
   #similar .sim .lk a { color: var(--dim); }
   #similar .sim .lk a:hover { color: var(--fg); }
+
+  #jpArt, #jpAlbum, #jpRecent img, #jpSaved div, #slides .sl img { cursor: pointer; }
+  #jpRecent img:hover, #jpArt:hover, #slides .sl img:hover { filter: brightness(1.08); }
+  #jpSaved div:hover b { text-decoration: underline; }
+  #idleShow, #slides { pointer-events: auto; }
 
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
@@ -653,6 +659,7 @@
     <div class="sizes">
       <button class="pill" data-io="0">Never</button><button class="pill" data-io="5">5 min</button><button class="pill" data-io="15">15 min</button>
       <button class="pill" data-io="30">30 min</button><button class="pill" data-io="60">1 hour</button></div></div>
+  <div class="setting" data-key="simNewOnly"><div>More like this: only new bands<small>On the song page, only suggest bands you haven't played in Liner Notes yet.</small></div><div class="switch"></div></div>
   <div class="setting" data-key="showBpm"><div>BPM<small>Tempo of the song, when it can be found. ≈ means estimated from the sound.</small></div><div class="switch"></div></div>
   <div class="setting" id="fsSetting">
     <div>Fullscreen<small id="fsHint">Hides the browser's bars until you leave the page.</small></div><div class="switch"></div></div>
@@ -1077,6 +1084,7 @@ function updateIdleText() {
 // Nothing playing: the album that just finished plus recent records for a few minutes, then a slow
 // slideshow of covers from the listening history. While the mic is working out a song, the spinning record shows instead.
 const JP_MINUTES = 3, SLIDE_SECONDS = 14;
+let slideNow = null;
 let idleOn = false, idleData = null, idleSince = 0, idleTimer = null, slideTimer = null, slideOrder = [], slideIdx = 0, slideFlip = 0;
 function agoText(ts) {
   const m = Math.round((Date.now() / 1000 - ts) / 60);
@@ -1115,9 +1123,9 @@ function showJustPlayed() {
   $("jpAlbum").textContent = l.album || l.title || "";
   $("jpArtist").textContent = l.artist || "";
   $("jpWhen").textContent = agoText(l.ended || l.ts) + (ON_MEDIUM[l.source] || "");
-  $("jpRecent").innerHTML = d.recent.slice(0, 6).map(r => `<img src="${esc(r.art)}" alt="" title="${esc(r.album + " · " + r.artist)}" loading="lazy">`).join("");
+  $("jpRecent").innerHTML = d.recent.slice(0, 6).map((r, i) => `<img src="${esc(r.art)}" alt="" data-i="${i}" title="${esc(r.album + " · " + r.artist)}" loading="lazy">`).join("");
   $("jpSaved").innerHTML = d.saved.length ? `<p class="kicker" style="margin:0 0 .5em">Saved lately</p>` +
-    d.saved.slice(0, 3).map(x => `<div><i>♥</i><b>${esc(x.title)}</b> · ${esc(x.artist)}</div>`).join("") : "";
+    d.saved.slice(0, 3).map((x, i) => `<div data-s="${i}"><i>♥</i><b>${esc(x.title)}</b> · ${esc(x.artist)}</div>`).join("") : "";
 }
 function idleTick() {
   if (!idleOn || !idleData) return;
@@ -1144,6 +1152,7 @@ function nextSlide() {
   img.onload = () => {
     const sls = document.querySelectorAll("#slides .sl"), bgs = document.querySelectorAll("#slides .bgl");
     const a = slideFlip, b = 1 - slideFlip; slideFlip = b;
+    slideNow = c;
     sls[b].innerHTML = `<img src="${esc(c.art)}" alt=""><div class="cap"><b>${esc(c.album)}</b> · ${esc(c.artist)}${c.year ? " · " + esc(oneYear(c.year) || "") : ""}</div>`;
     bgs[b].style.backgroundImage = `url("${c.art}")`;
     sls[b].classList.remove("hide"); bgs[b].classList.remove("hide");
@@ -1221,6 +1230,13 @@ function wakeFromDark() {
   stayAwake();
 }
 $("idleDark").addEventListener("click", e => { e.stopPropagation(); wakeFromDark(); armIdleOff(); });
+
+// between records: tap the album, a recent cover, a saved song or the slide to open that song's page
+$("jpArt").addEventListener("click", e => { e.stopPropagation(); if (idleData && idleData.last) openSong(idleData.last); });
+$("jpAlbum").addEventListener("click", e => { e.stopPropagation(); if (idleData && idleData.last) openSong(idleData.last); });
+$("jpRecent").addEventListener("click", e => { const im = e.target.closest("[data-i]"); if (im && idleData) { e.stopPropagation(); openSong(idleData.recent[+im.dataset.i]); } });
+$("jpSaved").addEventListener("click", e => { const r = e.target.closest("[data-s]"); if (r && idleData) { e.stopPropagation(); openSong(idleData.saved[+r.dataset.s]); } });
+$("slides").addEventListener("click", e => { e.stopPropagation(); if (slideNow) openSong(slideNow); });
 
 // ---------------------------------------------------------------- Listen now
 let listenBusy = false;
@@ -1304,8 +1320,8 @@ function getInfo(id) {
   return infoCache[id];
 }
 
-async function openInfo() {
-  const t = current;
+async function openInfo(t) {
+  t = (t && t.id) ? t : current;
   if (!t) return;
   if (t.status !== "playing") { openSearch(); return; }
   openPanel("info");
@@ -1348,8 +1364,10 @@ async function loadSimilar(t) {
   catch (e) { $("similarBox").style.display = "none"; return; }
   if (infoFor !== t.id) return;
   if (!d.artists || !d.artists.length) { $("similarBox").style.display = "none"; return; }
+  const list = (settings.simNewOnly ? d.artists.filter(a => !a.plays) : d.artists).slice(0, 8);
   box.className = "";
-  box.innerHTML = `<div class="sims">${d.artists.map(a => `
+  if (!list.length) { box.className = "muted"; box.textContent = "You've already played every band Liner Notes found like this one."; return; }
+  box.innerHTML = `<div class="sims">${list.map(a => `
     <div class="sim">
       ${a.image ? `<img src="${esc(a.image)}" alt="" loading="lazy">` : `<div class="noimg">${esc((a.name || "?")[0])}</div>`}
       <b title="${esc(a.name)}">${esc(a.name)}</b>
@@ -1498,6 +1516,7 @@ async function loadSaved() {
     : d.saved.length ? `${d.saved.length} song${d.saved.length === 1 ? "" : "s"}. Connect Spotify in Settings to also add them to a playlist.`
     : "Tap the heart on the main screen to keep a song here. Handy for bands you hear on a record and want to look up later.";
   if (!d.saved.length) { body.innerHTML = ""; return; }
+  savedRows = d.saved;
   body.innerHTML = d.saved.map(r => `
     <div class="line" data-tid="${esc(r.tid)}">${r.art ? `<img class="thumb" src="${esc(r.art)}" alt="" loading="lazy">` : `<div class="thumb"></div>`}
       <div><b>${esc(r.title)}</b><span>${esc([r.artist, r.album, oneYear(r.year)].filter(Boolean).join(" · "))}</span>
@@ -1507,6 +1526,12 @@ async function loadSaved() {
         <a class="pill" href="${esc(r.links.bandcamp)}" target="_blank" rel="noopener">Bandcamp</a>
         <button class="unsave" title="Remove" aria-label="Remove">&times;</button></div></div>`).join("");
 }
+let savedRows = [];
+$("savedBody").addEventListener("click", e => {
+  const b = e.target.closest(".line b"); if (!b) return;
+  const r = savedRows.find(x => x.tid === b.closest(".line").dataset.tid);
+  if (r) openSong(r);
+});
 $("savedBody").addEventListener("click", async e => {
   const x = e.target.closest(".unsave"); if (!x) return;
   const line = x.closest(".line");
@@ -1831,6 +1856,15 @@ addEventListener("hashchange", () => { if (location.hash === "#phone") openPhone
 
 // ---------------------------------------------------------------- wiring
 $("stage").addEventListener("click", e => { if (e.target.id === "findBtn" || e.target.closest("#actRow")) return; openInfo(); });
+// a song played earlier: ask for its page, then open it
+async function openSong(spec) {
+  if (!spec || !spec.title || !spec.artist) return;
+  try {
+    const t = await (await fetch("/api/song", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: spec.title, artist: spec.artist, album: spec.album, art: spec.art }) })).json();
+    if (t && t.id) openInfo(t);
+  } catch (e) {}
+}
 $("findBtn").addEventListener("click", e => { e.stopPropagation(); openSearch(); });
 $("infoBtn").addEventListener("click", e => { e.stopPropagation(); openInfo(); });
 $("tb-search").addEventListener("click", e => { e.stopPropagation(); openSearch(); });

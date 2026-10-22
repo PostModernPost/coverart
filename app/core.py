@@ -1852,6 +1852,7 @@ class History:
             db.execute("""CREATE TABLE IF NOT EXISTS saved (
                 tid TEXT PRIMARY KEY, ts REAL NOT NULL, title TEXT, artist TEXT, album TEXT, year TEXT,
                 label TEXT, genre TEXT, art TEXT, source TEXT, spotify_uri TEXT)""")
+            db.execute("CREATE TABLE IF NOT EXISTS song_cache (key TEXT PRIMARY KEY, ts REAL NOT NULL, data TEXT)")
         self.saved_ids = self._saved_ids()
 
     def _saved_ids(self):
@@ -1887,10 +1888,10 @@ class History:
             db.row_factory = sqlite3.Row
             rows = lambda sql: [dict(r) for r in db.execute(sql)]
             last = rows("SELECT ts, title, artist, album, year, label, source, art, duration_ms FROM plays ORDER BY ts DESC LIMIT 1")
-            recent = rows("SELECT album, artist, MAX(art) art, MAX(ts) ts, source FROM plays WHERE album IS NOT NULL AND album!='' "
+            recent = rows("SELECT album, artist, title, MAX(art) art, MAX(ts) ts, source FROM plays WHERE album IS NOT NULL AND album!='' "
                           "AND art IS NOT NULL GROUP BY lower(album), lower(artist) ORDER BY MAX(ts) DESC LIMIT 9")
             saved = rows("SELECT title, artist, album, art, ts FROM saved ORDER BY ts DESC LIMIT 4")
-            covers = rows("SELECT album, artist, MAX(art) art, MAX(year) year, COUNT(*) n FROM plays WHERE art IS NOT NULL "
+            covers = rows("SELECT album, artist, title, MAX(art) art, MAX(year) year, COUNT(*) n, MAX(ts) ts FROM plays WHERE art IS NOT NULL "
                           "AND album IS NOT NULL AND album!='' GROUP BY lower(album), lower(artist) ORDER BY MAX(ts) DESC LIMIT 120")
         last = last[0] if last else None
         if last:
@@ -1902,6 +1903,28 @@ class History:
         with self._db() as db:
             db.execute("UPDATE plays SET source=? WHERE source='room' AND ts>=?", (medium, since))
             db.execute("UPDATE saved SET source=? WHERE source='room' AND ts>=?", (medium, since))
+
+    # ---- song pages saved on this PC, so they open instantly (and offline) the next time
+    def cache_get(self, key, max_age_days=30):
+        with self._db() as db:
+            row = db.execute("SELECT ts, data FROM song_cache WHERE key=?", (key,)).fetchone()
+        if not row or time.time() - row[0] > max_age_days * 86400:
+            return None
+        try:
+            return json.loads(row[1])
+        except Exception:
+            return None
+
+    def cache_put(self, key, data):
+        with self._db() as db:
+            db.execute("INSERT OR REPLACE INTO song_cache (key, ts, data) VALUES (?,?,?)", (key, time.time(), json.dumps(data)))
+
+    def last_play_of(self, artist, title):
+        with self._db() as db:
+            db.row_factory = sqlite3.Row
+            r = db.execute("SELECT * FROM plays WHERE lower(artist)=lower(?) AND lower(title)=lower(?) ORDER BY ts DESC LIMIT 1",
+                           (artist, title)).fetchone()
+        return dict(r) if r else None
 
     def artist_plays(self, names):
         """How many times each of these artists has been played here, keyed by norm(name)."""
@@ -2923,6 +2946,10 @@ async def api_credits(request):
     cache_key = ("credits", t["id"])
     if cache_key in _credits_cache:
         return web.json_response({"credits": _credits_cache[cache_key]})
+    saved = st.db.cache_get("credits:" + t["id"], 60)
+    if saved:
+        _credits_cache[cache_key] = saved
+        return web.json_response({"credits": saved})
     try:
         rec = app.get("record")
         if t.get("source") == "record" and rec is not None and getattr(rec, "rel", None):
@@ -2941,6 +2968,8 @@ async def api_credits(request):
     if cr and not (cr["song"] or cr["album"] or cr["companies"] or cr["notes"]):
         cr = {**cr, "empty": True}
     _credits_cache[cache_key] = cr
+    if cr:
+        st.db.cache_put("credits:" + t["id"], cr)
     return web.json_response({"credits": cr})
 
 
@@ -2967,6 +2996,12 @@ async def similar_artists(http, artist, limit=8):
     key = norm(lead)
     if key in _similar_cache:
         return _similar_cache[key]
+    db = getattr(similar_artists, "db", None)
+    if db is not None:
+        saved = db.cache_get("similar:" + key, 30)
+        if saved:
+            _similar_cache[key] = saved
+            return saved
     names = []
     if LASTFM_KEY:
         try:
@@ -3001,6 +3036,8 @@ async def similar_artists(http, artist, limit=8):
         x["links"] = {"spotify": f"https://open.spotify.com/search/{q}", "bandcamp": f"https://bandcamp.com/search?q={q}&item_type=b",
                       "lastfm": x.get("lastfm") or f"https://www.last.fm/music/{urllib.parse.quote(x['name'].replace(' ', '+'))}"}
     _similar_cache[key] = names
+    if names and db is not None:
+        db.cache_put("similar:" + key, names)
     return names
 
 
@@ -3010,7 +3047,8 @@ async def api_similar(request):
     if not t or not t.get("artist"):
         return web.json_response({"artists": []})
     try:
-        names = await similar_artists(request.app["http"], t["artist"])
+        similar_artists.db = st.db
+        names = await similar_artists(request.app["http"], t["artist"], limit=16)
     except Exception as e:
         log("similar artists failed:", repr(e))
         names = []
@@ -3387,6 +3425,10 @@ async def api_info(request):
     t = st.history.get(tid)
     if not t or not t.get("artist"):
         return web.json_response({"lyrics": None, "bio": None})
+    saved = st.db.cache_get("info:" + tid, 30)
+    if saved is not None:
+        st.info_cache[tid] = saved
+        return web.json_response(saved)
     http = request.app["http"]
     (lyrics, synced), bio = await asyncio.gather(
         fetch_lyrics(http, t["artist"], t["title"], t.get("album"), (t.get("duration_ms") or 0) / 1000 or None),
@@ -3398,7 +3440,29 @@ async def api_info(request):
     info = {"lyrics": lyrics, "synced": synced, "bio": bio, "shazam": shazam,
             "genius": "https://genius.com/search?q=" + urllib.parse.quote(f"{main_artist(t['artist'])} {clean_title(t['title'])}")}
     st.info_cache[tid] = info
+    if lyrics or bio:                  # don't keep a page that came back empty (a lookup may have failed)
+        st.db.cache_put("info:" + tid, info)
     return web.json_response(info)
+
+
+async def api_song(request):
+    """Open the song page for something played earlier (between records, the slideshow, saved songs)."""
+    st: State = request.app["state"]
+    body = await request.json()
+    artist, title = (body.get("artist") or "").strip(), (body.get("title") or "").strip()
+    if not artist or not title:
+        return web.json_response({"error": "missing song"}, status=400)
+    tid = make_id(artist, title)
+    t = st.history.get(tid)
+    if not t:
+        row = st.db.last_play_of(artist, title) or {}
+        album = body.get("album") or row.get("album")
+        t = {"id": tid, "title": title, "artist": artist, "album": album, "art": body.get("art") or row.get("art"),
+             "year": row.get("year"), "label": row.get("label"), "genre": row.get("genre"),
+             "duration_ms": row.get("duration_ms"), "source": "history", "status": "playing",
+             "links": search_links(artist, title, album)}
+        st.history[tid] = t
+    return web.json_response(t)
 
 
 def log_keys():
@@ -3461,6 +3525,7 @@ def build_app(demo=False):
     app.router.add_get("/api/mic/last-clip.wav", api_last_clip)
     app.router.add_get("/api/credits", api_credits)
     app.router.add_get("/api/similar", api_similar)
+    app.router.add_post("/api/song", api_song)
     app.router.add_post("/api/medium", api_medium)
     app.router.add_get("/api/recap", api_recap)
     app.router.add_get("/api/recap.png", api_recap_png)

@@ -1,1 +1,3 @@
-- More like this: the song info page shows up to 8 similar artists, with their picture and Spotify and Bandcamp links. Similar artists come from Last.fm, which is good at small and indie bands, or from Deezer when Last.fm has none. Artists you've already played here say how many times.
+- Between records, tap the album you just played, any of the recent covers, a saved song, or the cover in the slideshow to open that song's page, with its Spotify, YouTube, Bandcamp and other links. Song titles in Saved songs open their page too.
+- Settings > More like this: only new bands. Turn it on and the song page only suggests bands you haven't played yet.
+- Song pages are saved on your PC once they're looked up (bio, lyrics, credits and similar bands), so they open instantly the next time, even after a restart or without internet. Saved pages refresh after a month.
