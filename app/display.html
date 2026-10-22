@@ -466,6 +466,7 @@ let version = -1, current = null, infoFor = null, donateUrl = "";
 const infoCache = {};
 
 function fmtDur(sec) { return sec || sec === 0 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : ""; }
+function oneYear(y) { const m = String(y || "").match(/\d{4}/); return m ? m[0] : null; }
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 // ---------------------------------------------------------------- settings (per screen)
@@ -512,7 +513,7 @@ document.addEventListener("fullscreenchange", applySettings);
 // ---------------------------------------------------------------- main screen
 function detailsText(t, all) {
   const bpm = t.bpm ? `${t.bpm_estimated ? "≈" : ""}${t.bpm} BPM` : null;
-  return [(all || settings.showYear) && t.year, (all || settings.showLabel) && t.label,
+  return [(all || settings.showYear) && oneYear(t.year), (all || settings.showLabel) && t.label,
           (all || settings.showGenre) && t.genre, (all || settings.showBpm) && bpm].filter(Boolean).join(" · ");
 }
 
@@ -606,7 +607,7 @@ function renderRecords() {
   $("recAuto").style.display = record.auto ? "block" : "none";
   $("recCover").src = record.cover || BLANK;
   $("recTitle").textContent = record.title;
-  $("recSub").textContent = [record.artist, record.label, record.catno, record.year].filter(Boolean).join(" · ");
+  $("recSub").textContent = [record.artist, record.label, record.catno, oneYear(record.year)].filter(Boolean).join(" · ");
   let html = "", side = null;
   record.tracks.forEach((t, i) => {
     if (t.side !== side) { side = t.side; html += `<h3 class="sideHead">Side ${esc(side)}</h3>`; }
@@ -630,13 +631,13 @@ async function recSearch(params) {
   const recs = (rd.results || []).slice(0, isBarcode ? 20 : 6);
   $("recResults").innerHTML = recs.length ? `<h3 class="resHead">Records</h3>` + recs.map(r => `
       <div class="result" data-kind="record" data-id="${r.id}"><img src="${esc(r.thumb || BLANK)}" alt="" loading="lazy">
-        <div><b>${esc(r.title)}</b><span>${esc([r.year, r.label, r.catno, r.format, r.country].filter(Boolean).join(" · "))}</span></div></div>`).join("")
+        <div><b>${esc(r.title)}</b><span>${esc([oneYear(r.year), r.label, r.catno, r.format, r.country].filter(Boolean).join(" · "))}</span></div></div>`).join("")
     : (rd.error && !rd.need_key ? `<p class="muted">${esc(rd.error)}</p>` : "");
   // songs
   const songs = (sd.results || []).slice(0, 8);
   $("songResults").innerHTML = songs.length ? `<h3 class="resHead">Songs</h3>` + songs.map(r => `
       <div class="result" data-kind="song" data-id="${r.track_id}"><img src="${esc(r.thumb || BLANK)}" alt="" loading="lazy">
-        <div><b>${esc(r.title)}</b><span>${esc([r.artist, r.album, r.year].filter(Boolean).join(" · "))}</span></div></div>`).join("") : "";
+        <div><b>${esc(r.title)}</b><span>${esc([r.artist, r.album, oneYear(r.year)].filter(Boolean).join(" · "))}</span></div></div>`).join("") : "";
   if (!recs.length && !songs.length && !rd.need_key)
     $("recResults").innerHTML = `<p class="muted">Nothing found. Try fewer words, just the artist, or the catalog number from the spine.</p>`;
 }

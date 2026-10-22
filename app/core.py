@@ -189,10 +189,16 @@ def tidy_label(label):
     s = str(label).strip()
     s = re.sub(r"^.*?[℗©]\s*(?:\d{4}\s*)?", "", s) or s          # leftover copyright marks and year
     s = re.sub(r"^\(?[PC]\)\s*(?:\d{4}\s*)?", "", s)
+    s = re.sub(r"^(?:\d{4}(?:\s*[-–,/&]\s*|\s+|$))+", "", s).strip() or s   # "1974, 1976, 1988 Sony" -> "Sony"
     for cut in LABEL_CUTS:
         s = re.split(cut, s, maxsplit=1, flags=re.I)[0]
     s = re.sub(r"\s*\((?:[^)]*(?:music|records|recordings|entertainment|group|ltd|inc|llc)[^)]*)\)$", "", s, flags=re.I)
     s = re.sub(LABEL_SUFFIX, "", s, flags=re.I).strip(" ,.-")
+    if s.isupper() and len(s) > 4:                                          # "SONY BMG MUSIC" -> "Sony BMG Music"
+        small = {"of", "and", "the", "a", "an", "for", "de", "la"}
+        words = s.split()
+        s = " ".join(w if len(w) <= 3 and w.isalpha() and w.lower() not in small else
+                     (w.lower() if i and w.lower() in small else w.capitalize()) for i, w in enumerate(words))
     return LABEL_NAMES.get(s.lower(), s) or str(label).strip()
 
 

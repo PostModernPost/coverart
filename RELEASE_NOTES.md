@@ -1,3 +1,3 @@
-- The phone screen now sleeps and wakes with your PC. When the PC sleeps or hibernates, a phone plugged in over USB turns its screen off; when the PC wakes, the phone's screen comes back on with Liner Notes. You can turn this off in Settings.
-- If the phone loses contact with the PC (shut down, or the cable is out), the screen goes dark and lets the phone's own screen timeout turn it off, instead of staying lit all night.
-- Phone setup tip: turn off "Stay awake" in Developer options (Liner Notes keeps the screen on by itself now), and set Screen lock to None so the phone comes straight back to Liner Notes when it wakes.
+- Only one year ever shows. Labels like "1974, 1976, 1977, 1980, 1988, 2006 SONY BMG MUSIC ENTERTAINMENT" now read "Sony BMG Music Entertainment".
+- Labels written in all caps are shown in normal case (short names like EMI, BMG and XL stay as they are).
+- Includes 0.7.6: the phone screen sleeps and wakes with your PC.
