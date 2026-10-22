@@ -1,1 +1,3 @@
-- More like this: band names line up whether or not the band has a picture, and each band gets a little more room so the Spotify and Bandcamp links don't crowd.
+- Recognition: the audio sent to Shazam goes back to how it was before 0.7.28, just turned up, without the filtering and compression added then. Clips are 10 seconds.
+- Listen now records 10 fresh seconds after you click it, instead of sending what it had already heard, and waits out Shazam's "try again in 12 seconds" so it doesn't get an automatic no match.
+- The Listen now button only shows when a song couldn't be identified.

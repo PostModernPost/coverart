@@ -853,7 +853,7 @@ function render(t, keepArt) {
   $("source").textContent = badge;
   $("source").style.display = badge && !unknown ? "inline-block" : "none";
   $("findBtn").style.display = unknown ? "inline-block" : "none";
-  $("listenBtn").style.display = ["turntable", "record", "manual"].includes(t.source) ? "inline-block" : "none";
+  $("listenBtn").style.display = unknown && ["turntable", "record", "manual"].includes(t.source) ? "inline-block" : "none";
   $("infoBtn").style.display = unknown ? "none" : "grid";
   $("heartBtn").style.display = unknown ? "none" : "grid";
   $("lyHeart").style.visibility = unknown ? "hidden" : "visible";
@@ -1096,7 +1096,7 @@ function showListening(l) {
   else if (l.mode === "off") { txt = "Not listening while music plays on this PC"; cls = "off"; }
   ind.className = "on " + cls;
   ind.querySelector("span").textContent = txt;
-  $("listenBtn2").style.display = l.has_mic && l.mic_live && l.mode !== "off" && !active ? "inline-block" : "none";
+  $("listenBtn2").style.display = "none";          // Listen now lives on the couldn't-identify screen only
   listenNowProgress(l.now_state);
 }
 let lastListenActive = false;

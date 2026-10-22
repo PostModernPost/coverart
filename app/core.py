@@ -64,7 +64,7 @@ CFG = {
     "gap_seconds": 1.0,            # a gap this long triggers a fresh identify
     "probe_every_seconds": 20,     # standby: how often to take a short sample
     "probe_seconds": 2,            # standby: length of that sample
-    "clip_seconds": 12,             # length of audio sent to Shazam
+    "clip_seconds": 10,            # length of audio sent to Shazam
     "retry_seconds": 15,           # when nothing is identified yet, try this often
     "recheck_seconds": 45,         # while a record is playing, re-check this often (catches gapless track changes)
     "idle_after_seconds": 20,      # silence this long = turntable stopped
@@ -1274,6 +1274,7 @@ class AudioBuffer:
         with self.lock:
             self.chunks.clear()
             self.samples = 0
+            self.fed = 0          # every sample since the reset, for "record this many fresh seconds"
         self.recent.clear()
         self.short.clear()
         self.last_music = 0.0     # last moment the sound was sustained like music (typing isn't)
@@ -1293,6 +1294,7 @@ class AudioBuffer:
         with self.lock:
             self.chunks.append(data)
             self.samples += len(data)
+            self.fed += len(data)
             while self.chunks and self.samples - len(self.chunks[0]) >= self.keep:
                 self.samples -= len(self.chunks.popleft())
         step = max(1, int(self.sr * self.BLOCK))
@@ -1348,27 +1350,13 @@ class AudioBuffer:
         return r[len(r) // 10], r[len(r) // 2], r[-1]
 
 
-def clean_clip(data, sr):
-    """Make a room-mic recording easier for Shazam: cut rumble and hum below 80 Hz, bring it up to a
-    steady level, and soften peaks instead of clipping them."""
-    np = __import__("numpy")
-    if not len(data):
-        return data
-    x = data.astype(np.float64) - float(np.mean(data))
-    spec = np.fft.rfft(x)
-    freqs = np.fft.rfftfreq(len(x), 1.0 / sr)
-    spec[freqs < 80] = 0
-    spec[(freqs >= 80) & (freqs < 120)] *= np.linspace(0, 1, int(np.sum((freqs >= 80) & (freqs < 120))) or 1)
-    x = np.fft.irfft(spec, len(x))
-    rms = float(np.sqrt(np.mean(x * x))) or 1e-9
-    x = x * min(0.12 / rms, 60.0)                 # about -18 dB average, at most 60x louder
-    x = np.tanh(x * 1.2) / np.tanh(1.2)           # gentle limiter for the loud bits
-    return x.astype(np.float32)
-
-
 def to_wav(data, sr):
     np = __import__("numpy")
-    data = clean_clip(data, sr)
+    # Just bring a quiet recording up to full level. (0.7.28 to 0.7.39 also filtered and compressed the
+    # clip; Shazam matched nothing in that time, so the sound goes as recorded.)
+    data = data - float(np.mean(data)) if len(data) else data
+    peak = float(np.max(np.abs(data))) if len(data) else 0.0
+    data = data * min(0.9 / (peak or 1.0), 20.0)
     pcm = (np.clip(data, -1, 1) * 32767).astype(np.int16)
     bio = io.BytesIO()
     with wave.open(bio, "wb") as w:
@@ -1650,6 +1638,7 @@ async def _turntable_inner(app, mic, shz):
             if app.get("listen_now_at") and now - app["listen_now_at"] < 60 and not app.get("listen_now_started"):
                 app["listen_now_started"] = now          # Listen now: record right away, whatever the level
                 L.reset()
+                app["listen_now_mark"] = 0
                 last_try = 0.0
                 misses = 0
                 set_mode(app, mic, "active")
@@ -1698,7 +1687,8 @@ async def _turntable_inner(app, mic, shz):
         if len(L.short) >= 25:
             app["meter"] = {"level": sorted(L.short)[len(L.short) // 5], "at": now}
         if app.get("listen_now_at") and not app.get("listen_now_started"):
-            app["listen_now_started"] = now           # already listening: the next check happens right away
+            app["listen_now_started"] = now           # already listening: record a fresh clip, then check
+            app["listen_now_mark"] = L.fed
         listen_now = bool(app.get("listen_now_started"))
         # A song Shazam found is still within its length: wait much longer before deciding the record stopped
         quiet_limit = CFG["hold_seconds"] if song_still_playing(app, t) else CFG["idle_after_seconds"]
@@ -1727,8 +1717,9 @@ async def _turntable_inner(app, mic, shz):
                 log(f"track length passed: next track {rec.tracks[rec.idx]['pos']}")
 
         if listen_now:
-            # Listen now: send whatever the mic has heard once there's a full clip, loud enough or not
-            if L.samples < CFG["clip_seconds"] * mic.sr:
+            # Listen now: send a full clip recorded after the click (loud enough or not), and not
+            # before Shazam's own "try again in 12 s" is up, or it answers no match without listening
+            if L.fed - app.get("listen_now_mark", 0) < CFG["clip_seconds"] * mic.sr or now < not_before:
                 continue
             app["listen_now_state"] = "asking"
         elif L.sound_for < CFG["clip_seconds"]:
@@ -1744,7 +1735,7 @@ async def _turntable_inner(app, mic, shz):
                or (now - last_try >= CFG["recheck_seconds"]))
         app["next_try"] = max(last_try + (CFG["recheck_seconds"] if identified and not misses else retry_wait),
                               not_before)
-        if not due or (now < not_before and not listen_now):
+        if not due or now < not_before:
             continue
         if listen_now:
             app.pop("listen_now_started", None)
