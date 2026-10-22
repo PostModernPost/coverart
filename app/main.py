@@ -181,6 +181,16 @@ def open_panel(name):
         webbrowser.open(f"{URL}/#{name}")
 
 
+def toggle_fullscreen():
+    """The fullscreen button inside Liner Notes' own window."""
+    w = WINDOW.get("w")
+    if w is None:
+        return None
+    w.toggle_fullscreen()
+    WINDOW["full"] = not WINDOW.get("full", False)
+    return WINDOW["full"]
+
+
 def wait_for_server(seconds=15):
     end = time.time() + seconds
     while time.time() < end:
@@ -202,7 +212,7 @@ def run_window(show):
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True   # links open in your normal browser
     except Exception:
         pass
-    win = webview.create_window(APP_NAME, URL, width=960, height=600, min_size=(480, 320),
+    win = webview.create_window(APP_NAME, f"{URL}/?window=1", width=960, height=600, min_size=(480, 320),
                                 background_color="#0b0b0c", hidden=not show, text_select=True)
     WINDOW["w"] = win
     WINDOW["visible"] = show
@@ -354,6 +364,7 @@ def server_thread():
     app = core.build_app()
     loop.run_until_complete(core.serve(app))
     app["on_show_window"] = show_window
+    app["on_toggle_fullscreen"] = toggle_fullscreen
     app["on_restart"] = lambda: restart(ICON["i"]) if ICON.get("i") else None
     APP["app"] = app
     APP["loop"] = loop

@@ -1592,6 +1592,12 @@ async def api_update(request):
     return web.json_response(update_info(app))
 
 
+async def api_window_fullscreen(request):
+    fn = request.app.get("on_toggle_fullscreen")
+    full = await asyncio.get_running_loop().run_in_executor(None, fn) if fn else None
+    return web.json_response({"ok": fn is not None, "full": full})
+
+
 async def api_window(request):
     """A second launch of Liner Notes asks the running one to show its window."""
     fn = request.app.get("on_show_window")
@@ -1951,6 +1957,7 @@ def build_app(demo=False):
     app.router.add_get("/sw.js", service_worker)
     app.router.add_get("/api/update", api_update)
     app.router.add_post("/api/window", api_window)
+    app.router.add_post("/api/window/fullscreen", api_window_fullscreen)
     app.router.add_get("/api/records/search", api_records_search)
     app.router.add_post("/api/records/load", api_records_load)
     app.router.add_post("/api/records/position", api_records_position)

@@ -452,7 +452,7 @@ function applySettings() {
   document.documentElement.style.setProperty("--ts", textScale());
   document.querySelectorAll("#textSize [data-ts]").forEach(b => b.classList.toggle("on", String(settings.textSize || "auto") === b.dataset.ts));
   document.querySelectorAll(".setting[data-key]").forEach(el => el.classList.toggle("on", !!settings[el.dataset.key]));
-  $("fsSetting").classList.toggle("on", !!document.fullscreenElement);
+  $("fsSetting").classList.toggle("on", typeof isFull === "function" ? isFull() : !!document.fullscreenElement);
   if (current) render(current, true);
 }
 document.querySelectorAll("#textSize [data-ts]").forEach(b => b.addEventListener("click", e => {
@@ -463,10 +463,11 @@ document.querySelectorAll(".setting[data-key]").forEach(el => el.addEventListene
   settings[el.dataset.key] = !settings[el.dataset.key]; saveSettings(); applySettings();
 }));
 const standalone = matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches;
-if (standalone || !document.fullscreenEnabled) {
+if ((standalone || !document.fullscreenEnabled) && !new URLSearchParams(location.search).has("window")) {
   $("fsSetting").style.display = "none";
 }
 $("fsSetting").addEventListener("click", async () => {
+  if (typeof IN_WINDOW !== "undefined" && IN_WINDOW) { $("fsBtn").click(); setTimeout(applySettings, 300); return; }
   try { if (document.fullscreenElement) await document.exitFullscreen(); else await document.documentElement.requestFullscreen(); } catch (e) {}
   setTimeout(applySettings, 300);
 });
@@ -932,9 +933,12 @@ document.addEventListener("click", async e => {
 });
 
 // ---------------------------------------------------------------- fullscreen button (main screen)
-function isFull() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+// In Liner Notes' own window on the PC, the app makes the window fullscreen itself
+const IN_WINDOW = new URLSearchParams(location.search).has("window");
+let windowFull = false;
+function isFull() { return IN_WINDOW ? windowFull : !!(document.fullscreenElement || document.webkitFullscreenElement); }
 function updateFsBtn() {
-  const can = (document.fullscreenEnabled || document.webkitFullscreenEnabled) && !standalone;
+  const can = IN_WINDOW || ((document.fullscreenEnabled || document.webkitFullscreenEnabled) && !standalone);
   $("fsBtn").style.display = can ? "grid" : "none";
   $("fsBtn").classList.toggle("full", isFull());
   $("fsIn").style.display = isFull() ? "none" : "block";
@@ -943,12 +947,20 @@ function updateFsBtn() {
 }
 $("fsBtn").addEventListener("click", async e => {
   e.stopPropagation();
+  if (IN_WINDOW) {
+    try {
+      const d = await (await fetch("/api/window/fullscreen", { method: "POST" })).json();
+      if (d.full !== null && d.full !== undefined) windowFull = d.full;
+    } catch (err) {}
+    updateFsBtn(); return;
+  }
   try {
     if (isFull()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
     else await (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen).call(document.documentElement);
   } catch (err) {}
 });
 document.addEventListener("fullscreenchange", updateFsBtn);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && IN_WINDOW && windowFull) $("fsBtn").click(); });
 document.addEventListener("webkitfullscreenchange", updateFsBtn);
 updateFsBtn();
 if (location.hash === "#phone") setTimeout(openPhoneSetup, 300);
