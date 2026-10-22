@@ -1,1 +1,2 @@
-- A song Shazam recognized on a record, CD or tape now stays on screen until its length runs out, even through long beat-only stretches, breakdowns or quiet parts that Shazam can't match. It only changes early if the music stops altogether or Shazam recognizes a different song. (On the radio it still switches right away, since the next song can start any time.)
+- "Just played" is big and gold on the between-records screen, so it's clear the album shown already finished.
+- A listening light in the bottom corner while nothing is playing: "Listening for music" (slow pulse), "Hearing music…" (fast pulse) when it picks something up, or a grey light saying why it isn't listening (no microphone, or the phone's mic page isn't open).

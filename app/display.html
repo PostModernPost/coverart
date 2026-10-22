@@ -124,6 +124,8 @@
   #jpArt.record { border-radius: 50%; }
   #jpArt { height: min(74vh, 46vw); aspect-ratio: 1; object-fit: cover; border-radius: 6px; box-shadow: 0 20px 60px rgba(0,0,0,.6); flex: none; background: #1a1a1d; }
   #jpSide { min-width: 0; max-width: 46vw; color: var(--fg); }
+  #jpKicker { font-size: calc(var(--ts) * clamp(18px, 4.4vmin, 44px)); font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--gold); margin: 0 0 .35em; line-height: 1; }
   #jpSide .kicker { font-size: calc(var(--ts) * clamp(10px, 1.8vmin, 14px)); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin: 0 0 .8em; }
   #jpAlbum { font-size: calc(var(--ts) * clamp(18px, 4.6vmin, 46px)); font-weight: 650; line-height: 1.1; margin: 0; }
   #jpArtist { font-size: calc(var(--ts) * clamp(14px, 3.2vmin, 30px)); margin: .25em 0 0; opacity: .9; }
@@ -321,6 +323,14 @@
   #credits .src { margin-top: 1.4em; font-size: .85em; }
   #credits a { color: var(--gold); }
 
+  /* is Liner Notes listening? (shown while nothing is playing) */
+  #micInd { position: fixed; left: max(3vmin, env(safe-area-inset-left)); bottom: 3vmin; z-index: 3; display: none; align-items: center; gap: .6em;
+    color: var(--dim); font-size: calc(var(--ts) * clamp(11px, 2.1vmin, 16px)); background: rgba(0,0,0,.35); padding: .45em .9em .45em .7em; border-radius: 99px; }
+  #idle #micInd.on { display: flex; }
+  #micInd i { width: .65em; height: .65em; border-radius: 50%; background: var(--gold); animation: pulse 3s ease-in-out infinite; flex: none; }
+  #micInd.hearing i { animation-duration: 1.1s; }
+  #micInd.off i { background: #6b6b70; animation: none; }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -395,11 +405,12 @@
 
 <div id="idle"><div class="record"></div><div id="idleText">Nothing playing</div>
   <div id="idleShow">
-    <div id="jp" class="off"><img id="jpArt" alt=""><div id="jpSide"><p class="kicker">Just played</p><p id="jpAlbum" class="clamp"></p>
+    <div id="jp" class="off"><img id="jpArt" alt=""><div id="jpSide"><p id="jpKicker">Just played</p><p id="jpAlbum" class="clamp"></p>
       <p id="jpArtist" class="clamp"></p><p id="jpWhen"></p><div id="jpRecent"></div><div id="jpSaved"></div></div></div>
     <div id="slides" class="off"><div class="bgl"></div><div class="bgl hide"></div><div class="sl hide"></div><div class="sl hide"></div></div>
   </div>
   <div id="idleStatus"></div>
+  <div id="micInd"><i></i><span></span></div>
 </div>
 
 <div id="toolbar">
@@ -979,6 +990,14 @@ function showListening(l) {
   }
   lastListenActive = active;
   updateIdleText();
+  const ind = $("micInd");
+  let txt = "Listening for music", cls = "";
+  if (!l.has_mic) { txt = "Not listening: no microphone"; cls = "off"; }
+  else if (!l.mic_live) { txt = "Not listening: open Liner Notes on the phone to use its mic"; cls = "off"; }
+  else if (active) { txt = "Hearing music…"; cls = "hearing"; }
+  else if (l.mode === "off") { txt = "Not listening while music plays on this PC"; cls = "off"; }
+  ind.className = "on " + cls;
+  ind.querySelector("span").textContent = txt;
 }
 let lastListenActive = false;
 function updateIdleText() {

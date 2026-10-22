@@ -2970,6 +2970,16 @@ async def api_qr(request):
                         headers={"Cache-Control": "no-store"})
 
 
+def mic_live(app):
+    """Is the microphone actually delivering sound? (The phone's only does while its page is open.)"""
+    mic = app.get("mic")
+    if mic is None:
+        return False
+    if mic.kind == "phone":
+        return time.time() - (getattr(mic, "last_upload", 0) or 0) < 90
+    return True
+
+
 def mic_info(app):
     mic = app.get("mic")
     if not mic or mic.kind != "phone":
@@ -2995,6 +3005,8 @@ async def api_now(request):
                                                  and not st.track.get("medium") and not room_medium(request.app)),
                               "discogs_ready": discogs_ready(),
                               "listen": {"mode": request.app.get("listen_mode", "off"),
+                                         "has_mic": request.app.get("mic") is not None,
+                                         "mic_live": mic_live(request.app),
                                          "next_try": request.app.get("next_try"), "now": time.time()}})
 
 
