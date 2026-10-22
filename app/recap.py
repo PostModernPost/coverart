@@ -23,7 +23,7 @@ def recap_period(period, offset=0, now=None):
         end = now - dt.timedelta(days=offset)
         start = end - dt.timedelta(days=1)
         title = "Last 24 hours" if offset == 0 else f"{end:%A}"
-        sub = f"{fmt_day(start)} to {fmt_day(end)}, {end.year}" if start.day != end.day else f"{fmt_day(end)}, {end.year}"
+        sub = f"{end:%A}, {fmt_day(end)}, {end.year}" if offset == 0 else f"{fmt_day(end)}, {end.year}"
     elif period == "week":
         end = now - dt.timedelta(days=7 * offset)
         start = end - dt.timedelta(days=7)

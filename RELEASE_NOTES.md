@@ -1,3 +1,2 @@
-- CDs, tapes and more: songs Liner Notes hears in the room can be on vinyl, CD, cassette, the radio or something else. Set what you use in Settings > Music in the room (for example Vinyl), or leave it on Ask: the first song of a listening session asks "What's playing it?", and your pick holds until the room goes quiet for half an hour. Tick "Always use this" to make it your default. Record mode uses the format from Discogs automatically.
-- Your history, stats, the between-records screen and recap cards all show the medium ("on vinyl & CD" on a card). Radio plays aren't scrobbled to Last.fm.
-- New Liner Notes logo: a record sliding out of a sleeve with notes on it. It's the app icon, the tray icon, the phone's home-screen icon, and it's on recap cards. Re-add Liner Notes to your phone's home screen to get the new icon there.
+- The 24-hour recap card shows today's date (it still counts the last 24 hours). Earlier ones show the day they end on.
+- Reminder: month cards follow the calendar (October, September...), and "Earlier" steps back through past months, weeks, days and years so you can view or share any of them.
