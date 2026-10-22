@@ -68,6 +68,7 @@ CFG = {
     "idle_after_seconds": 20,      # silence this long = turntable stopped
     "poll_seconds": 1.0,           # how often to check Spotify / PC media
     "ignore_apps": [],             # e.g. ["msedge", "chrome"] to ignore browser videos
+    "phone_follows_pc": True,      # phone screen turns off when this PC sleeps, back on when it wakes
     "discogs_token": "",           # optional personal Discogs token (the app has its own key when built)
     "donate_url": "https://buymeacoffee.com/goodisanoun",  # shown in the info panel ("" hides it)
 }
@@ -1718,6 +1719,8 @@ async def api_config(request):
             cfg = {}
     if "discogs_token" in body:
         cfg["discogs_token"] = CFG["discogs_token"] = (body.get("discogs_token") or "").strip()
+    if "phone_follows_pc" in body:
+        cfg["phone_follows_pc"] = CFG["phone_follows_pc"] = bool(body.get("phone_follows_pc"))
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
     return web.json_response({"ok": True, "discogs_ready": discogs_ready()})
@@ -1770,6 +1773,13 @@ def adb_devices():
             model = next((p.split(":", 1)[1].replace("_", " ") for p in parts[2:] if p.startswith("model:")), None)
             out.append({"serial": parts[0], "state": parts[1], "model": model})
     return out
+
+
+def adb_phone_screens(on):
+    """Turn the screens of plugged-in phones on or off (like pressing their power button)."""
+    for d in adb_devices():
+        if d["state"] == "device":
+            adb_run("-s", d["serial"], "shell", "input", "keyevent", "KEYCODE_WAKEUP" if on else "KEYCODE_SLEEP", timeout=5)
 
 
 def adb_connect_phones():
@@ -1916,6 +1926,7 @@ async def api_now(request):
                               "donate": CFG.get("donate_url") or "", "update": update_info(request.app),
                               "record": request.app["record"].summary() if request.app.get("record") else None,
                               "progress": progress_now(request.app),
+                              "phone_follows_pc": CFG.get("phone_follows_pc", True),
                               "discogs_ready": discogs_ready(),
                               "listen": {"mode": request.app.get("listen_mode", "off"),
                                          "next_try": request.app.get("next_try"), "now": time.time()}})

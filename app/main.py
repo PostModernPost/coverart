@@ -436,6 +436,61 @@ def adb_loop():
         time.sleep(15)
 
 
+# ------------------------------------------------------------- PC sleep / wake -> phone screen off / on
+_power = {}
+
+
+def watch_power():
+    """Ask Windows to tell us when the PC goes to sleep or hibernates, and when it wakes."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        PBT_APMSUSPEND, PBT_APMRESUMESUSPEND, PBT_APMRESUMEAUTOMATIC = 0x4, 0x7, 0x12
+        CALLBACK = ctypes.WINFUNCTYPE(wintypes.ULONG, ctypes.c_void_p, wintypes.ULONG, ctypes.c_void_p)
+
+        class SUBSCRIBE(ctypes.Structure):
+            _fields_ = [("Callback", CALLBACK), ("Context", ctypes.c_void_p)]
+
+        def on_power(context, kind, setting):
+            try:
+                if not core.CFG.get("phone_follows_pc", True) or not core.adb_path():
+                    return 0
+                if kind == PBT_APMSUSPEND:
+                    print("PC going to sleep: phone screen off", flush=True)
+                    core.adb_phone_screens(False)
+                elif kind in (PBT_APMRESUMESUSPEND, PBT_APMRESUMEAUTOMATIC) and not _power.get("waking"):
+                    threading.Thread(target=wake_phone_after_resume, daemon=True).start()
+            except Exception as e:
+                print("power event failed:", e, flush=True)
+            return 0
+
+        cb = CALLBACK(on_power)
+        params = SUBSCRIBE(cb, None)
+        handle = ctypes.c_void_p()
+        DEVICE_NOTIFY_CALLBACK = 2
+        rc = ctypes.windll.powrprof.PowerRegisterSuspendResumeNotification(
+            DEVICE_NOTIFY_CALLBACK, ctypes.byref(params), ctypes.byref(handle))
+        _power.update(cb=cb, params=params, handle=handle)     # keep alive for the life of the app
+        print("watching PC sleep/wake" if rc == 0 else f"couldn't watch PC sleep/wake ({rc})", flush=True)
+    except Exception as e:
+        print("PC sleep/wake watching unavailable:", e, flush=True)
+
+
+def wake_phone_after_resume():
+    """USB takes a few seconds to come back after the PC wakes: keep trying for a bit."""
+    _power["waking"] = True
+    try:
+        for _ in range(12):
+            time.sleep(2.5)
+            if any(d["state"] == "device" for d in core.adb_devices()):
+                print("PC awake: phone screen on", flush=True)
+                core.adb_phone_screens(True)
+                core.adb_connect_phones()
+                return
+    finally:
+        _power["waking"] = False
+
+
 # ------------------------------------------------------------- server
 APP = {}
 
@@ -576,6 +631,7 @@ def main():
     make_source_shortcut()
     threading.Thread(target=server_thread, daemon=True).start()
     threading.Thread(target=adb_loop, daemon=True).start()
+    watch_power()
 
     icon = pystray.Icon("LinerNotes", make_image(), APP_NAME, build_menu())
     ICON["i"] = icon

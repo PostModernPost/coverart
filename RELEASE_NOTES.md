@@ -1,1 +1,3 @@
-- Record labels show just the label: "Island Records, a division of Universal Music Operations Limited" is now "Island Records" (same for "Capitol Records, LLC", "under exclusive license to...", and similar)
+- The phone screen now sleeps and wakes with your PC. When the PC sleeps or hibernates, a phone plugged in over USB turns its screen off; when the PC wakes, the phone's screen comes back on with Liner Notes. You can turn this off in Settings.
+- If the phone loses contact with the PC (shut down, or the cable is out), the screen goes dark and lets the phone's own screen timeout turn it off, instead of staying lit all night.
+- Phone setup tip: turn off "Stay awake" in Developer options (Liner Notes keeps the screen on by itself now), and set Screen lock to None so the phone comes straight back to Liner Notes when it wakes.

@@ -206,6 +206,11 @@
   #fsBtn.full { opacity: .14; border-color: transparent; background: transparent; }
   #fsBtn.full:hover, #fsBtn.full:active { opacity: .7; }
 
+  /* the PC is off or asleep: go dark and let the phone's screen turn off */
+  #pcAway { position: fixed; inset: 0; z-index: 50; background: #000; display: none; align-items: flex-end; justify-content: center;
+    padding-bottom: 6vmin; color: rgba(255,255,255,.18); font-size: calc(var(--ts) * clamp(11px, 2.2vmin, 15px)); }
+  body.pc-away #pcAway { display: flex; }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -350,7 +355,8 @@
     <b>Get the phone ready (one time)</b>
     <ul>
       <li>Open Settings &gt; About phone and tap <strong>Build number</strong> 7 times, until it says you're a developer. On Samsung it's under About phone &gt; Software information. It may ask for the phone's PIN.</li>
-      <li>Go to Settings &gt; System &gt; Developer options (on Samsung, at the bottom of Settings). Turn on <strong>USB debugging</strong> and <strong>Stay awake</strong>, so the screen stays on while it charges.</li>
+      <li>Go to Settings &gt; System &gt; Developer options (on Samsung, at the bottom of Settings). Turn on <strong>USB debugging</strong>. Leave <strong>Stay awake</strong> off: Liner Notes keeps the screen on while it's showing, and lets it turn off when your PC sleeps.</li>
+      <li>Optional: in Settings &gt; Lock screen, set <strong>Screen lock</strong> to <strong>None</strong> (or Swipe), so when your PC wakes the phone comes straight back to Liner Notes.</li>
     </ul>
     <p>Liner Notes can't see the phone's settings, so check this one off yourself by doing step 3.</p></div></div>
 
@@ -432,6 +438,8 @@
   <div class="setting" data-key="showBpm"><div>BPM<small>Tempo of the song, when it can be found. ≈ means estimated from the sound.</small></div><div class="switch"></div></div>
   <div class="setting" id="fsSetting">
     <div>Fullscreen<small id="fsHint">Hides the browser's bars until you leave the page.</small></div><div class="switch"></div></div>
+  <div class="setting" id="followRow">
+    <div>Phone screen sleeps and wakes with this PC<small>A phone plugged in over USB turns its screen off when the PC sleeps or hibernates, and back on when it wakes.</small></div><div class="switch"></div></div>
   <div class="setting" id="phoneSetupRow" style="cursor:pointer">
     <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone or iPhone.</small></div>
     <span class="pill">Set up</span></div>
@@ -443,6 +451,7 @@
   </div>
 </div>
 
+<div id="pcAway">Liner Notes on your PC is off or asleep</div>
 <button id="fsBtn" aria-label="Fullscreen" title="Fullscreen">
   <svg id="fsIn" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
   <svg id="fsOut" viewBox="0 0 24 24" style="display:none"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
@@ -554,18 +563,25 @@ function render(t, keepArt) {
   if ($("info").classList.contains("open")) openInfo();
 }
 
+let pollFails = 0;
 async function poll() {
   try {
     const r = await fetch("/api/now", { cache: "no-store" });
     const d = await r.json();
     donateUrl = d.donate || "";
     if (d.update) showUpdate(d.update);
+    $("followRow").classList.toggle("on", d.phone_follows_pc !== false);
     if (d.listen) showListening(d.listen);
     showProgress(d.progress || null);
     showRecord(d.record || null, d.discogs_ready !== false);
     if (d.version !== version) { version = d.version; render(d.track); }
     if (IS_PHONE && d.mic) micTick(d.mic);
-  } catch (e) { /* server restarting; keep last screen */ }
+    if (pcAway) { pcAway = false; document.body.classList.remove("pc-away"); stayAwake(); }
+    pollFails = 0;
+  } catch (e) {
+    // A restart takes a few seconds; after ~20 s of silence the PC is off or asleep
+    if (++pollFails >= 14 && !pcAway) { pcAway = true; document.body.classList.add("pc-away"); letScreenSleep(); }
+  }
 }
 
 // ---------------------------------------------------------------- records (record mode)
@@ -963,6 +979,11 @@ document.addEventListener("click", async e => {
   if (e.target.id === "useMic") { e.target.disabled = true; e.target.textContent = "Switching…"; await fetch("/api/phone/use-mic", { method: "POST" }); }
 });
 $("phoneSetupRow").addEventListener("click", openPhoneSetup);
+$("followRow").addEventListener("click", async () => {
+  const on = !$("followRow").classList.contains("on");
+  $("followRow").classList.toggle("on", on);
+  try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone_follows_pc: on }) }); } catch (e) {}
+});
 // iPhone (Wi-Fi) tab
 document.querySelectorAll("#phone .tabs .pill").forEach(b => b.addEventListener("click", () => {
   document.querySelectorAll("#phone .tabs .pill").forEach(x => x.classList.toggle("on", x === b));
@@ -1149,9 +1170,16 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
 }
 
 // keep a phone/tablet screen awake while the page is open
+let wakeLock = null, pcAway = false;
 async function stayAwake() {
-  try { if ("wakeLock" in navigator && document.visibilityState === "visible") await navigator.wakeLock.request("screen"); } catch (e) {}
+  if (pcAway) return;                      // the PC is off or asleep: let the phone's screen time out
+  try {
+    if ("wakeLock" in navigator && document.visibilityState === "visible" && !wakeLock)
+      wakeLock = await navigator.wakeLock.request("screen");
+    if (wakeLock) wakeLock.addEventListener("release", () => { wakeLock = null; });
+  } catch (e) {}
 }
+function letScreenSleep() { try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null; }
 document.addEventListener("visibilitychange", stayAwake);
 stayAwake();
 
