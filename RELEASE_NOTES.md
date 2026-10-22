@@ -1,2 +1,1 @@
-- The song info page links to the song on Shazam for every song, including ones from Spotify or a record's tracklist (when Shazam has it).
-- Fixed: the between-records screen said "Finished 6 min ago" counting from when the last song started. It now counts from when it stopped.
+- A song Shazam recognized on a record, CD or tape now stays on screen until its length runs out, even through long beat-only stretches, breakdowns or quiet parts that Shazam can't match. It only changes early if the music stops altogether or Shazam recognizes a different song. (On the radio it still switches right away, since the next song can start any time.)

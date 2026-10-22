@@ -1630,8 +1630,27 @@ async def _turntable_inner(app, mic, shz):
             # the previous song: right after a gap, one miss is enough; otherwise two in a row.
             # A song the user picked by search stays until the next gap.
             # In record mode the tracklist already says what's playing, so keep showing that.
+            # A song Shazam found earlier, on a record, CD or tape, plays to its end: long beat-only
+            # stretches and breakdowns often don't match, and that doesn't mean the song changed.
             if (gap or (misses >= 2 and not picked)) and not (rec and rec.idx is not None):
-                st.show(UNKNOWN)
+                if song_still_playing(app, t):
+                    log("no match, but the song Shazam found is still within its length: keeping it")
+                else:
+                    st.show(UNKNOWN)
+
+
+def song_still_playing(app, t):
+    """True while a song Shazam identified from the mic should still be playing, going by its length.
+    Only for physical media: on the radio the next song can start any time."""
+    if not t or t.get("source") != "turntable" or t.get("status") != "playing":
+        return False
+    if (t.get("medium") or room_medium(app)) == "radio":
+        return False
+    p = progress_now(app)
+    if not p or p.get("pos") is None:
+        return False
+    dur = p.get("dur") or 420              # length unknown: assume up to 7 minutes
+    return p["pos"] < dur - 5
 
 
 # ---------------------------------------------------------------- listening history
