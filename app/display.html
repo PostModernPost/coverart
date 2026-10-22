@@ -296,6 +296,9 @@
   #mediaRow .sizes { display: flex; flex-wrap: wrap; gap: 1vmin; justify-content: flex-end; }
   #aboutMark { width: 44px; height: 44px; vertical-align: middle; margin-right: .7em; }
 
+  /* listening history and saved songs: a readable width on big screens */
+  #stats > :not(.close), #saved > :not(.close) { max-width: 960px; }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -1113,6 +1116,10 @@ $("ranges").addEventListener("click", e => {
 const MEDIA = { vinyl: "Vinyl", cd: "CD", cassette: "Cassette", radio: "Radio", other: "Other" };
 function sourceName(s) { return s === "room" ? "In the room" : (MEDIA[s] || s); }
 const ON_MEDIUM = { vinyl: " · on vinyl", cd: " · on CD", cassette: " · on cassette", radio: " · on the radio" };
+function niceDay(iso) {
+  const [y, m, dd] = iso.split("-").map(Number);
+  return new Date(y, m - 1, dd).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 function timeAgo(ts) {
   const s = Date.now() / 1000 - ts;
   if (s < 3600) return Math.max(1, Math.round(s / 60)) + " min ago";
@@ -1137,8 +1144,8 @@ async function loadStats() {
       <div><b>${esc(label(x)[0])}</b><span>${esc(label(x)[1] || "")}</span></div><span class="n">${x.n}</span></div>`).join("");
   body.innerHTML = `
     <div class="cards">
-      <div class="card"><b>${t.plays}</b><span>songs played</span></div>
-      <div class="card"><b>${t.artists}</b><span>artists</span></div>
+      <div class="card"><b>${t.plays.toLocaleString()}</b><span>songs played</span></div>
+      <div class="card"><b>${t.artists.toLocaleString()}</b><span>artists</span></div>
       <div class="card"><b>${hours >= 10 ? Math.round(hours) : hours.toFixed(1)}</b><span>hours, about</span></div>
     </div>
     <section><h3>Where it came from</h3>
@@ -1147,7 +1154,7 @@ async function loadStats() {
     </section>
     ${d.per_day.length > 1 ? `<section><h3>Songs per day</h3>
       <div class="bars">${d.per_day.map(x => `<div title="${esc(x.day)}: ${x.n}" style="height:${100 * x.n / maxDay}%"></div>`).join("")}</div>
-      <span class="muted" style="font-size:.85em">${esc(d.per_day[0].day)} to ${esc(d.per_day[d.per_day.length - 1].day)}</span></section>` : ""}
+      <span class="muted" style="font-size:.85em">${esc(niceDay(d.per_day[0].day))} to ${esc(niceDay(d.per_day[d.per_day.length - 1].day))}</span></section>` : ""}
     ${d.albums.length ? `<section><h3>Top albums</h3><div class="albums">${d.albums.map(a => `
       <div>${a.art ? `<img src="${esc(a.art)}" alt="" loading="lazy">` : `<div class="noart"></div>`}
       <b class="clamp">${esc(a.album)}</b><span>${esc(a.artist)} · ${a.n} play${a.n === 1 ? "" : "s"}</span></div>`).join("")}</div></section>` : ""}

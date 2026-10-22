@@ -1,2 +1,2 @@
-- The 24-hour recap card shows today's date (it still counts the last 24 hours). Earlier ones show the day they end on.
-- Reminder: month cards follow the calendar (October, September...), and "Earlier" steps back through past months, weeks, days and years so you can view or share any of them.
+- Your listening and Saved songs stay a readable width on wide monitors instead of stretching across the screen.
+- Big counts get commas (3,254), and the songs-per-day chart says "Oct 1 to Oct 22".
