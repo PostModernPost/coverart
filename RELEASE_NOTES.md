@@ -1,2 +1,2 @@
-- Lyrics are found for more songs. Titles like "Lido Shuffle - 2007 Remaster", "(feat. ...)" or "- Live at ..." are retried without the extra words, songs with several artists are retried with the main one, and if LRCLIB still has nothing, Liner Notes checks lyrics.ovh.
-- When no lyrics turn up, a "Look up the lyrics on Genius" button opens the song's Genius search.
+- Record labels come from MusicBrainz first, which lists the label each album originally came out on as a plain name (Maria Muldaur's Open Your Eyes shows "Warner Bros. Records"). Deezer is next, and the long copyright line from Apple Music is only used when neither knows. Labels Shazam or Discogs give for a record are kept as they are.
+- Copyright lines like "Warner Records Inc. Manufactured and Marketed by Rhino..." are trimmed properly when they're the only source.

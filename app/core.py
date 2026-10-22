@@ -175,7 +175,8 @@ _itunes_cache = {}
 
 
 LABEL_CUTS = (r",?\s+a division of\b", r",?\s+a (?:[\w&.' -]+ )?company\b", r",?\s+an? [\w&.' -]+ (?:label|imprint)\b",
-              r"\s+under (?:exclusive )?licen[cs]e\b", r"\s+(?:distributed|marketed|manufactured) by\b",
+              r"\s+under (?:exclusive )?licen[cs]e\b",
+              r"\.?,?\s+(?:distributed|marketed|manufactured)(?:,? (?:and |& )?(?:distributed|marketed|manufactured))* (?:by|for)\b",
               r"\s+for the (?:world|united states|us|uk)\b", r"\s+in association with\b", r"\s+/\s+", r";\s")
 LABEL_SUFFIX = r"(?:,?\s+(?:LLC|L\.L\.C\.|Ltd\.?|Limited|Inc\.?|Incorporated|Corp\.?|GmbH|S\.A\.|B\.V\.|Pty\.? Ltd\.?|plc))+\.?$"
 LABEL_NAMES = {"atlantic recording corporation": "Atlantic Records", "umg recordings": "UMG Recordings",
@@ -192,6 +193,7 @@ def tidy_label(label):
     s = re.sub(r"^(?:\d{4}(?:\s*[-–,/&]\s*|\s+|$))+", "", s).strip() or s   # "1974, 1976, 1988 Sony" -> "Sony"
     for cut in LABEL_CUTS:
         s = re.split(cut, s, maxsplit=1, flags=re.I)[0]
+    s = re.sub(r"\b(Inc|Ltd|LLC|Corp|Limited)\.\s+\S.*$", r"\1", s)     # "Warner Records Inc. Anything else" -> "Warner Records Inc"
     s = re.sub(r"\s*\((?:[^)]*(?:music|records|recordings|entertainment|group|ltd|inc|llc)[^)]*)\)$", "", s, flags=re.I)
     s = re.sub(LABEL_SUFFIX, "", s, flags=re.I).strip(" ,.-")
     if s.isupper() and len(s) > 4:                                          # "SONY BMG MUSIC" -> "Sony BMG Music"
@@ -660,6 +662,69 @@ def estimate_bpm(samples, sr):
     return round(6000 / (lags[i] + d))
 
 
+# MusicBrainz knows the label each release came out on, as a plain name ("Warner Bros. Records"),
+# so it's asked first. Streaming copyright lines describe today's reissue ("Warner Records Inc.
+# Manufactured and Marketed by Rhino...").
+MB = "https://musicbrainz.org/ws/2"
+MB_HEADERS = {"User-Agent": "LinerNotes/0.8 ( https://github.com/PostModernPost/coverart )", "Accept": "application/json"}
+_mb_lock = None
+_mb_last = 0.0
+
+
+async def _mb_get(http, path, params):
+    global _mb_lock, _mb_last
+    if _mb_lock is None:
+        _mb_lock = asyncio.Lock()
+    async with _mb_lock:                       # MusicBrainz allows about one request a second
+        wait = _mb_last + 1.1 - time.time()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _mb_last = time.time()
+        async with http.get(MB + path, params={**params, "fmt": "json"}, headers=MB_HEADERS) as r:
+            if r.status != 200:
+                return None
+            return await r.json(content_type=None)
+
+
+async def musicbrainz_label(http, artist, title, album=None):
+    """The label of the song's original release (the album it's on when we know it)."""
+    key = ("mb-label", norm(artist), norm(title), norm(album))
+    if key in _itunes_cache:
+        return _itunes_cache[key]
+    label = None
+    try:
+        q = lambda x: (x or "").replace("\\", " ").replace('"', " ")
+        d = await _mb_get(http, "/recording", {"query": f'recording:"{q(clean_title(title))}" AND artist:"{q(main_artist(artist))}"',
+                                                "limit": "25"})
+        releases = []
+        for rec in (d or {}).get("recordings") or []:
+            credit = " ".join(a.get("name", "") for a in rec.get("artist-credit") or [] if isinstance(a, dict))
+            if norm(main_artist(artist)) not in norm(credit):
+                continue
+            for rel in rec.get("releases") or []:
+                if rel.get("status", "Official") != "Official":
+                    continue
+                rg = rel.get("release-group") or {}
+                releases.append((rel, rg))
+        if releases:
+            same_album = [x for x in releases if album and norm(clean_title(x[0].get("title"))) == norm(clean_title(album))]
+            pool = same_album or [x for x in releases if (x[1].get("primary-type") in ("Album", "Single", "EP"))
+                                  and "Compilation" not in (x[1].get("secondary-types") or [])] or releases
+            pool.sort(key=lambda x: x[0].get("date") or "9999")
+            for rel, _ in pool[:3]:              # the earliest releases; skip any without a label
+                full = await _mb_get(http, f"/release/{rel['id']}", {"inc": "labels"})
+                names = [((li or {}).get("label") or {}).get("name") for li in (full or {}).get("label-info") or []]
+                names = [n for n in names if n and n.lower() not in ("[no label]", "not on label")]
+                if names:
+                    label = names[0]
+                    break
+    except Exception as e:
+        log("musicbrainz lookup failed:", e)
+        return None                              # don't cache: try again next time
+    _itunes_cache[key] = label
+    return label
+
+
 async def enrich_track(app, t):
     """Look up whatever the source didn't give us, then update the screen."""
     try:
@@ -667,15 +732,23 @@ async def enrich_track(app, t):
             return
         http = app["http"]
         fields = {}
-        want = ("year", "label", "genre", "duration_ms", "album")
-        if any(not t.get(k) for k in want):
-            it = await itunes_lookup(http, t["artist"], t["title"]) or {}
-            fields.update({k: it.get(k) for k in want if not t.get(k) and it.get(k)})
+        want = ("year", "genre", "duration_ms", "album")
+        it = await itunes_lookup(http, t["artist"], t["title"]) or {}      # cached, usually already looked up
+        fields.update({k: it.get(k) for k in want if not t.get(k) and it.get(k)})
+        # The label: keep one that came with the song (Shazam, Discogs). One that only came from the
+        # iTunes copyright line gets replaced by MusicBrainz's, or Deezer's, when they have one.
+        itunes_lab = tidy_label(it.get("label")) if it.get("label") else None
+        need_label = not t.get("label") or tidy_label(t["label"]) == itunes_lab
         merged = {**t, **fields}
-        if not merged.get("bpm") or any(not merged.get(k) for k in ("year", "label", "genre", "duration_ms")):
+        dz = {}
+        if not merged.get("bpm") or need_label or any(not merged.get(k) for k in ("year", "genre", "duration_ms")):
             dz = await deezer_lookup(http, t["artist"], t["title"]) or {}
-            fields.update({k: dz.get(k) for k in ("bpm", "year", "label", "genre", "duration_ms", "album")
+            fields.update({k: dz.get(k) for k in ("bpm", "year", "genre", "duration_ms", "album")
                            if not merged.get(k) and dz.get(k)})
+        if need_label:
+            better = await musicbrainz_label(http, t["artist"], t["title"], merged.get("album")) or dz.get("label")
+            if better or not t.get("label"):
+                fields["label"] = better or itunes_lab
         if not t.get("bpm") and not fields.get("bpm") and t.get("source") in ("turntable", "record"):
             mic = app.get("mic")
             if mic is not None:
