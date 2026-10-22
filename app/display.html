@@ -261,6 +261,10 @@
   .setting { display: flex; justify-content: space-between; align-items: center; gap: 3vmin; padding: 2.2vmin 0;
     border-bottom: 1px solid var(--faint); font-size: calc(var(--ts) * clamp(14px, 2.8vmin, 20px)); cursor: pointer; }
   .setting small { display: block; color: var(--dim); font-size: .78em; margin-top: .2em; }
+  /* keep each switch close to its label: rows are a readable width instead of the full screen */
+  #settings .setting, #spotifyBox, #lastfmBox, #about { max-width: 640px; }
+  #settings .setting .pill { white-space: nowrap; }
+  #settings .setting:hover { background: linear-gradient(90deg, transparent, rgba(255,255,255,.04) 30%, rgba(255,255,255,.04) 70%, transparent); }
   .switch { width: 2.6em; height: 1.5em; border-radius: 99px; background: var(--faint); position: relative; flex: none; transition: background .2s; }
   .switch::after { content: ""; position: absolute; top: .15em; left: .15em; width: 1.2em; height: 1.2em; border-radius: 50%; background: var(--fg); transition: left .2s; }
   .setting.on .switch { background: var(--gold); } .setting.on .switch::after { left: 1.25em; }

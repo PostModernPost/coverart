@@ -1,3 +1,1 @@
-- Fixed: the Last.fm and Spotify keys didn't make it into 0.7.11 and 0.7.12. Connect Last.fm and Connect Spotify now appear in Settings.
-- Extra large is the default text size for the main screen.
-- Settings, search, history and the other panels always use normal-size text. The text size setting only changes the main screen.
+- Settings switches sit next to their labels: the settings list is a readable width instead of stretching across the whole screen, and rows light up faintly under the mouse.
