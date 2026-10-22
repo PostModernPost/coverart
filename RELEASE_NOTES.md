@@ -1,2 +1,1 @@
-- Lyrics button on the main screen (top right) to turn lyrics beside the art on and off; the Settings switch still works too
-- One search for songs and records: type what's on the sleeve and pick either a record (Liner Notes follows it song by song) or a single song. Barcode scanning lives there too, and the record on the turntable shows at the top with its tracklist one tap away
+- The window reopens where you left it (position, size, and maximized) after updates and restarts. If that spot is no longer on a screen, it opens centered

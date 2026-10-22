@@ -200,6 +200,58 @@ def wait_for_server(seconds=15):
     return False
 
 
+GEOM_FILE = os.path.join(DATA_DIR, "window.json")
+_geom_timer = {"t": None}
+
+
+def load_geometry(webview):
+    """Where the window was last time, if that spot is still on a connected screen."""
+    try:
+        with open(GEOM_FILE, encoding="utf-8") as f:
+            g = json.load(f)
+    except Exception:
+        return {}
+    try:
+        w, h, x, y = int(g.get("w", 960)), int(g.get("h", 600)), g.get("x"), g.get("y")
+        if x is None or y is None:
+            return {"w": w, "h": h, "max": bool(g.get("max"))}
+        x, y = int(x), int(y)
+        screens = list(getattr(webview, "screens", []) or [])
+        if screens:
+            # the title bar (top 40 px) must overlap some screen, or the window would be unreachable
+            def visible(sc):
+                sx, sy = int(getattr(sc, "x", 0) or 0), int(getattr(sc, "y", 0) or 0)
+                return (x < sx + sc.width - 80 and x + w > sx + 80 and y < sy + sc.height - 40 and y + 40 > sy)
+            if not any(visible(sc) for sc in screens):
+                return {"w": w, "h": h}
+        return {"w": w, "h": h, "x": x, "y": y, "max": bool(g.get("max"))}
+    except Exception:
+        return {}
+
+
+def remember_geometry(**changes):
+    """Called as the window moves or resizes; saved half a second after it settles."""
+    g = WINDOW.setdefault("geom", {})
+    state = WINDOW.get("state", "normal")
+    if ("x" in changes or "w" in changes) and state != "normal":
+        return            # keep the normal-size spot while maximized or minimized
+    if "x" in changes and (changes["x"] is None or changes["x"] <= -30000):
+        return            # Windows parks minimized windows at -32000
+    g.update(changes)
+    if _geom_timer["t"]:
+        _geom_timer["t"].cancel()
+
+    def save():
+        try:
+            with open(GEOM_FILE, "w", encoding="utf-8") as f:
+                json.dump(WINDOW.get("geom", {}), f)
+        except Exception as e:
+            print("couldn't save window position:", e, flush=True)
+    _geom_timer["t"] = threading.Timer(0.5, save)
+    _geom_timer["t"].daemon = True
+    _geom_timer["t"].start()
+
+
 def run_window(show):
     """Runs the built-in window on the main thread until Quit. Returns False if it can't start."""
     try:
@@ -212,8 +264,17 @@ def run_window(show):
         webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True   # links open in your normal browser
     except Exception:
         pass
-    win = webview.create_window(APP_NAME, f"{URL}/?window=1", width=960, height=600, min_size=(480, 320),
-                                background_color="#0b0b0c", hidden=not show, text_select=True)
+    g = load_geometry(webview)
+    WINDOW["geom"] = dict(g)
+    WINDOW["state"] = "max" if g.get("max") else "normal"
+    opts = dict(width=g.get("w", 960), height=g.get("h", 600), min_size=(480, 320),
+                background_color="#0b0b0c", hidden=not show, text_select=True)
+    if "x" in g:
+        opts.update(x=g["x"], y=g["y"])
+    try:
+        win = webview.create_window(APP_NAME, f"{URL}/?window=1", maximized=bool(g.get("max")), **opts)
+    except TypeError:                              # older window library without `maximized`
+        win = webview.create_window(APP_NAME, f"{URL}/?window=1", **opts)
     WINDOW["w"] = win
     WINDOW["visible"] = show
 
@@ -225,6 +286,28 @@ def run_window(show):
         return False
 
     win.events.closing += on_closing
+    # remember where the window is, so updates and restarts reopen it in the same place
+    try:
+        win.events.moved += lambda x, y: remember_geometry(x=x, y=y)
+        win.events.resized += lambda w, h: remember_geometry(w=w, h=h)
+        def maximized():
+            WINDOW["state"] = "max"
+            remember_geometry(max=True)
+
+        def minimized():
+            WINDOW["state"] = "min"
+
+        def restored():
+            was = WINDOW.get("state")
+            WINDOW["state"] = "normal"
+            if was == "max":
+                remember_geometry(max=False)
+
+        win.events.maximized += maximized
+        win.events.minimized += minimized
+        win.events.restored += restored
+    except Exception as e:
+        print("window position tracking unavailable:", e, flush=True)
     try:
         webview.start(private_mode=False, storage_path=os.path.join(DATA_DIR, "webview"))
     except Exception as e:
