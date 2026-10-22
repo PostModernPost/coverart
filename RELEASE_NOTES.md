@@ -1,2 +1,3 @@
-- Updating no longer leaves two Cover Art windows open: the open window reloads itself with the new version
-- Opening Cover Art while it's already running brings the existing window to the front instead of opening another
+- Cover Art now has its own window instead of opening in a browser
+- Closing the window keeps Cover Art running by the clock; reopen it from the record icon
+- New tray option: Open in browser (uses your default browser)

@@ -1005,6 +1005,14 @@ async def api_update(request):
     return web.json_response(update_info(app))
 
 
+async def api_window(request):
+    """A second launch of Cover Art asks the running one to show its window."""
+    fn = request.app.get("on_show_window")
+    if fn:
+        fn()
+    return web.json_response({"ok": bool(fn)})
+
+
 def mic_info(app):
     mic = app.get("mic")
     if not mic or mic.kind != "phone":
@@ -1100,6 +1108,7 @@ def build_app(demo=False):
     app.router.add_get("/icon-512.png", icon_file)
     app.router.add_get("/sw.js", service_worker)
     app.router.add_get("/api/update", api_update)
+    app.router.add_post("/api/window", api_window)
     app.router.add_post("/api/update", api_update)
     app.router.add_get("/icon.svg", icon)
     app.on_startup.append(on_startup)

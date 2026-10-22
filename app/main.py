@@ -61,7 +61,8 @@ def ensure_packages():
     if FROZEN:
         return
     missing = []
-    for mod in ("aiohttp", "numpy", "sounddevice", "shazamio", "pystray", "PIL", "winrt.windows.media.control"):
+    for mod in ("aiohttp", "numpy", "sounddevice", "shazamio", "pystray", "PIL", "winrt.windows.media.control",
+                "webview"):
         try:
             __import__(mod)
         except Exception as e:
@@ -83,7 +84,8 @@ def selftest():
     """Used by the build to prove every bundled part loads. Exit code 0 = good."""
     failures = []
     for mod in ("aiohttp", "numpy", "sounddevice", "shazamio", "pystray", "PIL",
-                "winrt.windows.media.control", "winrt.windows.storage.streams", "core"):
+                "winrt.windows.media.control", "winrt.windows.storage.streams", "core",
+                "webview", "clr", "webview.platforms.edgechromium"):
         try:
             __import__(mod)
         except Exception as e:
@@ -129,54 +131,79 @@ def make_image(size=64):
     return img
 
 
-def find_edge():
-    for p in (shutil.which("msedge"),
-              os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
-              os.path.join(os.environ.get("ProgramFiles", ""), "Microsoft", "Edge", "Application", "msedge.exe")):
-        if p and os.path.exists(p):
-            return p
-    return None
+WINDOW = {}
+QUITTING = {"now": False}
 
 
-def focus_existing_window():
-    """If a Cover Art window is already open, bring it to the front instead of opening another."""
+def show_window():
+    """Show Cover Art's own window (or bring it to the front)."""
+    w = WINDOW.get("w")
+    if w is None:
+        webbrowser.open(URL)            # no built-in window available: use the default browser
+        return
     try:
-        import ctypes
-        from ctypes import wintypes
-        user32 = ctypes.windll.user32
-        found = []
-
-        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-        def each(hwnd, _):
-            if user32.IsWindowVisible(hwnd):
-                buf = ctypes.create_unicode_buffer(256)
-                user32.GetWindowTextW(hwnd, buf, 256)
-                if buf.value == APP_NAME:
-                    found.append(hwnd)
-                    return False
-            return True
-
-        user32.EnumWindows(each, 0)
-        if found:
-            user32.ShowWindow(found[0], 9)          # SW_RESTORE (un-minimize)
-            user32.SetForegroundWindow(found[0])
-            return True
+        WINDOW["visible"] = True
+        w.show()
+        w.restore()
+        w.on_top = True                 # brief always-on-top nudge brings it to the front
+        w.on_top = False
     except Exception as e:
-        print("focus window failed:", e, flush=True)
+        print("show window failed:", e, flush=True)
+
+
+open_window = show_window
+
+
+def wait_for_server(seconds=15):
+    end = time.time() + seconds
+    while time.time() < end:
+        if port_in_use() and APP.get("app"):
+            return True
+        time.sleep(0.2)
     return False
 
 
-def open_window():
-    """The display in its own app window (Edge app mode: no tabs, no address bar). Browser as fallback."""
-    if focus_existing_window():
-        return
-    edge = find_edge()
-    if edge:
-        subprocess.Popen([edge, f"--app={URL}", "--window-size=960,600",
-                          f"--user-data-dir={os.path.join(DATA_DIR, 'window')}",
-                          "--no-first-run", "--no-default-browser-check"], creationflags=NO_WINDOW)
-    else:
-        webbrowser.open(URL)
+def run_window(show):
+    """Runs the built-in window on the main thread until Quit. Returns False if it can't start."""
+    try:
+        import webview
+    except Exception as e:
+        print("built-in window unavailable:", repr(e), flush=True)
+        return False
+    wait_for_server()
+    try:
+        webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True   # links open in your normal browser
+    except Exception:
+        pass
+    win = webview.create_window(APP_NAME, URL, width=960, height=600, min_size=(480, 320),
+                                background_color="#0b0b0c", hidden=not show, text_select=True)
+    WINDOW["w"] = win
+    WINDOW["visible"] = show
+
+    def on_closing():
+        if QUITTING["now"]:
+            return True
+        WINDOW["visible"] = False
+        win.hide()                      # closing the window keeps Cover Art running by the clock
+        return False
+
+    win.events.closing += on_closing
+    try:
+        webview.start(private_mode=False, storage_path=os.path.join(DATA_DIR, "webview"))
+    except Exception as e:
+        WINDOW.pop("w", None)
+        print("built-in window failed:", repr(e), flush=True)
+        return False
+    return True
+
+
+def quit_app(icon=None, item=None):
+    QUITTING["now"] = True
+    try:
+        if icon:
+            icon.stop()
+    finally:
+        os._exit(0)
 
 
 def make_source_shortcut():
@@ -300,6 +327,7 @@ def server_thread():
     asyncio.set_event_loop(loop)
     app = core.build_app()
     loop.run_until_complete(core.serve(app))
+    app["on_show_window"] = show_window
     APP["app"] = app
     APP["loop"] = loop
     loop.run_forever()
@@ -319,7 +347,8 @@ def status_text(item=None):
 
 # ------------------------------------------------------------- tray menu
 def restart(icon):
-    subprocess.Popen(relaunch_cmd("--quiet", "--restart"), creationflags=NO_WINDOW)
+    args = ["--quiet", "--restart"] + (["--show"] if WINDOW.get("visible") else [])
+    subprocess.Popen(relaunch_cmd(*args), creationflags=NO_WINDOW)
     icon.stop()
     os._exit(0)
 
@@ -375,14 +404,15 @@ def build_menu():
     return pystray.Menu(
         pystray.MenuItem(status_text, None, enabled=False),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Open Cover Art", lambda i, it: open_window(), default=True),
+        pystray.MenuItem("Open Cover Art", lambda i, it: show_window(), default=True),
+        pystray.MenuItem("Open in browser", lambda i, it: webbrowser.open(URL)),
         pystray.MenuItem("Microphone", pystray.Menu(*mics)),
         pystray.MenuItem("Start with Windows", lambda i, it: set_startup(not startup_enabled()),
                          checked=lambda it: startup_enabled()),
         pystray.MenuItem("Settings folder", lambda i, it: os.startfile(DATA_DIR)),
         pystray.MenuItem(update_label, update_action, visible=lambda it: core.VERSION != "dev"),
         pystray.Menu.SEPARATOR,
-        pystray.MenuItem("Quit", lambda i, it: (i.stop(), os._exit(0))),
+        pystray.MenuItem("Quit", quit_app),
     )
 
 
@@ -410,8 +440,12 @@ def main():
             if not port_in_use():
                 break
             time.sleep(0.25)
-    elif port_in_use():                  # already running: just show the window
-        open_window()
+    elif port_in_use():                  # already running: ask it to show its window
+        try:
+            import urllib.request
+            urllib.request.urlopen(urllib.request.Request(f"{URL}/api/window", data=b"{}", method="POST"), timeout=3)
+        except Exception:
+            webbrowser.open(URL)
         return
 
     first_flag = os.path.join(DATA_DIR, ".first_run_done")
@@ -421,28 +455,28 @@ def main():
     threading.Thread(target=adb_loop, daemon=True).start()
 
     icon = pystray.Icon("CoverArt", make_image(), APP_NAME, build_menu())
-
-    def setup(ic):
-        ic.visible = True
-        threading.Thread(target=refresher, args=(ic,), daemon=True).start()
-        if updated:
-            # A window left open from before the update reconnects by itself (it checks every 1.5 s).
-            # Only open one if nothing has checked in.
-            time.sleep(6)
-            app = APP.get("app")
-            if not app or time.time() - app.get("last_window_poll", 0) > 6:
-                open_window()
-        elif not quiet and not restarting:
-            time.sleep(1.5)              # let the server come up
-            open_window()
-        if first_run:
-            open(first_flag, "w").close()
+    icon.run_detached()
+    icon.visible = True
+    threading.Thread(target=refresher, args=(icon,), daemon=True).start()
+    if first_run:
+        open(first_flag, "w").close()
+        def hello():
+            time.sleep(3)
             try:
-                ic.notify("Cover Art keeps running by the clock. Right-click the record icon for options.", APP_NAME)
+                icon.notify("Closing the window keeps Cover Art running by the clock. Right-click the record icon for options.",
+                            APP_NAME)
             except Exception:
                 pass
+        threading.Thread(target=hello, daemon=True).start()
 
-    icon.run(setup)
+    show = updated or "--show" in sys.argv or not (quiet or restarting)
+    if not run_window(show):
+        # No built-in window on this PC: fall back to the default browser and keep running in the tray
+        if show and wait_for_server():
+            webbrowser.open(URL)
+        while True:
+            time.sleep(3600)
+    quit_app(icon)
 
 
 if __name__ == "__main__":

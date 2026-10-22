@@ -62,6 +62,8 @@ jobs:
           --collect-all shazamio_core
           --collect-all winrt
           --collect-all _sounddevice_data
+          --collect-all webview
+          --hidden-import clr
           app/main.py
 
       - name: Self-test (every bundled part loads)

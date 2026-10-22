@@ -18,7 +18,7 @@ Free. If you enjoy it, you can [buy me a coffee](https://buymeacoffee.com/goodis
 
 ## Install (Windows 10/11)
 
-Download `CoverArt-Setup-x.y.z.exe` from [Releases](https://github.com/PostModernPost/coverart/releases) and run it. No admin password needed. Cover Art opens in its own window and keeps a record icon by the clock:
+Download `CoverArt-Setup-x.y.z.exe` from [Releases](https://github.com/PostModernPost/coverart/releases) and run it. No admin password needed. Cover Art opens in its own window (no browser needed) and keeps a record icon by the clock. Closing the window keeps it running there:
 
 - **Left-click** the icon to open the window.
 - **Right-click** for the microphone choice, Start with Windows, the settings folder, and Quit.
