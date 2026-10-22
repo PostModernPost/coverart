@@ -1,3 +1,1 @@
-- Between records, tap the album you just played, any of the recent covers, a saved song, or the cover in the slideshow to open that song's page, with its Spotify, YouTube, Bandcamp and other links. Song titles in Saved songs open their page too.
-- Settings > More like this: only new bands. Turn it on and the song page only suggests bands you haven't played yet.
-- Song pages are saved on your PC once they're looked up (bio, lyrics, credits and similar bands), so they open instantly the next time, even after a restart or without internet. Saved pages refresh after a month.
+- Saved song pages stay small: pages nobody has opened in two months are cleared out when Liner Notes starts, and the total is capped at about 40 MB.

@@ -1919,6 +1919,17 @@ class History:
         with self._db() as db:
             db.execute("INSERT OR REPLACE INTO song_cache (key, ts, data) VALUES (?,?,?)", (key, time.time(), json.dumps(data)))
 
+    def cache_prune(self, max_age_days=60, max_mb=40):
+        """Keep the saved song pages small: drop ones nobody opened in two months, and the oldest past ~40 MB."""
+        with self._db() as db:
+            db.execute("DELETE FROM song_cache WHERE ts < ?", (time.time() - max_age_days * 86400,))
+            size = db.execute("SELECT COALESCE(SUM(LENGTH(data)), 0) FROM song_cache").fetchone()[0]
+            if size > max_mb * 1e6:
+                n = db.execute("SELECT COUNT(*) FROM song_cache").fetchone()[0]
+                db.execute("DELETE FROM song_cache WHERE key IN (SELECT key FROM song_cache ORDER BY ts LIMIT ?)", (n // 4,))
+        with self._db() as db:
+            db.execute("VACUUM")               # give the freed space back to the disk
+
     def last_play_of(self, artist, title):
         with self._db() as db:
             db.row_factory = sqlite3.Row
@@ -3474,6 +3485,10 @@ def log_keys():
 
 async def on_startup(app):
     log_keys()
+    try:
+        app["state"].db.cache_prune()
+    except Exception as e:
+        log("song page cleanup failed:", e)
     app["http"] = ClientSession(timeout=ClientTimeout(total=10))
     if app["demo"]:
         app["tasks"] = [asyncio.create_task(demo_loop(app))]
