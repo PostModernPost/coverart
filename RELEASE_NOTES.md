@@ -1,3 +1,3 @@
-- Last.fm scrobbling: connect Last.fm in Settings and the records you play are logged to your Last.fm profile, next to your Spotify plays. A song counts once it has played for half its length (or 4 minutes), the way Last.fm's own apps count. Plays made while the internet is down are sent later.
-- Only records are scrobbled by default, since Spotify can already send its own plays to Last.fm. A setting turns on scrobbling for Spotify and other apps on the PC too.
-- Spotify saving is built in: connect from Settings > Spotify without making your own Spotify app (Spotify limits this to a few accounts the app's owner adds; anyone else can still use their own Spotify app).
+- Last.fm scrobbling and the built-in Spotify app are now included (0.7.11 was built without their keys).
+- Last.fm: connect in Settings and the records you play are logged to your Last.fm profile once a song has played halfway (or 4 minutes). Only records count by default, since Spotify can send its own plays to Last.fm.
+- Spotify: connect in Settings > Spotify and songs you heart go into a "Liner Notes" playlist or your Liked Songs.
