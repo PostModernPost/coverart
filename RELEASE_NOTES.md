@@ -1,3 +1,1 @@
-- Choose what a screen shows when nothing is playing (Settings > When nothing is playing): recently played then a slideshow, just recently played, just the slideshow of covers, or the spinning record.
-- Turn off when nothing plays: after 5, 15, 30 or 60 minutes with nothing playing, the PC window hides to the tray, and a phone screen goes dark and turns off. The window comes back, and a phone plugged in over USB turns back on, when the next song starts. Each screen has its own setting.
-- Settings with several choices show them on their own line under the label.
+- The close button (×) on Settings, Search, Saved songs, Your listening, the song info page and the other panels stays in the top corner while you scroll, so you can go back to the main screen from anywhere on the page.

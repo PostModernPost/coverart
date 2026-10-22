@@ -165,8 +165,11 @@
   .panel { position: fixed; inset: 0; background: var(--panel); backdrop-filter: blur(12px); display: none; z-index: 8;
     overflow-y: auto; padding: 5vmin 6vmin 8vmin; user-select: text; cursor: default; }
   .panel.open { display: block; }
-  .close { position: fixed; top: 2vmin; right: 3vmin; background: none; border: 0; font-size: calc(var(--ts) * clamp(24px, 5vmin, 44px));
-    cursor: pointer; line-height: 1; z-index: 9; }
+  /* the panel's blur makes "fixed" scroll with it, so the close button sticks to the top of the panel instead */
+  .close { position: sticky; top: 0; float: right; margin: -3vmin -3vmin 0 2vmin; width: clamp(40px, 7vmin, 56px); height: clamp(40px, 7vmin, 56px);
+    border-radius: 50%; border: 0; background: rgba(30,30,34,.85); color: var(--fg); display: grid; place-items: center; padding: 0;
+    font-size: clamp(24px, 4.5vmin, 36px); cursor: pointer; line-height: 1; z-index: 9; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+  .close:hover { background: rgba(60,60,66,.95); }
   .panel h2 { margin: 0; font-size: calc(var(--ts) * clamp(18px, 4.5vmin, 40px)); }
   .panel h3 { font-size: calc(var(--ts) * clamp(11px, 2vmin, 14px)); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin: 0 0 1em; }
   .sub { color: var(--dim); margin: .3em 0 1.2em; font-size: calc(var(--ts) * clamp(13px, 2.8vmin, 22px)); }
