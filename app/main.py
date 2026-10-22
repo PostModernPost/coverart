@@ -1,0 +1,390 @@
+"""
+Cover Art launcher: tray icon, background server, display window.
+
+Installed: runs as CoverArt.exe (built with PyInstaller).
+From source: `pythonw app/main.py` (installs its Python packages on first run).
+"""
+
+import json
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import webbrowser
+
+APP_NAME = "Cover Art"
+FROZEN = getattr(sys, "frozen", False)
+SELF = os.path.abspath(sys.executable if FROZEN else __file__)
+SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), APP_NAME)
+os.makedirs(DATA_DIR, exist_ok=True)
+LOG = os.path.join(DATA_DIR, "coverart.log")
+CONFIG = os.path.join(DATA_DIR, "config.json")
+NO_WINDOW = 0x08000000
+SELFTEST = "--selftest" in sys.argv
+
+if not FROZEN:
+    sys.path.insert(0, SRC_DIR)
+
+# No console in the installed app or under pythonw: everything goes to the log (trimmed when big)
+if not SELFTEST and (sys.stdout is None or FROZEN or "pythonw" in os.path.basename(sys.executable).lower()):
+    try:
+        if os.path.exists(LOG) and os.path.getsize(LOG) > 2_000_000:
+            os.remove(LOG)
+    except OSError:
+        pass
+    _f = open(LOG, "a", encoding="utf-8", buffering=1)
+    sys.stdout = _f
+    sys.stderr = _f
+
+
+def message(text, title=APP_NAME):
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(0, text, title, 0x40)
+    except Exception:
+        print(text)
+
+
+def relaunch_cmd(*args):
+    if FROZEN:
+        return [sys.executable, *args]
+    pyw = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+    return [pyw if os.path.exists(pyw) else sys.executable, SELF, *args]
+
+
+# ------------------------------------------------------------- running from source: install packages
+def ensure_packages():
+    if FROZEN:
+        return
+    missing = []
+    for mod in ("aiohttp", "numpy", "sounddevice", "shazamio", "pystray", "PIL", "winrt.windows.media.control"):
+        try:
+            __import__(mod)
+        except Exception as e:
+            missing.append(f"{mod} ({e!r})")
+    if not missing:
+        return
+    print("Installing packages, missing:", missing, flush=True)
+    py = os.path.join(os.path.dirname(sys.executable), "python.exe")
+    req = os.path.join(SRC_DIR, "..", "requirements.txt")
+    r = subprocess.run([py if os.path.exists(py) else sys.executable, "-m", "pip", "install", "-q", "-r", req],
+                       capture_output=True, text=True, creationflags=NO_WINDOW)
+    print(r.stdout, r.stderr, flush=True)
+    if r.returncode != 0:
+        message(f"Couldn't install the parts {APP_NAME} needs.\n\nDetails are in {LOG}")
+        sys.exit(1)
+
+
+def selftest():
+    """Used by the build to prove every bundled part loads. Exit code 0 = good."""
+    failures = []
+    for mod in ("aiohttp", "numpy", "sounddevice", "shazamio", "pystray", "PIL",
+                "winrt.windows.media.control", "winrt.windows.storage.streams", "core"):
+        try:
+            __import__(mod)
+        except Exception as e:
+            failures.append(f"{mod}: {e!r}")
+    try:
+        import core
+        core.build_app()
+        assert os.path.exists(os.path.join(core.HERE, "display.html")), "display.html not bundled"
+    except Exception as e:
+        failures.append(f"app: {e!r}")
+    with open(os.path.join(DATA_DIR, "selftest.txt"), "w") as f:
+        f.write("\n".join(failures) or "ok")
+    sys.exit(1 if failures else 0)
+
+
+if SELFTEST:
+    selftest()
+
+ensure_packages()
+
+import core  # noqa: E402
+import pystray  # noqa: E402
+from PIL import Image, ImageDraw  # noqa: E402
+
+PORT = core.CFG["port"]
+URL = f"http://localhost:{PORT}"
+
+
+# ------------------------------------------------------------- helpers
+def port_in_use():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex(("127.0.0.1", PORT)) == 0
+
+
+def make_image(size=64):
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    c = size / 2
+    for r, col in ((0.48, (20, 20, 22, 255)), (0.40, (40, 40, 44, 255)), (0.32, (24, 24, 26, 255)),
+                   (0.24, (40, 40, 44, 255)), (0.17, (201, 160, 74, 255)), (0.03, (20, 20, 22, 255))):
+        d.ellipse([c - r * size, c - r * size, c + r * size, c + r * size], fill=col)
+    return img
+
+
+def find_edge():
+    for p in (shutil.which("msedge"),
+              os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Microsoft", "Edge", "Application", "msedge.exe"),
+              os.path.join(os.environ.get("ProgramFiles", ""), "Microsoft", "Edge", "Application", "msedge.exe")):
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def open_window():
+    """The display in its own app window (Edge app mode: no tabs, no address bar). Browser as fallback."""
+    edge = find_edge()
+    if edge:
+        subprocess.Popen([edge, f"--app={URL}", "--window-size=960,600",
+                          f"--user-data-dir={os.path.join(DATA_DIR, 'window')}",
+                          "--no-first-run", "--no-default-browser-check"], creationflags=NO_WINDOW)
+    else:
+        webbrowser.open(URL)
+
+
+def make_source_shortcut():
+    """Running from source only (the installer makes its own shortcuts): one desktop icon."""
+    if FROZEN:
+        return
+    flag = os.path.join(DATA_DIR, ".shortcut_made")
+    if os.path.exists(flag):
+        return
+    ico = os.path.join(DATA_DIR, "coverart.ico")
+    make_image(256).save(ico, sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    target, script = relaunch_cmd()
+    ps = (
+        "$d=[Environment]::GetFolderPath('Desktop');"
+        "foreach ($o in 'Now Playing.lnk','Who''s This.lnk') { $p=Join-Path $d $o; if (Test-Path $p) { Remove-Item $p } };"
+        "$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d 'Cover Art.lnk'));"
+        f"$s.TargetPath='{target}';$s.Arguments='\"{script}\"';$s.IconLocation='{ico}';"
+        "$s.Description='Shows the album art of whatever is playing';$s.Save()"
+    )
+    r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+                       capture_output=True, text=True, creationflags=NO_WINDOW)
+    if r.returncode == 0:
+        open(flag, "w").close()
+    else:
+        print("shortcut failed:", r.stderr, flush=True)
+
+
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def startup_enabled():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.QueryValueEx(k, "CoverArt")
+            return True
+    except OSError:
+        return False
+
+
+def set_startup(on):
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        if on:
+            cmd = " ".join(f'"{p}"' for p in relaunch_cmd()) + " --quiet"
+            winreg.SetValueEx(k, "CoverArt", 0, winreg.REG_SZ, cmd)
+        else:
+            try:
+                winreg.DeleteValue(k, "CoverArt")
+            except OSError:
+                pass
+
+
+def load_cfg():
+    try:
+        with open(CONFIG, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_cfg(cfg):
+    with open(CONFIG, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def mic_choices():
+    """Full-length input names (WASAPI lists them untruncated), deduplicated."""
+    try:
+        import sounddevice as sd
+        devs = sd.query_devices()
+        apis = sd.query_hostapis()
+        wasapi = next((i for i, a in enumerate(apis) if "WASAPI" in a["name"]), None)
+        names = []
+        for d in devs:
+            if d["max_input_channels"] > 0 and (wasapi is None or d["hostapi"] == wasapi):
+                n = d["name"]
+                if n not in names and "Stereo Mix" not in n and "Hands-Free" not in n:
+                    names.append(n)
+        return names
+    except Exception as e:
+        print("device list failed:", e, flush=True)
+        return []
+
+
+# ------------------------------------------------------------- phone over USB
+def find_adb():
+    p = shutil.which("adb")
+    if p:
+        return p
+    base = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet")
+    for root in (os.path.join(base, "Links"), os.path.join(base, "Packages")):
+        for dirpath, _, files in os.walk(root):
+            if "adb.exe" in files:
+                return os.path.join(dirpath, "adb.exe")
+    return None
+
+
+def adb_loop():
+    """Keep the phone's localhost pointed at this PC, even after replugging."""
+    adb = find_adb()
+    if not adb:
+        print("adb not found; phone-over-USB disabled", flush=True)
+        return
+    while True:
+        try:
+            subprocess.run([adb, "reverse", f"tcp:{PORT}", f"tcp:{PORT}"], capture_output=True,
+                           timeout=10, creationflags=NO_WINDOW)
+        except Exception:
+            pass
+        time.sleep(15)
+
+
+# ------------------------------------------------------------- server
+APP = {}
+
+
+def server_thread():
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    app = core.build_app()
+    loop.run_until_complete(core.serve(app))
+    APP["app"] = app
+    loop.run_forever()
+
+
+def status_text(item=None):
+    app = APP.get("app")
+    t = app["state"].track if app else None
+    if not t:
+        mode = app.get("listen_mode") if app else None
+        return {"standby": "Nothing playing (mic on standby)", "active": "Listening..."}.get(mode, "Nothing playing")
+    if t.get("status") != "playing":
+        return "Listening (couldn't identify)"
+    s = f"{t.get('artist')} - {t.get('title')}"
+    return s if len(s) <= 60 else s[:57] + "..."
+
+
+# ------------------------------------------------------------- tray menu
+def restart(icon):
+    subprocess.Popen(relaunch_cmd("--quiet", "--restart"), creationflags=NO_WINDOW)
+    icon.stop()
+    os._exit(0)
+
+
+def build_menu():
+    def pick(name):
+        def handler(icon, item):
+            cfg = load_cfg()
+            cfg["audio_device"] = name
+            save_cfg(cfg)
+            restart(icon)
+        return handler
+
+    def is_current(name):
+        def check(item):
+            cur = load_cfg().get("audio_device")
+            if name is None:
+                return cur in (None, "")
+            if name == "phone" or str(cur).lower() == "phone":
+                return str(cur).lower() == name
+            return bool(cur) and str(cur).lower() in name.lower()
+        return check
+
+    mics = [pystray.MenuItem("Phone (the display phone's mic)", pick("phone"), checked=is_current("phone"), radio=True),
+            pystray.MenuItem("Windows default", pick(None), checked=is_current(None), radio=True)]
+    for n in mic_choices():
+        mics.append(pystray.MenuItem(n, pick(n), checked=is_current(n), radio=True))
+
+    return pystray.Menu(
+        pystray.MenuItem(status_text, None, enabled=False),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Open Cover Art", lambda i, it: open_window(), default=True),
+        pystray.MenuItem("Microphone", pystray.Menu(*mics)),
+        pystray.MenuItem("Start with Windows", lambda i, it: set_startup(not startup_enabled()),
+                         checked=lambda it: startup_enabled()),
+        pystray.MenuItem("Settings folder", lambda i, it: os.startfile(DATA_DIR)),
+        pystray.Menu.SEPARATOR,
+        pystray.MenuItem("Quit", lambda i, it: (i.stop(), os._exit(0))),
+    )
+
+
+def refresher(icon):
+    last = None
+    while True:
+        s = status_text()
+        if s != last:
+            last = s
+            icon.title = f"{APP_NAME}: {s}"
+            try:
+                icon.update_menu()
+            except Exception:
+                pass
+        time.sleep(2)
+
+
+def main():
+    quiet = "--quiet" in sys.argv
+    restarting = "--restart" in sys.argv
+
+    if restarting:                       # wait for the old copy to let go of the port
+        for _ in range(40):
+            if not port_in_use():
+                break
+            time.sleep(0.25)
+    elif port_in_use():                  # already running: just show the window
+        open_window()
+        return
+
+    first_flag = os.path.join(DATA_DIR, ".first_run_done")
+    first_run = not os.path.exists(first_flag)
+    make_source_shortcut()
+    threading.Thread(target=server_thread, daemon=True).start()
+    threading.Thread(target=adb_loop, daemon=True).start()
+
+    icon = pystray.Icon("CoverArt", make_image(), APP_NAME, build_menu())
+
+    def setup(ic):
+        ic.visible = True
+        threading.Thread(target=refresher, args=(ic,), daemon=True).start()
+        if not quiet and not restarting:
+            time.sleep(1.5)              # let the server come up
+            open_window()
+        if first_run:
+            open(first_flag, "w").close()
+            try:
+                ic.notify("Cover Art keeps running by the clock. Right-click the record icon for options.", APP_NAME)
+            except Exception:
+                pass
+
+    icon.run(setup)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        message(f"{APP_NAME} hit an error and closed.\n\nDetails are in {LOG}")

@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cover Art</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icon.svg">
+<meta name="theme-color" content="#0b0b0c">
+<meta name="mobile-web-app-capable" content="yes">
+<style>
+  :root { --fg: #f4f1ea; --dim: rgba(244,241,234,.6); --panel: rgba(12,12,14,.88); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #0b0b0c; color: var(--fg); overflow: hidden;
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; user-select: none; }
+
+  #bg { position: fixed; inset: -10%; background-size: cover; background-position: center;
+    filter: blur(60px) saturate(1.4) brightness(.45); transition: opacity 1s; }
+
+  #stage { position: relative; height: 100%; display: flex; align-items: center; justify-content: center;
+    gap: 4vmin; padding: 4vmin; cursor: pointer; }
+  /* wide screens: art left, text right. tall/square screens: art on top */
+  @media (min-aspect-ratio: 7/5) { #stage { flex-direction: row; } #meta { text-align: left; max-width: 50vw; } #art { height: 92vh; } }
+  @media (max-aspect-ratio: 7/5) { #stage { flex-direction: column; } #meta { text-align: center; } #art { height: min(72vh, 92vw); } }
+
+  #art { aspect-ratio: 1; border-radius: 6px; object-fit: cover; box-shadow: 0 20px 60px rgba(0,0,0,.6);
+    background: #1a1a1d; transition: opacity .6s; }
+  #meta { min-width: 0; }
+  #title { font-size: clamp(18px, 5.5vmin, 56px); font-weight: 650; line-height: 1.1; margin: 0 0 .25em; }
+  #artist { font-size: clamp(14px, 4vmin, 38px); margin: 0; color: var(--fg); opacity: .9; }
+  #album { font-size: clamp(12px, 2.8vmin, 26px); margin: .3em 0 0; color: var(--dim); }
+  #source { display: inline-block; margin-top: 1.2em; font-size: clamp(10px, 2vmin, 16px); letter-spacing: .08em;
+    text-transform: uppercase; color: var(--dim); border: 1px solid rgba(255,255,255,.2); padding: .3em .7em; border-radius: 99px; }
+  .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+
+  /* placeholder record when there's no art */
+  .record, #art.record { background: radial-gradient(circle, #c9a04a 0 14%, #111 15% 16%, #1b1b1b 17% 30%, #121212 31% 45%,
+    #1b1b1b 46% 60%, #121212 61% 70%, #0d0d0d 71%); border-radius: 50% !important; animation: spin 6s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #idle { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
+    color: var(--dim); font-size: clamp(14px, 3.5vmin, 30px); gap: 3vmin; }
+  #idle .record { width: 30vmin; height: 30vmin; animation-duration: 20s; opacity: .5; }
+
+  /* info overlay */
+  #info { position: fixed; inset: 0; background: var(--panel); backdrop-filter: blur(10px); display: none;
+    overflow-y: auto; padding: 5vmin 6vmin 8vmin; user-select: text; }
+  #info.open { display: block; }
+  #close { position: fixed; top: 2vmin; right: 3vmin; background: none; border: 0; color: var(--fg);
+    font-size: clamp(22px, 5vmin, 44px); cursor: pointer; line-height: 1; }
+  #info h2 { margin: 0; font-size: clamp(18px, 4.5vmin, 40px); }
+  #info .sub { color: var(--dim); margin: .3em 0 1.2em; font-size: clamp(13px, 2.8vmin, 22px); }
+  #links { display: flex; flex-wrap: wrap; gap: 1.5vmin; margin-bottom: 4vmin; }
+  #links a { color: var(--fg); text-decoration: none; border: 1px solid rgba(255,255,255,.25); border-radius: 99px;
+    padding: .45em 1em; font-size: clamp(12px, 2.4vmin, 18px); }
+  #links a:hover { background: rgba(255,255,255,.12); }
+  .cols { display: grid; gap: 5vmin; grid-template-columns: 1fr; }
+  @media (min-aspect-ratio: 7/5) { .cols { grid-template-columns: 1fr 1fr; } }
+  #info h3 { font-size: clamp(11px, 2vmin, 15px); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); margin: 0 0 1em; }
+  #bio, #lyrics { font-size: clamp(13px, 2.6vmin, 20px); line-height: 1.55; }
+  #lyrics { white-space: pre-wrap; }
+  #bio img { float: right; width: 26%; max-width: 160px; margin: 0 0 1em 1em; border-radius: 4px; }
+  #bio a { color: var(--fg); }
+  .muted { color: var(--dim); }
+  #donate { display: none; margin-top: 5vmin; color: var(--dim); font-size: clamp(12px, 2.4vmin, 17px); }
+  #donate a { color: #c9a04a; }
+
+  #micbanner { position: fixed; left: 50%; bottom: 3vmin; transform: translateX(-50%); display: none; z-index: 10;
+    background: rgba(201,160,74,.95); color: #111; font-weight: 600; border-radius: 99px;
+    padding: .7em 1.3em; font-size: clamp(13px, 2.8vmin, 20px); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div id="bg"></div>
+
+<div id="stage" title="Click for more info">
+  <img id="art" alt="">
+  <div id="meta">
+    <p id="title" class="clamp"></p>
+    <p id="artist" class="clamp"></p>
+    <p id="album" class="clamp"></p>
+    <span id="source"></span>
+  </div>
+</div>
+
+<div id="micbanner"></div>
+
+<div id="idle"><div class="record"></div><div>Nothing playing</div></div>
+
+<div id="info">
+  <button id="close" aria-label="Close">&times;</button>
+  <h2 id="i-title"></h2>
+  <div class="sub" id="i-sub"></div>
+  <div id="links"></div>
+  <div class="cols">
+    <section><h3>About the artist</h3><div id="bio" class="muted">Loading…</div></section>
+    <section><h3>Lyrics</h3><div id="lyrics" class="muted">Loading…</div></section>
+  </div>
+  <p id="donate">Enjoying Cover Art? <a id="donate-link" href="#" target="_blank" rel="noopener">Buy me a coffee</a></p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let version = -1, current = null, infoFor = null;
+const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+function esc(s) { return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function render(t) {
+  current = t;
+  const idle = !t;
+  $("idle").style.display = idle ? "flex" : "none";
+  $("stage").style.display = idle ? "none" : "flex";
+  $("bg").style.opacity = idle ? 0 : 1;
+  if (idle) { closeInfo(); return; }
+
+  const art = $("art");
+  if (t.art) {
+    art.classList.remove("record");
+    art.style.opacity = 0;
+    const img = new Image();
+    img.onload = () => { art.src = t.art; art.style.opacity = 1; };
+    img.onerror = () => { art.src = BLANK; art.classList.add("record"); art.style.opacity = 1; };
+    img.src = t.art;
+    $("bg").style.backgroundImage = `url("${t.art}")`;
+  } else {
+    art.src = BLANK;
+    art.classList.add("record");
+    art.style.opacity = 1;
+    $("bg").style.backgroundImage = "none";
+  }
+  $("title").textContent = t.title || "";
+  $("artist").textContent = t.artist || "";
+  $("album").textContent = t.album || "";
+  $("source").textContent = t.app || t.source || "";
+  $("source").style.display = t.app ? "inline-block" : "none";
+  if ($("info").classList.contains("open")) openInfo();
+}
+
+async function poll() {
+  try {
+    const r = await fetch("/api/now", { cache: "no-store" });
+    const d = await r.json();
+    if (d.version !== version) { version = d.version; render(d.track); }
+    if (IS_PHONE && d.mic) micTick(d.mic);
+    if (d.donate) { $("donate-link").href = d.donate; $("donate").style.display = "block"; }
+    else $("donate").style.display = "none";
+  } catch (e) { /* server restarting; keep last screen */ }
+}
+
+async function openInfo() {
+  const t = current;
+  if (!t || t.status !== "playing") return;
+  $("info").classList.add("open");
+  $("i-title").textContent = t.title;
+  $("i-sub").textContent = [t.artist, t.album].filter(Boolean).join(" · ");
+  $("links").innerHTML = (t.links || []).map(l =>
+    `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.name)}</a>`).join("");
+  if (infoFor === t.id) return;
+  infoFor = t.id;
+  $("bio").textContent = "Loading…"; $("bio").className = "muted";
+  $("lyrics").textContent = "Loading…"; $("lyrics").className = "muted";
+  try {
+    const r = await fetch("/api/info?id=" + encodeURIComponent(t.id));
+    const d = await r.json();
+    if (infoFor !== t.id) return;
+    if (d.bio && d.bio.text) {
+      $("bio").className = "";
+      $("bio").innerHTML = (d.bio.image ? `<img src="${esc(d.bio.image)}" alt="">` : "") +
+        `<p>${esc(d.bio.text)}</p>` +
+        (d.bio.url ? `<p><a href="${esc(d.bio.url)}" target="_blank" rel="noopener">Wikipedia</a></p>` : "");
+    } else {
+      $("bio").textContent = "No bio found. Try the Bandcamp or Discogs links above.";
+    }
+    if (d.lyrics) { $("lyrics").className = ""; $("lyrics").textContent = d.lyrics; }
+    else $("lyrics").textContent = "No lyrics found.";
+  } catch (e) {
+    $("bio").textContent = "Couldn't load info.";
+    $("lyrics").textContent = "";
+  }
+}
+
+// ---------------------------------------------------------------- phone microphone
+// Only on the phone (Android), and only when the PC is set to use the phone's mic.
+// Standby: a short sample every N seconds. Active: stream audio to the PC while music plays.
+const IS_PHONE = /Android/i.test(navigator.userAgent) || new URLSearchParams(location.search).has("mic");
+const TARGET_SR = 16000;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const mic = { mode: "off", ctx: null, stream: null, src: null, node: null, chunks: [],
+              probing: false, lastProbe: 0, sender: null, needsTap: false };
+
+function banner(text) {
+  const b = $("micbanner");
+  if (text) { b.textContent = text; b.style.display = "block"; } else { b.style.display = "none"; }
+}
+
+function downsample(input, rate) {
+  const ratio = rate / TARGET_SR, n = Math.floor(input.length / ratio), out = new Int16Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(input.length, Math.floor((i + 1) * ratio));
+    let sum = 0; for (let j = a; j < b; j++) sum += input[j];
+    const v = Math.max(-1, Math.min(1, sum / Math.max(1, b - a)));
+    out[i] = v < 0 ? v * 32768 : v * 32767;
+  }
+  return out;
+}
+
+async function openMic() {
+  if (mic.stream) return true;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    banner("This browser can't use the microphone here"); return false;
+  }
+  if (!mic.ctx) mic.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  // resume() never settles until the user taps, so don't wait on it for long
+  if (mic.ctx.state !== "running") { try { await Promise.race([mic.ctx.resume(), sleep(400)]); } catch (e) {} }
+  if (mic.ctx.state !== "running") { mic.needsTap = true; banner("Tap once so Cover Art can listen for records"); return false; }
+  try {
+    mic.stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+  } catch (e) {
+    banner("Allow the microphone so Cover Art can hear records"); return false;
+  }
+  banner(null);
+  mic.src = mic.ctx.createMediaStreamSource(mic.stream);
+  mic.node = mic.ctx.createScriptProcessor(4096, 1, 1);
+  mic.node.onaudioprocess = e => mic.chunks.push(downsample(e.inputBuffer.getChannelData(0), mic.ctx.sampleRate));
+  mic.src.connect(mic.node);
+  mic.node.connect(mic.ctx.destination);   // required for the processor to run; it outputs silence
+  mic.chunks = [];
+  return true;
+}
+
+function closeMic() {
+  try { if (mic.src) mic.src.disconnect(); if (mic.node) mic.node.disconnect(); } catch (e) {}
+  if (mic.stream) mic.stream.getTracks().forEach(t => t.stop());   // turns the phone's mic indicator off
+  mic.stream = mic.src = mic.node = null;
+  mic.chunks = [];
+}
+
+async function upload(probe) {
+  const parts = mic.chunks; mic.chunks = [];
+  const n = parts.reduce((a, p) => a + p.length, 0);
+  if (!n) return;
+  const all = new Int16Array(n); let o = 0;
+  for (const p of parts) { all.set(p, o); o += p.length; }
+  try { await fetch("/api/audio?probe=" + (probe ? 1 : 0), { method: "POST", body: all.buffer }); } catch (e) {}
+}
+
+async function probe(seconds) {
+  mic.probing = true;
+  try {
+    if (await openMic()) {
+      await sleep(seconds * 1000);
+      await upload(true);
+      if (mic.mode !== "active") closeMic();
+    }
+  } finally {
+    mic.lastProbe = Date.now();
+    mic.probing = false;
+  }
+}
+
+async function micTick(cfg) {
+  mic.mode = cfg.mode;
+  if (cfg.mode === "active") {
+    if (!mic.stream && !(await openMic())) return;
+    if (!mic.sender) mic.sender = setInterval(() => upload(false), 1000);
+    return;
+  }
+  if (mic.sender) { clearInterval(mic.sender); mic.sender = null; }
+  if (cfg.mode === "off") { if (!mic.probing) closeMic(); banner(null); return; }
+  // standby
+  if (!mic.probing) {
+    if (mic.stream) closeMic();
+    if (Date.now() - mic.lastProbe >= cfg.every * 1000) probe(cfg.seconds);
+  }
+}
+
+// Browsers only allow audio after a tap. The first tap enables listening instead of opening the info panel.
+document.addEventListener("click", async e => {
+  if (!mic.needsTap) return;
+  e.stopPropagation(); e.preventDefault();
+  mic.needsTap = false; banner(null);
+  if (!mic.ctx) mic.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  try { await mic.ctx.resume(); } catch (err) {}
+  mic.lastProbe = 0;
+}, true);
+
+function closeInfo() { $("info").classList.remove("open"); }
+
+$("stage").addEventListener("click", openInfo);
+$("close").addEventListener("click", closeInfo);
+$("info").addEventListener("click", e => { if (e.target.id === "info") closeInfo(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeInfo(); });
+
+// keep a phone/tablet screen awake while the page is open
+async function stayAwake() {
+  try { if ("wakeLock" in navigator && document.visibilityState === "visible") await navigator.wakeLock.request("screen"); } catch (e) {}
+}
+document.addEventListener("visibilitychange", stayAwake);
+stayAwake();
+
+poll();
+setInterval(poll, 1500);
+</script>
+</body>
+</html>
