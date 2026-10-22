@@ -1904,6 +1904,8 @@ async def api_config(request):
         cfg["discogs_token"] = CFG["discogs_token"] = (body.get("discogs_token") or "").strip()
     if "phone_follows_pc" in body:
         cfg["phone_follows_pc"] = CFG["phone_follows_pc"] = bool(body.get("phone_follows_pc"))
+    if "lastfm_include_pc" in body:
+        cfg["lastfm_include_pc"] = CFG["lastfm_include_pc"] = bool(body.get("lastfm_include_pc"))
     if body.get("spotify_save_to") in ("playlist", "liked"):
         cfg["spotify_save_to"] = CFG["spotify_save_to"] = body["spotify_save_to"]
     if "spotify_client_id" in body:
@@ -1913,7 +1915,8 @@ async def api_config(request):
         cfg["spotify_client_id"] = CFG["spotify_client_id"] = new
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
-    return web.json_response({"ok": True, "discogs_ready": discogs_ready(), "spotify": spotify_status()})
+    return web.json_response({"ok": True, "discogs_ready": discogs_ready(), "spotify": spotify_status(),
+                              "lastfm": lastfm_status()})
 
 
 # ---------------------------------------------------------------- save the band (Spotify)
@@ -2177,6 +2180,186 @@ async def api_spotify_disconnect(request):
     return web.json_response(spotify_status())
 
 
+# ---------------------------------------------------------------- Last.fm scrobbling
+# Records you play get logged ("scrobbled") to your Last.fm profile, next to what Spotify already
+# sends there. Last.fm's rule: a song counts once it has played for half its length or 4 minutes.
+try:
+    from _secrets import LASTFM_KEY, LASTFM_SECRET
+except Exception:
+    LASTFM_KEY = LASTFM_SECRET = ""
+LASTFM_API = "https://ws.audioscrobbler.com/2.0/"
+LASTFM_FILE = os.path.join(DATA_DIR, "lastfm.json")
+VINYL_SOURCES = ("turntable", "record", "manual")
+
+
+def lastfm_load():
+    try:
+        with open(LASTFM_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def lastfm_store(d):
+    with open(LASTFM_FILE, "w", encoding="utf-8") as f:
+        json.dump(d, f, indent=2)
+
+
+def lastfm_sign(params):
+    raw = "".join(k + str(params[k]) for k in sorted(params) if k not in ("format", "callback")) + LASTFM_SECRET
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+async def lastfm_call(http, method, params, post=True):
+    p = {"method": method, "api_key": LASTFM_KEY, **{k: v for k, v in params.items() if v not in (None, "")}}
+    p["api_sig"] = lastfm_sign(p)
+    p["format"] = "json"
+    req = http.post(LASTFM_API, data=p) if post else http.get(LASTFM_API, params=p)
+    async with req as r:
+        j = await r.json(content_type=None)
+    if isinstance(j, dict) and j.get("error"):
+        log("last.fm:", method, j.get("error"), j.get("message"))
+    return j or {}
+
+
+def lastfm_status():
+    d = lastfm_load()
+    return {"available": bool(LASTFM_KEY and LASTFM_SECRET), "connected": bool(d.get("sk")), "user": d.get("user"),
+            "count": d.get("count", 0), "pending": len(d.get("pending") or []),
+            "include_pc": bool(CFG.get("lastfm_include_pc", False))}
+
+
+async def api_lastfm_status(request):
+    return web.json_response(lastfm_status())
+
+
+async def api_lastfm_connect(request):
+    import webbrowser
+    if not (LASTFM_KEY and LASTFM_SECRET):
+        return web.json_response({"error": "This build doesn't include a Last.fm key."}, status=400)
+    cb = f"http://127.0.0.1:{CFG['port']}/api/lastfm/callback"
+    url = "https://www.last.fm/api/auth/?" + urllib.parse.urlencode({"api_key": LASTFM_KEY, "cb": cb})
+    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+    return web.json_response({"ok": True})
+
+
+async def api_lastfm_callback(request):
+    token = request.query.get("token")
+    if not token:
+        return _done_page("Last.fm wasn't connected.")
+    j = await lastfm_call(request.app["http"], "auth.getSession", {"token": token}, post=False)
+    sess = j.get("session") or {}
+    if not sess.get("key"):
+        return _done_page("Last.fm wasn't connected: " + (j.get("message") or "unknown error"))
+    d = lastfm_load()
+    d.update(sk=sess["key"], user=sess.get("name"))
+    lastfm_store(d)
+    return _done_page("Last.fm connected" + (f" as {sess.get('name')}" if sess.get("name") else "") + ".")
+
+
+async def api_lastfm_disconnect(request):
+    d = lastfm_load()
+    lastfm_store({"count": d.get("count", 0)})
+    return web.json_response(lastfm_status())
+
+
+async def lastfm_send(http, items):
+    """Scrobble up to 50 plays. Returns True when Last.fm took them (or rejected them for good)."""
+    d = lastfm_load()
+    if not d.get("sk"):
+        return False
+    params = {"sk": d["sk"]}
+    for i, it in enumerate(items[:50]):
+        for k in ("artist", "track", "album", "timestamp", "duration"):
+            if it.get(k):
+                params[f"{k}[{i}]"] = it[k]
+    try:
+        j = await lastfm_call(http, "track.scrobble", params)
+    except Exception as e:
+        log("last.fm: scrobble failed (will retry):", e)
+        return False
+    if j.get("error") in (9, 4, 14):         # session no longer valid: needs connecting again
+        d.pop("sk", None)
+        lastfm_store(d)
+        return False
+    if j.get("error") in (11, 16, 29):       # Last.fm busy or rate limited: try later
+        return False
+    acc = int(((j.get("scrobbles") or {}).get("@attr") or {}).get("accepted", 0) or 0)
+    d = lastfm_load()
+    d["count"] = d.get("count", 0) + acc
+    lastfm_store(d)
+    log(f"last.fm: scrobbled {acc} of {len(items[:50])}")
+    return True
+
+
+async def lastfm_now_playing(http, t):
+    d = lastfm_load()
+    if d.get("sk"):
+        try:
+            await lastfm_call(http, "track.updateNowPlaying", {
+                "sk": d["sk"], "artist": t.get("artist"), "track": t.get("title"), "album": t.get("album"),
+                "duration": int((t.get("duration_ms") or 0) / 1000) or None})
+        except Exception:
+            pass
+
+
+async def lastfm_loop(app):
+    """Watch what's on screen. Once a song has played long enough, scrobble it (once)."""
+    st: State = app["state"]
+    http = app["http"]
+    cur = None               # {"id", "start", "done"}
+    last_retry = 0
+    while True:
+        await asyncio.sleep(5)
+        try:
+            if not (LASTFM_KEY and LASTFM_SECRET):
+                continue
+            d = lastfm_load()
+            if not d.get("sk"):
+                cur = None
+                continue
+            t = st.track
+            ok_source = t and (t.get("source") in VINYL_SOURCES or CFG.get("lastfm_include_pc"))
+            if not t or t.get("status") != "playing" or not ok_source or not t.get("artist"):
+                cur = None if not t or t.get("status") != "playing" else cur
+                continue
+            now = time.time()
+            if not cur or cur["id"] != t["id"]:
+                pr = progress_now(app)
+                pos = pr.get("pos") if pr else None
+                cur = {"id": t["id"], "start": now - (pos or 0), "done": False}
+                asyncio.create_task(lastfm_now_playing(http, t))
+            if cur["done"]:
+                continue
+            dur = (t.get("duration_ms") or 0) / 1000 or None
+            if dur is not None and dur < 30:
+                cur["done"] = True
+                continue
+            pr = progress_now(app)
+            if pr and pr.get("pos") is not None and pr.get("kind") == "exact":
+                cur["start"] = now - pr["pos"]          # Shazam or Spotify knows exactly where in the song we are
+            played = now - cur["start"]
+            if played >= min((dur or 180) / 2, 240):
+                cur["done"] = True
+                item = {"artist": t["artist"], "track": t["title"], "album": t.get("album"),
+                        "timestamp": int(cur["start"]), "duration": int(dur) if dur else None}
+                d = lastfm_load()
+                d.setdefault("pending", []).append(item)
+                lastfm_store(d)
+                last_retry = 0
+            # send anything waiting (new plays, or ones that failed while offline)
+            pending = lastfm_load().get("pending") or []
+            pending = [p for p in pending if p["timestamp"] > now - 13 * 86400]     # Last.fm takes up to 14 days back
+            if pending and now - last_retry > 60:
+                last_retry = now
+                if await lastfm_send(http, pending):
+                    d = lastfm_load()
+                    d["pending"] = [p for p in (d.get("pending") or []) if p not in pending[:50]]
+                    lastfm_store(d)
+        except Exception as e:
+            log("last.fm loop:", repr(e))
+
+
 # ---------------------------------------------------------------- phone as a second screen (USB)
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
 PLATFORM_TOOLS_URL = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
@@ -2311,7 +2494,7 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/")
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/")
 
 
 @web.middleware
@@ -2437,7 +2620,8 @@ async def on_startup(app):
     else:
         app["tasks"] = [asyncio.create_task(pc_media_loop(app)),
                         asyncio.create_task(turntable_loop(app)),
-                        asyncio.create_task(update_loop(app))]
+                        asyncio.create_task(update_loop(app)),
+                        asyncio.create_task(lastfm_loop(app))]
 
 
 async def on_cleanup(app):
@@ -2474,6 +2658,10 @@ def build_app(demo=False):
     app.router.add_post("/api/save", api_save)
     app.router.add_get("/api/saved", api_saved)
     app.router.add_get("/api/spotify/status", api_spotify_status)
+    app.router.add_get("/api/lastfm/status", api_lastfm_status)
+    app.router.add_post("/api/lastfm/connect", api_lastfm_connect)
+    app.router.add_get("/api/lastfm/callback", api_lastfm_callback)
+    app.router.add_post("/api/lastfm/disconnect", api_lastfm_disconnect)
     app.router.add_post("/api/spotify/connect", api_spotify_connect)
     app.router.add_get("/api/spotify/callback", api_spotify_callback)
     app.router.add_post("/api/spotify/disconnect", api_spotify_disconnect)

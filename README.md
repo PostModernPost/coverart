@@ -57,3 +57,7 @@ Song recognition uses the unofficial `shazamio` library, which is fine for perso
 ## Saving songs to Spotify
 
 The heart saves a song in Liner Notes. To also send it to Spotify, the build needs a `SPOTIFY_CLIENT_ID` repo secret: create an app at developer.spotify.com/dashboard (Web API), add the Redirect URI `http://127.0.0.1:8765/api/spotify/callback`, and copy its Client ID. Spotify limits apps in development mode to a handful of people you add under User Management, so anyone else can paste their own app's Client ID in Settings > Spotify > Use your own Spotify app.
+
+## Last.fm
+
+Scrobbling uses the app's Last.fm API account. Create one at last.fm/api/account/create and add its API key and shared secret as the `LASTFM_KEY` and `LASTFM_SECRET` repo secrets. Builds without them hide the Connect button.

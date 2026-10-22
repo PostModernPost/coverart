@@ -486,6 +486,13 @@
       <div class="row"><input id="spId" class="field" placeholder="Client ID" autocomplete="off" style="flex:1"><button class="pill" id="spIdSave">Save</button></div>
     </details>
   </div>
+  <h3 style="margin:3vmin 0 0">Last.fm</h3>
+  <div id="lastfmBox" style="margin-top:1em">
+    <div class="muted" id="lfStatus">Checking…</div>
+    <div class="row" id="lfButtons" style="align-items:center;margin-top:1em"></div>
+    <div class="setting" id="lfPc" style="display:none">
+      <div>Also scrobble Spotify and other apps on this PC<small>Leave this off if Spotify is already connected to Last.fm (Spotify's settings), or songs will count twice.</small></div><div class="switch"></div></div>
+  </div>
   <div id="about">
     <h3>About</h3>
     <div id="verLine"></div>
@@ -1051,6 +1058,53 @@ $("spotifyBox").addEventListener("click", async e => {
   }
 });
 $("tb-settings").addEventListener("click", loadSpotify);
+// Last.fm (settings)
+let lfPoll = null;
+function showLastfm(lf) {
+  if (!lf) return;
+  $("lfPc").style.display = lf.connected ? "flex" : "none";
+  $("lfPc").classList.toggle("on", !!lf.include_pc);
+  if (!lf.available) {
+    $("lfStatus").textContent = "Last.fm isn't set up in this version of Liner Notes yet.";
+    $("lfButtons").innerHTML = "";
+  } else if (lf.connected) {
+    $("lfStatus").textContent = `Connected${lf.user ? " as " + lf.user : ""}. Records you play show up on your Last.fm profile` +
+      (lf.count ? ` (${lf.count} so far${lf.pending ? `, ${lf.pending} waiting to send` : ""}).` : ".");
+    $("lfButtons").innerHTML = `${lf.user ? `<a class="pill" href="https://www.last.fm/user/${encodeURIComponent(lf.user)}" target="_blank" rel="noopener">Your profile</a>` : ""}<button class="pill" id="lfOff">Disconnect</button>`;
+  } else {
+    $("lfStatus").textContent = "Connect Last.fm and the records you play get logged (scrobbled) to your profile, next to your Spotify plays.";
+    $("lfButtons").innerHTML = `<button class="pill" id="lfOn">Connect Last.fm</button>`;
+  }
+}
+async function loadLastfm() {
+  try {
+    const r = await fetch("/api/lastfm/status");
+    if (r.status === 403) { $("lastfmBox").innerHTML = `<div class="muted">Set up Last.fm from Liner Notes on your PC.</div>`; return; }
+    showLastfm(await r.json());
+  } catch (e) { $("lfStatus").textContent = "Couldn't check Last.fm."; }
+}
+$("lastfmBox").addEventListener("click", async e => {
+  if (e.target.closest("#lfPc")) {
+    const on = !$("lfPc").classList.contains("on");
+    const r = await (await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lastfm_include_pc: on }) })).json();
+    showLastfm(r.lastfm); return;
+  }
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "lfOn") {
+    await fetch("/api/lastfm/connect", { method: "POST" });
+    $("lfStatus").textContent = "Click Yes, allow access in the browser on your PC, then come back here.";
+    clearInterval(lfPoll); let n = 0;
+    lfPoll = setInterval(async () => {
+      const lf = await (await fetch("/api/lastfm/status")).json().catch(() => null);
+      if ((lf && lf.connected) || ++n > 150) { clearInterval(lfPoll); if (lf && lf.connected) showLastfm(lf); }
+    }, 2000);
+  } else if (b.id === "lfOff") {
+    showLastfm(await (await fetch("/api/lastfm/disconnect", { method: "POST" })).json());
+  }
+});
+$("tb-settings").addEventListener("click", loadLastfm);
+
 
 // ---------------------------------------------------------------- updates
 let upd = null, updBusy = false, seenVersion = null;

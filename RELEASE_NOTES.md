@@ -1,2 +1,2 @@
-- Record labels come from MusicBrainz first, which lists the label each album originally came out on as a plain name (Maria Muldaur's Open Your Eyes shows "Warner Bros. Records"). Deezer is next, and the long copyright line from Apple Music is only used when neither knows. Labels Shazam or Discogs give for a record are kept as they are.
-- Copyright lines like "Warner Records Inc. Manufactured and Marketed by Rhino..." are trimmed properly when they're the only source.
+- Last.fm scrobbling: connect Last.fm in Settings and the records you play are logged to your Last.fm profile, next to your Spotify plays. A song counts once it has played for half its length (or 4 minutes), the way Last.fm's own apps count. Plays made while the internet is down are sent later.
+- Only records are scrobbled by default, since Spotify can already send its own plays to Last.fm. A setting turns on scrobbling for Spotify and other apps on the PC too.

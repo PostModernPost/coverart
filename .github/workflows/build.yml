@@ -52,10 +52,13 @@ jobs:
           DISCOGS_KEY: ${{ secrets.DISCOGS_KEY }}
           DISCOGS_SECRET: ${{ secrets.DISCOGS_SECRET }}
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          LASTFM_KEY: ${{ secrets.LASTFM_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
         run: |
+          if ($env:LASTFM_KEY -and $env:LASTFM_SECRET) { "Last.fm key: included" } else { "::warning::No Last.fm key: scrobbling will be unavailable" }
           if ($env:DISCOGS_KEY -and $env:DISCOGS_SECRET) { "Discogs key: included" } else { "::warning::No Discogs key: record search will ask users for a token" }
           if ($env:SPOTIFY_CLIENT_ID) { "Spotify app: included" } else { "::warning::No Spotify client ID: people will need their own Spotify app to save to Spotify" }
-          "DISCOGS_KEY = `"$env:DISCOGS_KEY`"`nDISCOGS_SECRET = `"$env:DISCOGS_SECRET`"`nSPOTIFY_CLIENT_ID = `"$env:SPOTIFY_CLIENT_ID`"" | Out-File -FilePath app\_secrets.py -Encoding utf8
+          "DISCOGS_KEY = `"$env:DISCOGS_KEY`"`nDISCOGS_SECRET = `"$env:DISCOGS_SECRET`"`nSPOTIFY_CLIENT_ID = `"$env:SPOTIFY_CLIENT_ID`"`nLASTFM_KEY = `"$env:LASTFM_KEY`"`nLASTFM_SECRET = `"$env:LASTFM_SECRET`"" | Out-File -FilePath app\_secrets.py -Encoding utf8
 
       - name: Icon
         run: python packaging/make_icon.py
