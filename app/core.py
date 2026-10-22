@@ -1398,6 +1398,42 @@ class History:
                 id INTEGER PRIMARY KEY, ts REAL NOT NULL, title TEXT, artist TEXT, album TEXT,
                 year TEXT, label TEXT, genre TEXT, source TEXT, art TEXT, duration_ms INTEGER)""")
             db.execute("CREATE INDEX IF NOT EXISTS plays_ts ON plays(ts)")
+            db.execute("""CREATE TABLE IF NOT EXISTS saved (
+                tid TEXT PRIMARY KEY, ts REAL NOT NULL, title TEXT, artist TEXT, album TEXT, year TEXT,
+                label TEXT, genre TEXT, art TEXT, source TEXT, spotify_uri TEXT)""")
+        self.saved_ids = self._saved_ids()
+
+    def _saved_ids(self):
+        with self._db() as db:
+            return {r[0] for r in db.execute("SELECT tid FROM saved")}
+
+    def save(self, tid, t):
+        art = t.get("art")
+        if art and art.startswith("/api/art/"):
+            art = None
+        with self._db() as db:
+            db.execute("INSERT OR REPLACE INTO saved (tid,ts,title,artist,album,year,label,genre,art,source) "
+                       "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                       (tid, time.time(), t.get("title"), t.get("artist"), t.get("album"), t.get("year"),
+                        t.get("label"), t.get("genre"), art,
+                        "vinyl" if t.get("source") in ("turntable", "manual", "record") else (t.get("app") or "PC")))
+        self.saved_ids.add(tid)
+
+    def set_spotify_uri(self, tid, uri):
+        with self._db() as db:
+            db.execute("UPDATE saved SET spotify_uri=? WHERE tid=?", (uri, tid))
+
+    def unsave(self, tid):
+        with self._db() as db:
+            row = db.execute("SELECT spotify_uri FROM saved WHERE tid=?", (tid,)).fetchone()
+            db.execute("DELETE FROM saved WHERE tid=?", (tid,))
+        self.saved_ids.discard(tid)
+        return row[0] if row else None
+
+    def saved_list(self):
+        with self._db() as db:
+            db.row_factory = sqlite3.Row
+            return [dict(r) for r in db.execute("SELECT * FROM saved ORDER BY ts DESC")]
 
     def _db(self):
         return sqlite3.connect(self.path)
@@ -1727,9 +1763,277 @@ async def api_config(request):
         cfg["discogs_token"] = CFG["discogs_token"] = (body.get("discogs_token") or "").strip()
     if "phone_follows_pc" in body:
         cfg["phone_follows_pc"] = CFG["phone_follows_pc"] = bool(body.get("phone_follows_pc"))
+    if body.get("spotify_save_to") in ("playlist", "liked"):
+        cfg["spotify_save_to"] = CFG["spotify_save_to"] = body["spotify_save_to"]
+    if "spotify_client_id" in body:
+        new = re.sub(r"[^0-9a-fA-F]", "", body.get("spotify_client_id") or "")
+        if new != (CFG.get("spotify_client_id") or ""):
+            spotify_store({})          # a different Spotify app needs a fresh login
+        cfg["spotify_client_id"] = CFG["spotify_client_id"] = new
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
-    return web.json_response({"ok": True, "discogs_ready": discogs_ready()})
+    return web.json_response({"ok": True, "discogs_ready": discogs_ready(), "spotify": spotify_status()})
+
+
+# ---------------------------------------------------------------- save the band (Spotify)
+# The heart on the main screen keeps a song in Liner Notes' Saved list. With Spotify connected it
+# also goes into a "Liner Notes" playlist (or Liked Songs) on the listener's account.
+# Login uses Spotify's PKCE flow, so no secret ships with the app: just a client ID.
+try:
+    from _secrets import SPOTIFY_CLIENT_ID as _BUILTIN_SPOTIFY_ID
+except Exception:
+    _BUILTIN_SPOTIFY_ID = ""
+SPOTIFY_FILE = os.path.join(DATA_DIR, "spotify.json")
+SPOTIFY_SCOPES = "user-library-modify user-library-read playlist-modify-private playlist-modify-public playlist-read-private"
+PLAYLIST_NAME = "Liner Notes"
+_spotify_login = {}           # state -> code verifier, for logins in progress
+
+
+def spotify_client_id():
+    return (CFG.get("spotify_client_id") or "").strip() or _BUILTIN_SPOTIFY_ID
+
+
+def spotify_redirect():
+    return f"http://127.0.0.1:{CFG['port']}/api/spotify/callback"
+
+
+def spotify_load():
+    try:
+        with open(SPOTIFY_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def spotify_store(d):
+    with open(SPOTIFY_FILE, "w", encoding="utf-8") as f:
+        json.dump(d, f, indent=2)
+
+
+async def spotify_token(http):
+    """A working access token, refreshed when needed. None when Spotify isn't connected."""
+    d = spotify_load()
+    if not d.get("refresh_token"):
+        return None
+    if d.get("access_token") and d.get("expires", 0) > time.time() + 60:
+        return d["access_token"]
+    async with http.post("https://accounts.spotify.com/api/token", data={
+            "grant_type": "refresh_token", "refresh_token": d["refresh_token"],
+            "client_id": d.get("client_id") or spotify_client_id()}) as r:
+        j = await r.json(content_type=None)
+    if "access_token" not in j:
+        log("spotify: refresh failed:", j.get("error_description") or j.get("error") or r.status)
+        if j.get("error") == "invalid_grant":
+            spotify_store({})          # the listener removed access in Spotify; start over
+        return None
+    d.update(access_token=j["access_token"], expires=time.time() + int(j.get("expires_in", 3600)))
+    if j.get("refresh_token"):
+        d["refresh_token"] = j["refresh_token"]
+    spotify_store(d)
+    return d["access_token"]
+
+
+async def spotify_call(http, method, path, **kw):
+    token = await spotify_token(http)
+    if not token:
+        return None, None
+    async with http.request(method, "https://api.spotify.com/v1" + path,
+                            headers={"Authorization": f"Bearer {token}"}, **kw) as r:
+        try:
+            j = await r.json(content_type=None)
+        except Exception:
+            j = None
+        if r.status >= 400:
+            log("spotify:", method, path, r.status, (j or {}).get("error"))
+        return r.status, j
+
+
+async def spotify_find(http, t):
+    """The Spotify track URI for a song, found by searching title and artist."""
+    title, artist = t.get("title") or "", t.get("artist") or ""
+    base = lambda x: norm(re.sub(r"\s*[\(\[].*?[\)\]]|\s+-\s+.*$", "", x))
+    for q in (f'track:"{title}" artist:"{artist}"', f"{title} {artist}"):
+        st, j = await spotify_call(http, "GET", "/search", params={"q": q, "type": "track", "limit": "10"})
+        items = ((j or {}).get("tracks") or {}).get("items") or []
+        for it in items:
+            artists = [norm(a.get("name")) for a in it.get("artists") or []]
+            if base(it.get("name") or "") == base(title) and (norm(artist) in artists or
+                    any(a and (a in norm(artist) or norm(artist) in a) for a in artists)):
+                return it.get("uri")
+    return None
+
+
+async def spotify_playlist(http):
+    d = spotify_load()
+    if d.get("playlist_id"):
+        return d["playlist_id"]
+    # reuse a "Liner Notes" playlist if one is already there (after reconnecting)
+    st, j = await spotify_call(http, "GET", "/me/playlists", params={"limit": "50"})
+    for p in (j or {}).get("items") or []:
+        if p and p.get("name") == PLAYLIST_NAME:
+            d["playlist_id"] = p["id"]
+            break
+    else:
+        st, j = await spotify_call(http, "POST", "/me/playlists", json={
+            "name": PLAYLIST_NAME, "public": False,
+            "description": "Songs saved from Liner Notes, including the ones heard on records."})
+        if not j or not j.get("id"):
+            return None
+        d["playlist_id"] = j["id"]
+    spotify_store(d)
+    return d["playlist_id"]
+
+
+async def spotify_add(http, uri):
+    if CFG.get("spotify_save_to", "playlist") == "liked":
+        st, _ = await spotify_call(http, "PUT", "/me/library", params={"uris": uri})
+        return st is not None and st < 300
+    pid = await spotify_playlist(http)
+    if not pid:
+        return False
+    st, _ = await spotify_call(http, "POST", f"/playlists/{pid}/items", json={"uris": [uri]})
+    return st is not None and st < 300
+
+
+async def spotify_remove(http, uri):
+    if CFG.get("spotify_save_to", "playlist") == "liked":
+        await spotify_call(http, "DELETE", "/me/library", params={"uris": uri})
+        return
+    pid = spotify_load().get("playlist_id")
+    if pid:
+        await spotify_call(http, "DELETE", f"/playlists/{pid}/items", json={"items": [{"uri": uri}]})
+
+
+def spotify_status():
+    d = spotify_load()
+    return {"configured": bool(spotify_client_id()), "builtin": bool(_BUILTIN_SPOTIFY_ID),
+            "connected": bool(d.get("refresh_token")), "user": d.get("user"),
+            "save_to": CFG.get("spotify_save_to", "playlist"), "redirect": spotify_redirect(),
+            "own_id": bool((CFG.get("spotify_client_id") or "").strip())}
+
+
+async def api_save(request):
+    """Heart or un-heart a song. Saved songs also go to Spotify when it's connected."""
+    st: State = request.app["state"]
+    body = await request.json()
+    tid = body.get("id") or ""
+    t = st.history.get(tid) or (st.track if st.track and st.track.get("id") == tid else None)
+    db = st.db
+    http = request.app["http"]
+    if body.get("saved") is False or (body.get("saved") is None and tid in db.saved_ids):
+        uri = db.unsave(tid)
+        if uri:
+            try:
+                await spotify_remove(http, uri)
+            except Exception as e:
+                log("spotify: remove failed:", e)
+        return web.json_response({"saved": False})
+    if not t or not t.get("artist"):
+        return web.json_response({"error": "That song isn't on screen any more."}, status=404)
+    db.save(tid, t)
+    result = "not_connected"
+    if spotify_load().get("refresh_token"):
+        try:
+            uri = await spotify_find(http, t)
+            if not uri:
+                result = "not_found"
+            elif await spotify_add(http, uri):
+                db.set_spotify_uri(tid, uri)
+                result = "saved"
+            else:
+                result = "error"
+        except Exception as e:
+            log("spotify: save failed:", e)
+            result = "error"
+    return web.json_response({"saved": True, "spotify": result,
+                              "where": "Liked Songs" if CFG.get("spotify_save_to") == "liked" else PLAYLIST_NAME})
+
+
+async def api_saved(request):
+    rows = request.app["state"].db.saved_list()
+    for r in rows:
+        r["links"] = {l["name"].lower(): l["url"] for l in search_links(r["artist"], r["title"], r.get("album"))}
+        if r.get("spotify_uri"):
+            r["links"]["spotify"] = "https://open.spotify.com/track/" + r["spotify_uri"].split(":")[-1]
+    return web.json_response({"saved": rows, "spotify": spotify_status()})
+
+
+async def api_spotify_status(request):
+    return web.json_response(spotify_status())
+
+
+async def api_spotify_connect(request):
+    """Open Spotify's login in the PC's browser. It comes back to /api/spotify/callback."""
+    import base64, secrets, webbrowser
+    cid = spotify_client_id()
+    if not cid:
+        return web.json_response({"error": "No Spotify app set up."}, status=400)
+    verifier = secrets.token_urlsafe(64)[:96]
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    state = secrets.token_urlsafe(16)
+    _spotify_login.clear()
+    _spotify_login[state] = (verifier, cid)
+    url = "https://accounts.spotify.com/authorize?" + urllib.parse.urlencode({
+        "client_id": cid, "response_type": "code", "redirect_uri": spotify_redirect(), "state": state,
+        "scope": SPOTIFY_SCOPES, "code_challenge_method": "S256", "code_challenge": challenge})
+    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+    return web.json_response({"ok": True, "url": url})
+
+
+def _done_page(msg):
+    return web.Response(content_type="text/html", text=f"""<!doctype html><meta charset="utf-8">
+<title>Liner Notes</title><body style="background:#111;color:#eee;font:18px system-ui;display:grid;place-items:center;height:90vh;text-align:center">
+<div><h2 style="font-weight:600">{msg}</h2><p style="color:#999">You can close this tab and go back to Liner Notes.</p></div>""")
+
+
+async def api_spotify_callback(request):
+    q = request.query
+    if q.get("error"):
+        return _done_page("Spotify wasn't connected" + (" (you said no)." if q["error"] == "access_denied" else f": {q['error']}."))
+    pending = _spotify_login.pop(q.get("state", ""), None)
+    if not pending or not q.get("code"):
+        return _done_page("That login link expired. Try Connect Spotify again.")
+    verifier, cid = pending
+    http = request.app["http"]
+    async with http.post("https://accounts.spotify.com/api/token", data={
+            "grant_type": "authorization_code", "code": q["code"], "redirect_uri": spotify_redirect(),
+            "client_id": cid, "code_verifier": verifier}) as r:
+        j = await r.json(content_type=None)
+    if "refresh_token" not in j:
+        log("spotify: login failed:", j)
+        return _done_page("Spotify wasn't connected: " + (j.get("error_description") or j.get("error") or "unknown error"))
+    spotify_store({"client_id": cid, "refresh_token": j["refresh_token"], "access_token": j["access_token"],
+                   "expires": time.time() + int(j.get("expires_in", 3600))})
+    st, me = await spotify_call(http, "GET", "/me")
+    if st == 403:
+        spotify_store({})
+        return _done_page("Spotify says this account isn't allowed to use Liner Notes yet. "
+                          "Ask the app's owner to add your Spotify email, or use your own Spotify app (Settings).")
+    d = spotify_load()
+    d["user"] = (me or {}).get("display_name") or (me or {}).get("id")
+    spotify_store(d)
+    # Anything hearted before connecting goes to Spotify now
+    asyncio.create_task(spotify_backfill(request.app))
+    return _done_page("Spotify connected" + (f" as {d['user']}" if d.get("user") else "") + ".")
+
+
+async def spotify_backfill(app):
+    db, http = app["state"].db, app["http"]
+    for r in reversed(db.saved_list()):
+        if r.get("spotify_uri"):
+            continue
+        try:
+            uri = await spotify_find(http, r)
+            if uri and await spotify_add(http, uri):
+                db.set_spotify_uri(r["tid"], uri)
+        except Exception as e:
+            log("spotify: backfill:", e)
+        await asyncio.sleep(0.3)
+
+
+async def api_spotify_disconnect(request):
+    spotify_store({})
+    return web.json_response(spotify_status())
 
 
 # ---------------------------------------------------------------- phone as a second screen (USB)
@@ -1866,7 +2170,7 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi")
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/")
 
 
 @web.middleware
@@ -1933,6 +2237,7 @@ async def api_now(request):
                               "record": request.app["record"].summary() if request.app.get("record") else None,
                               "progress": progress_now(request.app),
                               "phone_follows_pc": CFG.get("phone_follows_pc", True),
+                              "saved": bool(st.track and st.track.get("id") in st.db.saved_ids),
                               "discogs_ready": discogs_ready(),
                               "listen": {"mode": request.app.get("listen_mode", "off"),
                                          "next_try": request.app.get("next_try"), "now": time.time()}})
@@ -2024,6 +2329,12 @@ def build_app(demo=False):
     app.router.add_post("/api/records/position", api_records_position)
     app.router.add_post("/api/records/clear", api_records_clear)
     app.router.add_post("/api/config", api_config)
+    app.router.add_post("/api/save", api_save)
+    app.router.add_get("/api/saved", api_saved)
+    app.router.add_get("/api/spotify/status", api_spotify_status)
+    app.router.add_post("/api/spotify/connect", api_spotify_connect)
+    app.router.add_get("/api/spotify/callback", api_spotify_callback)
+    app.router.add_post("/api/spotify/disconnect", api_spotify_disconnect)
     app.router.add_get("/api/phone/status", api_phone_status)
     app.router.add_post("/api/phone/install", api_phone_install)
     app.router.add_post("/api/phone/use-mic", api_phone_use_mic)

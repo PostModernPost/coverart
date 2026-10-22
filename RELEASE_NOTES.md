@@ -1,3 +1,2 @@
-- Only one year ever shows. Labels like "1974, 1976, 1977, 1980, 1988, 2006 SONY BMG MUSIC ENTERTAINMENT" now read "Sony BMG Music Entertainment".
-- Labels written in all caps are shown in normal case (short names like EMI, BMG and XL stay as they are).
-- Includes 0.7.6: the phone screen sleeps and wakes with your PC.
+- Save the band: tap the heart next to a song to keep it. Saved songs are under the new heart at the top of the screen, with Spotify and Bandcamp links, and they work for records too.
+- Connect Spotify (Settings > Spotify) and every song you heart also goes into a private "Liner Notes" playlist, or your Liked Songs if you'd rather. Songs you hearted before connecting get added when you connect. Un-hearting removes it from Spotify too.

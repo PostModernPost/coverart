@@ -211,6 +211,25 @@
     padding-bottom: 6vmin; color: rgba(255,255,255,.18); font-size: calc(var(--ts) * clamp(11px, 2.2vmin, 15px)); }
   body.pc-away #pcAway { display: flex; }
 
+  /* save the band */
+  .heart { width: calc(var(--ts) * clamp(26px, 5vmin, 36px)); height: calc(var(--ts) * clamp(26px, 5vmin, 36px)); border-radius: 50%;
+    border: 1.5px solid rgba(255,255,255,.45); background: none; cursor: pointer; flex: none; display: grid; place-items: center; padding: 0; }
+  .heart:hover { background: rgba(255,255,255,.12); }
+  .heart svg { width: 56%; height: 56%; fill: none; stroke: var(--fg); stroke-width: 2; stroke-linejoin: round; transition: transform .2s; }
+  .heart.on svg { fill: #e8556d; stroke: #e8556d; }
+  .heart.pop svg { transform: scale(1.3); }
+  #lyHeart { display: inline-grid; margin-top: 1.4vmin; }
+  #toast { position: fixed; left: 50%; bottom: 6vmin; transform: translate(-50%, 1em); background: rgba(20,20,22,.94); color: var(--fg);
+    border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: .8em 1.2em; z-index: 20; opacity: 0; pointer-events: none;
+    transition: opacity .25s, transform .25s; max-width: 90vw; text-align: center; font-size: calc(var(--ts) * clamp(12px, 2.5vmin, 17px)); }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #savedBody .line a { color: var(--fg); }
+  #savedBody .line .acts { margin-left: auto; display: flex; gap: 1vmin; align-items: center; flex: none; }
+  #savedBody .line .acts .pill { padding: .3em .8em; }
+  .unsave { background: none; border: 0; color: var(--dim); cursor: pointer; font-size: 1.3em; padding: 0 .3em; }
+  #spotifyBox { margin-top: 1em; }
+  #spotifyBox .row { align-items: center; margin-top: 1em; }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -261,7 +280,7 @@
   <div id="artCol">
     <p id="lyTitle" class="clamp"></p>
     <img id="art" alt="">
-    <div id="lyBelow"><p id="lyArtist" class="clamp"></p><p id="lyAlbum" class="clamp"></p></div>
+    <div id="lyBelow"><p id="lyArtist" class="clamp"></p><p id="lyAlbum" class="clamp"></p><button class="heart" id="lyHeart" aria-label="Save this song" title="Save this song"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button></div>
   </div>
   <div id="lyricsCol"><div id="lyricLines"></div></div>
   <div id="side">
@@ -270,7 +289,7 @@
     <p id="album" class="clamp"></p>
     <p id="details"></p>
     <div id="progress"><div class="bar"><div id="progFill"></div></div><span id="progText"></span></div>
-    <div class="metaRow"><span id="source"></span><button id="infoBtn" aria-label="More about this song" title="More about this song">i</button></div>
+    <div class="metaRow"><span id="source"></span><button class="heart" id="heartBtn" aria-label="Save this song" title="Save this song"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button><button id="infoBtn" aria-label="More about this song" title="More about this song">i</button></div>
     <div class="looking" id="looking"><i></i><span id="lookingText">Still listening</span></div>
     <button id="findBtn">Search for it</button>
   </div>
@@ -283,6 +302,8 @@
     <svg viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h10M4 18h7"/><path d="M18 14v6"/><circle cx="16.5" cy="20" r="1.5"/></svg></button>
   <button id="tb-search" title="Find a song or record" aria-label="Find a song or record">
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+  <button id="tb-saved" title="Saved songs" aria-label="Saved songs">
+    <svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button>
   <button id="tb-stats" title="Listening history" aria-label="Listening history">
     <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
   <button id="tb-settings" title="Settings" aria-label="Settings"><span id="updDot"></span>
@@ -407,6 +428,14 @@
   </div>
 </div>
 
+<!-- saved songs -->
+<div id="saved" class="panel">
+  <button class="close" aria-label="Close">&times;</button>
+  <h2>Saved songs</h2>
+  <div class="sub" id="savedSub">Tap the heart on the main screen to keep a song here.</div>
+  <div id="savedBody"></div>
+</div>
+
 <!-- stats -->
 <div id="stats" class="panel">
   <button class="close" aria-label="Close">&times;</button>
@@ -443,6 +472,19 @@
   <div class="setting" id="phoneSetupRow" style="cursor:pointer">
     <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone or iPhone.</small></div>
     <span class="pill">Set up</span></div>
+  <h3 style="margin:3vmin 0 0">Spotify</h3>
+  <div id="spotifyBox">
+    <div class="muted" id="spStatus">Checking…</div>
+    <div class="row" id="spButtons"></div>
+    <div class="row" id="spWhere" style="display:none"><span class="muted">Hearted songs go to</span>
+      <button class="pill" data-to="playlist">A "Liner Notes" playlist</button><button class="pill" data-to="liked">Liked Songs</button></div>
+    <details id="spOwn" style="margin-top:1.4em"><summary class="muted" style="cursor:pointer">Use your own Spotify app</summary>
+      <p class="muted" style="margin:.8em 0">Spotify only lets a few people use each app. If Connect says your account isn't allowed:
+        go to developer.spotify.com/dashboard, create an app, choose "Web API", and add this Redirect URI:
+        <b id="spRedirect" style="user-select:all"></b>. Then paste the app's Client ID here.</p>
+      <div class="row"><input id="spId" class="field" placeholder="Client ID" autocomplete="off" style="flex:1"><button class="pill" id="spIdSave">Save</button></div>
+    </details>
+  </div>
   <div id="about">
     <h3>About</h3>
     <div id="verLine"></div>
@@ -451,6 +493,7 @@
   </div>
 </div>
 
+<div id="toast"></div>
 <div id="pcAway">Liner Notes on your PC is off or asleep</div>
 <button id="fsBtn" aria-label="Fullscreen" title="Fullscreen">
   <svg id="fsIn" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
@@ -551,6 +594,8 @@ function render(t, keepArt) {
   $("source").style.display = t.app && !unknown ? "inline-block" : "none";
   $("findBtn").style.display = unknown ? "inline-block" : "none";
   $("infoBtn").style.display = unknown ? "none" : "grid";
+  $("heartBtn").style.display = unknown ? "none" : "grid";
+  $("lyHeart").style.visibility = unknown ? "hidden" : "visible";
   $("stage").title = unknown ? "" : "Tap for more info";
 
   // lyrics beside the art: just title, artist and album around the cover; lyrics scroll on their own
@@ -572,6 +617,7 @@ async function poll() {
     donateUrl = d.donate || "";
     if (d.update) showUpdate(d.update);
     $("followRow").classList.toggle("on", d.phone_follows_pc !== false);
+    if (!saveBusy) setHearts(!!d.saved);
     if (d.listen) showListening(d.listen);
     showProgress(d.progress || null);
     showRecord(d.record || null, d.discogs_ready !== false);
@@ -888,6 +934,120 @@ async function loadStats() {
         <div><b>${esc(r.title)}</b><span>${esc([r.artist, r.album].filter(Boolean).join(" · "))}</span></div>
         <span class="n">${esc(sourceName(r.source))} · ${timeAgo(r.ts)}</span></div>`).join("")}</section>`;
 }
+
+// ---------------------------------------------------------------- save the band
+let saveBusy = false, toastTimer = null;
+function toast(msg) {
+  const el = $("toast"); el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 3800);
+}
+function setHearts(on) {
+  for (const id of ["heartBtn", "lyHeart"]) {
+    const b = $(id); b.classList.toggle("on", on);
+    b.title = b.ariaLabel = on ? "Saved. Tap to remove" : "Save this song";
+  }
+}
+async function toggleSave(e) {
+  e.stopPropagation();
+  if (!current || saveBusy) return;
+  const on = !$("heartBtn").classList.contains("on");
+  saveBusy = true; setHearts(on);
+  if (on) { for (const id of ["heartBtn", "lyHeart"]) { $(id).classList.add("pop"); setTimeout(() => $(id).classList.remove("pop"), 220); } }
+  try {
+    const r = await (await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: current.id, saved: on }) })).json();
+    if (r.error) { setHearts(false); toast(r.error); }
+    else if (r.saved) toast({ saved: `Saved. Added to ${r.where === "Liked Songs" ? "your Liked Songs" : "your Liner Notes playlist"} on Spotify.`,
+                              not_found: "Saved in Liner Notes. Spotify doesn't have this song.",
+                              error: "Saved in Liner Notes. Couldn't reach Spotify, so it isn't there.",
+                              not_connected: "Saved. Find it under the heart at the top." }[r.spotify] || "Saved.");
+    else toast("Removed from saved songs.");
+  } catch (err) { setHearts(!on); toast("Couldn't save. Is Liner Notes running on your PC?"); }
+  saveBusy = false;
+}
+$("heartBtn").addEventListener("click", toggleSave);
+$("lyHeart").addEventListener("click", toggleSave);
+
+async function loadSaved() {
+  const body = $("savedBody");
+  body.innerHTML = `<p class="muted">Loading…</p>`;
+  let d;
+  try { d = await (await fetch("/api/saved")).json(); }
+  catch (e) { body.innerHTML = `<p class="muted">Couldn't load your saved songs.</p>`; return; }
+  const sp = d.spotify || {};
+  $("savedSub").textContent = sp.connected
+    ? `${d.saved.length} song${d.saved.length === 1 ? "" : "s"}. New ones also go to ${sp.save_to === "liked" ? "your Liked Songs" : "the Liner Notes playlist"} on Spotify.`
+    : d.saved.length ? `${d.saved.length} song${d.saved.length === 1 ? "" : "s"}. Connect Spotify in Settings to also add them to a playlist.`
+    : "Tap the heart on the main screen to keep a song here. Handy for bands you hear on a record and want to look up later.";
+  if (!d.saved.length) { body.innerHTML = ""; return; }
+  body.innerHTML = d.saved.map(r => `
+    <div class="line" data-tid="${esc(r.tid)}">${r.art ? `<img class="thumb" src="${esc(r.art)}" alt="" loading="lazy">` : `<div class="thumb"></div>`}
+      <div><b>${esc(r.title)}</b><span>${esc([r.artist, r.album, oneYear(r.year)].filter(Boolean).join(" · "))}</span>
+        <span style="display:block">${esc(sourceName(r.source))} · ${timeAgo(r.ts)}</span></div>
+      <div class="acts">
+        <a class="pill" href="${esc(r.links.spotify)}" target="_blank" rel="noopener">${r.spotify_uri ? "Spotify ✓" : "Spotify"}</a>
+        <a class="pill" href="${esc(r.links.bandcamp)}" target="_blank" rel="noopener">Bandcamp</a>
+        <button class="unsave" title="Remove" aria-label="Remove">&times;</button></div></div>`).join("");
+}
+$("savedBody").addEventListener("click", async e => {
+  const x = e.target.closest(".unsave"); if (!x) return;
+  const line = x.closest(".line");
+  await fetch("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: line.dataset.tid, saved: false }) });
+  if (current && current.id === line.dataset.tid) setHearts(false);
+  loadSaved();
+});
+$("tb-saved").addEventListener("click", e => { e.stopPropagation(); openPanel("saved"); loadSaved(); });
+
+// Spotify connection (settings)
+let spPoll = null;
+function showSpotify(sp) {
+  if (!sp) return;
+  $("spRedirect").textContent = sp.redirect || "";
+  $("spWhere").style.display = sp.connected ? "flex" : "none";
+  document.querySelectorAll("#spWhere [data-to]").forEach(b => b.classList.toggle("on", b.dataset.to === sp.save_to));
+  if (sp.connected) {
+    $("spStatus").textContent = `Connected${sp.user ? " as " + sp.user : ""}. Songs you heart also go to Spotify.`;
+    $("spButtons").innerHTML = `<button class="pill" id="spOff">Disconnect</button>`;
+  } else if (sp.configured) {
+    $("spStatus").textContent = "Connect Spotify and every song you heart, including ones heard on a record, lands in a Spotify playlist.";
+    $("spButtons").innerHTML = `<button class="pill" id="spOn">Connect Spotify</button>`;
+  } else {
+    $("spStatus").textContent = "Spotify saving needs a Spotify app. See \"Use your own Spotify app\" below.";
+    $("spButtons").innerHTML = "";
+    $("spOwn").open = true;
+  }
+}
+async function loadSpotify() {
+  try {
+    const r = await fetch("/api/spotify/status");
+    if (r.status === 403) { $("spotifyBox").innerHTML = `<div class="muted">Set up Spotify from Liner Notes on your PC.</div>`; return; }
+    showSpotify(await r.json());
+  } catch (e) { $("spStatus").textContent = "Couldn't check Spotify."; }
+}
+$("spotifyBox").addEventListener("click", async e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "spOn") {
+    await fetch("/api/spotify/connect", { method: "POST" });
+    $("spStatus").textContent = "Finish logging in in the browser on your PC, then come back here.";
+    clearInterval(spPoll);
+    let n = 0;
+    spPoll = setInterval(async () => {
+      const sp = await (await fetch("/api/spotify/status")).json().catch(() => null);
+      if ((sp && sp.connected) || ++n > 150) { clearInterval(spPoll); if (sp && sp.connected) showSpotify(sp); }
+    }, 2000);
+  } else if (b.id === "spOff") {
+    showSpotify(await (await fetch("/api/spotify/disconnect", { method: "POST" })).json());
+  } else if (b.dataset.to) {
+    const r = await (await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spotify_save_to: b.dataset.to }) })).json();
+    showSpotify(r.spotify);
+  } else if (b.id === "spIdSave") {
+    const r = await (await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spotify_client_id: $("spId").value.trim() }) })).json();
+    $("spId").value = ""; showSpotify(r.spotify); toast(r.spotify.own_id ? "Saved. Now tap Connect Spotify." : "Back to the built-in Spotify app.");
+  }
+});
+$("tb-settings").addEventListener("click", loadSpotify);
 
 // ---------------------------------------------------------------- updates
 let upd = null, updBusy = false, seenVersion = null;
