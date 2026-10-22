@@ -1,1 +1,3 @@
-- Record search works out of the box: Liner Notes now has its own Discogs key, so nobody needs to create a Discogs token
+- New step-by-step guide for using an old Android phone as a second screen: Settings > Use a phone as a second screen, or the tray menu. Each step checks itself off as you go
+- Installs Google's Android USB connector with one click (no command line)
+- One button to switch listening to the phone's microphone

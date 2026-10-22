@@ -1474,6 +1474,127 @@ async def api_config(request):
     return web.json_response({"ok": True, "discogs_ready": discogs_ready()})
 
 
+# ---------------------------------------------------------------- phone as a second screen (USB)
+NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
+PLATFORM_TOOLS_URL = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
+TOOLS_DIR = os.path.join(DATA_DIR, "platform-tools")
+
+
+def adb_path():
+    """Android's USB connector (adb): ours, or one already on this PC."""
+    import shutil
+    ours = os.path.join(TOOLS_DIR, "adb.exe" if sys.platform == "win32" else "adb")
+    if os.path.exists(ours):
+        return ours
+    p = shutil.which("adb")
+    if p:
+        return p
+    base = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet")
+    for root in (os.path.join(base, "Links"), os.path.join(base, "Packages")):
+        for dirpath, _, files in os.walk(root):
+            if "adb.exe" in files:
+                return os.path.join(dirpath, "adb.exe")
+    return None
+
+
+def adb_run(*args, timeout=10):
+    import subprocess
+    adb = adb_path()
+    if not adb:
+        return None
+    try:
+        return subprocess.run([adb, *args], capture_output=True, text=True, timeout=timeout, creationflags=NO_WINDOW)
+    except Exception as e:
+        log("adb failed:", e)
+        return None
+
+
+def adb_devices():
+    """Phones plugged in: [{serial, state ('device' = ready, 'unauthorized' = tap Allow), model}]"""
+    r = adb_run("devices", "-l")
+    if not r:
+        return []
+    out = []
+    for line in r.stdout.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) >= 2:
+            model = next((p.split(":", 1)[1].replace("_", " ") for p in parts[2:] if p.startswith("model:")), None)
+            out.append({"serial": parts[0], "state": parts[1], "model": model})
+    return out
+
+
+def adb_connect_phones():
+    """Point each ready phone's localhost at this PC, so the phone can open the screen."""
+    for d in adb_devices():
+        if d["state"] == "device":
+            adb_run("-s", d["serial"], "reverse", f"tcp:{CFG['port']}", f"tcp:{CFG['port']}")
+
+
+async def install_platform_tools(http):
+    """Download Google's Android platform tools (about 7 MB) into Liner Notes' folder."""
+    import zipfile
+    path = os.path.join(tempfile.gettempdir(), "platform-tools.zip")
+    async with http.get(PLATFORM_TOOLS_URL, timeout=ClientTimeout(total=300)) as r:
+        r.raise_for_status()
+        with open(path, "wb") as f:
+            async for chunk in r.content.iter_chunked(1 << 16):
+                f.write(chunk)
+    with zipfile.ZipFile(path) as z:
+        z.extractall(DATA_DIR)            # the zip holds a platform-tools folder
+    os.remove(path)
+    log("Android connector installed")
+
+
+async def api_phone_status(request):
+    app = request.app
+    loop = asyncio.get_running_loop()
+    devices = await loop.run_in_executor(None, adb_devices) if adb_path() else []
+    if any(d["state"] == "device" for d in devices):
+        await loop.run_in_executor(None, adb_connect_phones)
+    return web.json_response({
+        "tools": bool(adb_path()), "installing": bool(app.get("tools_installing")),
+        "install_error": app.get("tools_error"), "devices": devices,
+        "page_open": time.time() - app.get("last_phone_poll", 0) < 6,
+        "mic_is_phone": str(CFG.get("audio_device")).lower() == "phone",
+        "port": CFG["port"]})
+
+
+async def api_phone_install(request):
+    app = request.app
+    if app.get("tools_installing"):
+        return web.json_response({"ok": True})
+    app["tools_installing"], app["tools_error"] = True, None
+
+    async def go():
+        try:
+            await install_platform_tools(app["http"])
+        except Exception as e:
+            log("connector install failed:", repr(e))
+            app["tools_error"] = "The download didn't work. Check the internet connection and try again."
+        finally:
+            app["tools_installing"] = False
+    asyncio.create_task(go())
+    return web.json_response({"ok": True})
+
+
+async def api_phone_use_mic(request):
+    """Switch listening to the phone's microphone (restarts the listening part)."""
+    cfg = {}
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+    cfg["audio_device"] = CFG["audio_device"] = "phone"
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+    fn = request.app.get("on_restart")
+    if fn:
+        asyncio.get_running_loop().call_later(0.5, fn)
+    return web.json_response({"ok": True, "restarting": bool(fn)})
+
+
 def mic_info(app):
     mic = app.get("mic")
     if not mic or mic.kind != "phone":
@@ -1486,6 +1607,8 @@ async def api_now(request):
     st: State = request.app["state"]
     if "Android" not in request.headers.get("User-Agent", ""):
         request.app["last_window_poll"] = time.time()      # a Liner Notes window on the PC is open
+    else:
+        request.app["last_phone_poll"] = time.time()       # the phone screen is open
     return web.json_response({"version": st.version, "track": st.track, "mic": mic_info(request.app),
                               "donate": CFG.get("donate_url") or "", "update": update_info(request.app),
                               "record": request.app["record"].summary() if request.app.get("record") else None,
@@ -1579,6 +1702,9 @@ def build_app(demo=False):
     app.router.add_post("/api/records/position", api_records_position)
     app.router.add_post("/api/records/clear", api_records_clear)
     app.router.add_post("/api/config", api_config)
+    app.router.add_get("/api/phone/status", api_phone_status)
+    app.router.add_post("/api/phone/install", api_phone_install)
+    app.router.add_post("/api/phone/use-mic", api_phone_use_mic)
     app.router.add_post("/api/update", api_update)
     app.router.add_get("/icon.svg", icon)
     app.on_startup.append(on_startup)

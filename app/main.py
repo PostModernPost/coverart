@@ -145,6 +145,7 @@ def make_image(size=64):
 
 
 WINDOW = {}
+ICON = {}
 QUITTING = {"now": False}
 
 
@@ -165,6 +166,19 @@ def show_window():
 
 
 open_window = show_window
+
+
+def open_panel(name):
+    """Show the window with one of its panels open (e.g. the phone setup guide)."""
+    show_window()
+    w = WINDOW.get("w")
+    if w is not None:
+        try:
+            w.evaluate_js(f"openPanel({json.dumps(name)}); if (window.onPanelOpen) onPanelOpen({json.dumps(name)});")
+        except Exception as e:
+            print("open panel failed:", e, flush=True)
+    else:
+        webbrowser.open(f"{URL}/#{name}")
 
 
 def wait_for_server(seconds=15):
@@ -318,30 +332,14 @@ def mic_choices():
 
 
 # ------------------------------------------------------------- phone over USB
-def find_adb():
-    p = shutil.which("adb")
-    if p:
-        return p
-    base = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet")
-    for root in (os.path.join(base, "Links"), os.path.join(base, "Packages")):
-        for dirpath, _, files in os.walk(root):
-            if "adb.exe" in files:
-                return os.path.join(dirpath, "adb.exe")
-    return None
-
-
 def adb_loop():
-    """Keep the phone's localhost pointed at this PC, even after replugging."""
-    adb = find_adb()
-    if not adb:
-        print("adb not found; phone-over-USB disabled", flush=True)
-        return
+    """Keep plugged-in phones pointed at this PC, even after replugging or installing the connector."""
     while True:
         try:
-            subprocess.run([adb, "reverse", f"tcp:{PORT}", f"tcp:{PORT}"], capture_output=True,
-                           timeout=10, creationflags=NO_WINDOW)
-        except Exception:
-            pass
+            if core.adb_path():
+                core.adb_connect_phones()
+        except Exception as e:
+            print("phone connect failed:", e, flush=True)
         time.sleep(15)
 
 
@@ -356,6 +354,7 @@ def server_thread():
     app = core.build_app()
     loop.run_until_complete(core.serve(app))
     app["on_show_window"] = show_window
+    app["on_restart"] = lambda: restart(ICON["i"]) if ICON.get("i") else None
     APP["app"] = app
     APP["loop"] = loop
     loop.run_forever()
@@ -434,6 +433,7 @@ def build_menu():
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Open Liner Notes", lambda i, it: show_window(), default=True),
         pystray.MenuItem("Open in browser", lambda i, it: webbrowser.open(URL)),
+        pystray.MenuItem("Use a phone as a screen…", lambda i, it: open_panel("phone")),
         pystray.MenuItem("Microphone", pystray.Menu(*mics)),
         pystray.MenuItem("Start with Windows", lambda i, it: set_startup(not startup_enabled()),
                          checked=lambda it: startup_enabled()),
@@ -484,6 +484,7 @@ def main():
     threading.Thread(target=adb_loop, daemon=True).start()
 
     icon = pystray.Icon("LinerNotes", make_image(), APP_NAME, build_menu())
+    ICON["i"] = icon
     icon.run_detached()
     icon.visible = True
     threading.Thread(target=refresher, args=(icon,), daemon=True).start()

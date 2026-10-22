@@ -35,11 +35,7 @@ Windows may warn that the installer is from an unknown publisher (it isn't code-
 
 ## Using an Android phone as the screen and mic
 
-1. On the phone: Settings > About phone, tap **Build number** 7 times to unlock Developer options. Then in Developer options turn on **USB debugging** and **Stay awake**.
-2. On the PC, install Android's USB tool once: `winget install Google.PlatformTools`. Restart Liner Notes.
-3. Plug the phone in, tap **Allow** on the USB debugging prompt.
-4. In Chrome on the phone open `localhost:8765`, then menu > **Install app** (or Add to Home screen > Install). Open it from the new icon: it runs fullscreen with no address bar.
-5. To use the phone's mic: right-click the tray icon > Microphone > **Phone**. Tap the phone screen once when the gold banner asks.
+Open Settings (gear icon) > **Use a phone as a second screen**, or right-click the tray icon > **Use a phone as a screen…**. The guide walks through it and checks each step off as it happens: getting the phone ready (USB debugging), installing Google's Android connector with one click, plugging in, opening Liner Notes on the phone, and optionally listening with the phone's microphone.
 
 ## Discogs key (record mode)
 

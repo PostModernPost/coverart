@@ -137,6 +137,20 @@
     padding: .7em 1.1em; font: inherit; font-size: calc(var(--ts) * clamp(14px, 3vmin, 22px)); outline: none; min-width: 0; }
   .field:focus { border-color: var(--gold); }
 
+  /* phone setup guide */
+  .step { display: flex; gap: 2.5vmin; padding: 2.4vmin 0; border-bottom: 1px solid var(--faint); }
+  .step .num { width: 2em; height: 2em; border-radius: 50%; flex: none; display: grid; place-items: center; font-weight: 650;
+    border: 1px solid rgba(255,255,255,.3); font-size: calc(var(--ts) * clamp(12px, 2.4vmin, 17px)); }
+  .step.done .num { background: var(--gold); color: #111; border-color: var(--gold); }
+  .step b { display: block; font-size: calc(var(--ts) * clamp(14px, 2.9vmin, 21px)); margin-bottom: .3em; }
+  .step p, .step li { color: var(--dim); font-size: calc(var(--ts) * clamp(12px, 2.5vmin, 18px)); line-height: 1.5; margin: .25em 0; }
+  .step ul { margin: .3em 0; padding-left: 1.2em; }
+  .step strong { color: var(--fg); font-weight: 600; }
+  .step code { color: var(--fg); background: rgba(255,255,255,.08); padding: .1em .4em; border-radius: 4px; }
+  .status { margin-top: .6em; font-size: calc(var(--ts) * clamp(12px, 2.5vmin, 18px)); display: flex; gap: .6em; align-items: center; flex-wrap: wrap; }
+  .status.ok { color: var(--gold); }
+  .status .dotwait { width: .6em; height: .6em; border-radius: 50%; background: var(--dim); animation: pulse 1.6s ease-in-out infinite; }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -260,6 +274,41 @@
   </div>
 </div>
 
+<!-- phone setup guide -->
+<div id="phone" class="panel">
+  <button class="close" aria-label="Close">&times;</button>
+  <h2>Use an old phone as a second screen</h2>
+  <div class="sub">An Android phone plugged into this PC can show the album art next to your monitor, and listen to your records with its own microphone. Each step checks itself off when it's done.</div>
+
+  <div class="step" id="st1"><div class="num">1</div><div>
+    <b>Get the phone ready (one time)</b>
+    <ul>
+      <li>Open Settings &gt; About phone and tap <strong>Build number</strong> 7 times, until it says you're a developer. On Samsung it's under About phone &gt; Software information. It may ask for the phone's PIN.</li>
+      <li>Go to Settings &gt; System &gt; Developer options (on Samsung, at the bottom of Settings). Turn on <strong>USB debugging</strong> and <strong>Stay awake</strong>, so the screen stays on while it charges.</li>
+    </ul>
+    <p>Liner Notes can't see the phone's settings, so check this one off yourself by doing step 3.</p></div></div>
+
+  <div class="step" id="st2"><div class="num">2</div><div>
+    <b>Install the Android connector on this PC</b>
+    <p>A small free tool from Google (about 7 MB) that lets this PC talk to the phone over USB.</p>
+    <div class="status" id="s2"></div></div></div>
+
+  <div class="step" id="st3"><div class="num">3</div><div>
+    <b>Plug the phone in</b>
+    <p>Use a USB cable that can carry data (some charging-only cables can't). The phone asks "Allow USB debugging?": tick "Always allow from this computer" and tap <strong>Allow</strong>.</p>
+    <div class="status" id="s3"></div></div></div>
+
+  <div class="step" id="st4"><div class="num">4</div><div>
+    <b>Open Liner Notes on the phone</b>
+    <p>On the phone, open Chrome and go to <code id="phoneUrl">localhost:8765</code>. Then tap Chrome's ⋮ menu and choose <strong>Install app</strong> (or Add to Home screen &gt; Install). From now on, open it from that icon: it runs fullscreen.</p>
+    <div class="status" id="s4"></div></div></div>
+
+  <div class="step" id="st5"><div class="num">5</div><div>
+    <b>Listen with the phone's microphone (optional)</b>
+    <p>The phone sits right by the speakers and records music without call-style noise filtering, so your webcam or headset mic can keep its noise cancelling for calls. The first time, tap the phone's screen once when it asks, and allow the microphone.</p>
+    <div class="status" id="s5"></div></div></div>
+</div>
+
 <!-- search -->
 <div id="search" class="panel">
   <button class="close" aria-label="Close">&times;</button>
@@ -297,6 +346,9 @@
     <div>Show year, label and genre<small>Under the album name.</small></div><div class="switch"></div></div>
   <div class="setting" id="fsSetting">
     <div>Fullscreen<small id="fsHint">Hides the browser's bars until you leave the page.</small></div><div class="switch"></div></div>
+  <div class="setting" id="phoneSetupRow" style="cursor:pointer">
+    <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone plugged into this PC.</small></div>
+    <span class="pill">Set up</span></div>
   <div id="about">
     <h3>About</h3>
     <div id="verLine"></div>
@@ -706,6 +758,47 @@ document.addEventListener("click", async e => {
   }
 });
 $("updPill").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
+
+// ---------------------------------------------------------------- phone setup guide
+let phoneTimer = null;
+function waitLine(text) { return `<span class="dotwait"></span><span>${esc(text)}</span>`; }
+function okLine(text) { return `<span>✓ ${esc(text)}</span>`; }
+async function phoneCheck() {
+  let d;
+  try { d = await (await fetch("/api/phone/status", { cache: "no-store" })).json(); } catch (e) { return; }
+  const ready = d.devices.filter(x => x.state === "device");
+  const unauth = d.devices.filter(x => x.state === "unauthorized");
+  $("phoneUrl").textContent = `localhost:${d.port}`;
+  // 2: connector
+  $("st2").classList.toggle("done", d.tools);
+  const s2 = $("s2"); s2.className = "status" + (d.tools ? " ok" : "");
+  s2.innerHTML = d.tools ? okLine("Installed")
+    : d.installing ? waitLine("Downloading and installing…")
+    : `<button class="pill gold" id="toolsInstall">Install</button>${d.install_error ? `<span class="muted">${esc(d.install_error)}</span>` : ""}`;
+  // 3: phone plugged in and allowed
+  const s3 = $("s3"); $("st3").classList.toggle("done", ready.length > 0); $("st1").classList.toggle("done", ready.length > 0);
+  s3.className = "status" + (ready.length ? " ok" : "");
+  s3.innerHTML = !d.tools ? `<span class="muted">Do step 2 first.</span>`
+    : ready.length ? okLine(`${ready[0].model || "Phone"} connected`)
+    : unauth.length ? waitLine("Phone found. Tap Allow on the phone's screen.")
+    : waitLine("Waiting for a phone… If nothing happens, check USB debugging is on and try another cable.");
+  // 4: page open on the phone
+  const s4 = $("s4"); $("st4").classList.toggle("done", d.page_open); s4.className = "status" + (d.page_open ? " ok" : "");
+  s4.innerHTML = d.page_open ? okLine("The phone is showing Liner Notes") : waitLine(ready.length ? "Waiting for the phone to open it…" : "Do step 3 first.");
+  // 5: phone mic
+  const s5 = $("s5"); $("st5").classList.toggle("done", d.mic_is_phone); s5.className = "status" + (d.mic_is_phone ? " ok" : "");
+  s5.innerHTML = d.mic_is_phone ? okLine("Using the phone's microphone")
+    : `<button class="pill" id="useMic">Use the phone's microphone</button><span class="muted">Liner Notes restarts for a moment.</span>`;
+}
+function openPhoneSetup() { openPanel("phone"); phoneCheck(); clearInterval(phoneTimer); phoneTimer = setInterval(() => {
+  if (!$("phone").classList.contains("open")) { clearInterval(phoneTimer); return; } phoneCheck(); }, 2000); }
+window.onPanelOpen = name => { if (name === "phone") openPhoneSetup(); };
+document.addEventListener("click", async e => {
+  if (e.target.id === "toolsInstall") { e.target.disabled = true; await fetch("/api/phone/install", { method: "POST" }); phoneCheck(); }
+  if (e.target.id === "useMic") { e.target.disabled = true; e.target.textContent = "Switching…"; await fetch("/api/phone/use-mic", { method: "POST" }); }
+});
+$("phoneSetupRow").addEventListener("click", openPhoneSetup);
+if (location.hash === "#phone") setTimeout(openPhoneSetup, 300);
 
 // ---------------------------------------------------------------- wiring
 $("stage").addEventListener("click", e => { if (e.target.id === "findBtn") return; openInfo(); });
