@@ -73,7 +73,8 @@ CFG = {
     "phone_follows_pc": True,      # phone screen turns off when this PC sleeps, back on when it wakes
     "room_medium": None,
     "mic_sensitivity": "normal",
-    "hold_seconds": 60,            # during a song Shazam found, this much quiet before deciding the record stopped   # low / normal / high: how quiet music can be and still count           # what plays music in the room: vinyl, cd, cassette, radio, other; None = ask
+    "hold_seconds": 60,
+    "follow_album": True,          # after a song is recognized on physical media, follow its album's tracklist            # during a song Shazam found, this much quiet before deciding the record stopped   # low / normal / high: how quiet music can be and still count           # what plays music in the room: vinyl, cd, cassette, radio, other; None = ask
     "discogs_token": "",           # optional personal Discogs token (the app has its own key when built)
     "donate_url": "https://buymeacoffee.com/goodisanoun",  # shown in the info panel ("" hides it)
 }
@@ -996,6 +997,65 @@ async def discogs_find_album_start(http, title, artist, album):
     return None, None
 
 
+async def itunes_album_record(http, collection_id):
+    """The album's tracklist from Apple Music, as a record to follow (no sides: tracks in order)."""
+    if not collection_id:
+        return None
+    async with http.get(f"{ITUNES}/lookup", params={"id": str(collection_id), "entity": "song", "limit": "200"}) as r:
+        data = await r.json(content_type=None)
+    items = data.get("results") or []
+    album = next((x for x in items if x.get("wrapperType") == "collection"), {})
+    songs = sorted((x for x in items if x.get("wrapperType") == "track"),
+                   key=lambda x: (x.get("discNumber") or 1, x.get("trackNumber") or 0))
+    if len(songs) < 2:
+        return None
+    multi = len({x.get("discNumber") or 1 for x in songs}) > 1
+    tl = []
+    for x in songs:
+        secs = round((x.get("trackTimeMillis") or 0) / 1000)
+        tl.append({"position": f"{x.get('discNumber') or 1}-{x.get('trackNumber')}" if multi else str(x.get("trackNumber")),
+                   "title": x.get("trackName"), "duration": f"{secs // 60}:{secs % 60:02d}" if secs else "",
+                   "artists": [{"name": x.get("artistName")}] if x.get("artistName") != album.get("artistName") else []})
+    art = (album.get("artworkUrl100") or "").replace("100x100bb", "1000x1000bb") or None
+    rel = {"id": None, "title": album.get("collectionName"), "artists": [{"name": album.get("artistName") or ""}],
+           "year": (album.get("releaseDate") or "")[:4], "labels": [{"name": clean_label(album.get("copyright"))}],
+           "genres": [album.get("primaryGenreName")], "images": [{"type": "primary", "uri": art}] if art else [],
+           "tracklist": tl}
+    rec = RecordSession(rel)
+    rec.from_itunes = True
+    return rec
+
+
+async def find_album_record(http, title, artist, album, medium=None):
+    """A song was recognized on a record, CD or tape: find its album's tracklist (Discogs, then Apple Music)
+    so the next songs can follow in order. Returns (record, index of this song) or (None, None)."""
+    if discogs_ready() and album:
+        fmt = {"vinyl": "Vinyl", "cd": "CD", "cassette": "Cassette"}.get(medium or "vinyl")
+        base = {"type": "release", "artist": main_artist(artist), "release_title": clean_title(album), "per_page": 10}
+        try:
+            results = (await discogs_get(http, "/database/search", {**base, "format": fmt})).get("results", [])
+            if not results:
+                results = (await discogs_get(http, "/database/search", base)).get("results", [])
+            for r in results[:3]:
+                rec = RecordSession(await discogs_get(http, f"/releases/{r['id']}"))
+                i = rec.find(title, artist)
+                if i is not None:
+                    return rec, i
+            log(f"album lookup: Discogs has no {album} with '{title}' on it")
+        except Exception as e:
+            log("album lookup (Discogs) failed:", repr(e))
+    try:
+        info = await itunes_lookup(http, artist, title) or {}
+        rec = await itunes_album_record(http, info.get("collection_id"))
+        if rec:
+            i = rec.find(title, artist)
+            if i is not None:
+                return rec, i
+    except Exception as e:
+        log("album lookup (Apple Music) failed:", repr(e))
+    return None, None
+
+
 class RecordSession:
     def __init__(self, rel):
         self.id = rel.get("id")
@@ -1048,6 +1108,7 @@ class RecordSession:
         self.idx = max(0, min(int(i), len(self.tracks) - 1))
         self.side_done = False
         self.track_started = time.time()
+        self.exact_start = False       # True once Shazam has said exactly where in the song we are
         self.last_active = time.time()
         return self.track()
 
@@ -1072,23 +1133,24 @@ class RecordSession:
         if self.idx is None or self.last_on_side(self.idx):
             return False
         dur = self.tracks[self.idx]["duration"] or 0
-        return now - self.track_started >= max(30, 0.5 * dur)
+        # a quiet breakdown can look like a gap: only near the song's end does a gap mean the next song
+        return now - self.track_started >= (max(30, dur - 40) if dur else 30)
 
     def overdue(self, now):
         """Songs that run straight into each other have no gap: use the listed length instead."""
         if self.idx is None or self.last_on_side(self.idx):
             return False
         dur = self.tracks[self.idx]["duration"]
-        return bool(dur) and now - self.track_started > dur + 10
+        return bool(dur) and now - self.track_started > dur + (3 if getattr(self, "exact_start", False) else 10)
 
     def advance(self):
         return self.set_index(self.idx + 1)
 
     def find(self, title, artist):
-        nt, na = norm(title), norm(artist)
+        nt, na = norm(clean_title(title)), norm(main_artist(artist))
         best = None
         for i, t in enumerate(self.tracks):
-            tt, ta = norm(t["title"]), norm(t["artist"])
+            tt, ta = norm(clean_title(t["title"])), norm(t["artist"])
             if not tt:
                 continue
             if tt == nt or (len(nt) > 3 and (nt in tt or tt in nt)):
@@ -1455,24 +1517,42 @@ async def _turntable_inner(app, mic, shz):
     heard = []                # recent songs Shazam recognized on the turntable (no record loaded)
     needle_drop = False       # music just started after a silence: the next song recognized opens the side
 
+    tried_albums = set()
+
     async def check_album_start(song):
-        """First song after the needle drop opens a side of its album: load that album."""
+        """A song was recognized on a record, CD or tape: assume the album is playing and follow its
+        tracklist, so the next songs show up even if Shazam can't match them."""
+        medium = room_medium(app)
+        if medium == "radio" or not CFG.get("follow_album", True):
+            return
         try:
             album = song.get("album") or ((await itunes_lookup(app["http"], song["artist"], song["title"])) or {}).get("album")
-            found, idx = await discogs_find_album_start(app["http"], song["title"], song["artist"], album)
+            key = (norm(song["artist"]), norm(album))
+            if not album or key in tried_albums:
+                return
+            tried_albums.add(key)
+            found, idx = await find_album_record(app["http"], song["title"], song["artist"], album, medium)
         except Exception as e:
             log("album lookup failed:", repr(e))
             return
         if not found or app.get("record"):
             return
         found.auto = True
+        if not found.medium:
+            found.medium = medium if medium in ("vinyl", "cd", "cassette") else None
         app["record"] = found
-        log(f"needle drop on {found.tracks[idx]['pos']}: playing {found.artist} - {found.title}")
+        log(f"following the album: {found.artist} - {found.title}, now {found.tracks[idx]['pos']} "
+            f"({'Apple Music' if getattr(found, 'from_itunes', False) else 'Discogs'} tracklist)")
         cur = st.track
-        if cur and cur.get("source") == "turntable" and norm(cur.get("title")) == norm(song["title"]):
+        p = progress_now(app)
+        pos = p.get("pos") if p and p.get("kind") == "exact" else None
+        if cur and cur.get("source") == "turntable" and norm(clean_title(cur.get("title"))) == norm(clean_title(song["title"])):
             show_record(app, found, found.set_index(idx))
         else:
             found.set_index(idx)
+        if pos is not None:            # keep Shazam's exact place in the song, so the switch to the next one lands on time
+            found.track_started, found.exact_start = time.time() - pos, True
+            set_progress(app, found.track()["id"], pos, found.tracks[idx]["duration"], "exact")
 
     async def work_out_record(first, second):
         """Runs in the background so listening isn't held up by Discogs."""
@@ -1665,14 +1745,15 @@ async def _turntable_inner(app, mic, shz):
                 log(f"Shazam says track {rec.tracks[on_record]['pos']}: moving there")
                 show_record(app, rec, rec.set_index(on_record))
             if res.get("offset") is not None:
-                set_progress(app, rec.track()["id"], res["offset"] + CFG["clip_seconds"],
-                             rec.tracks[rec.idx]["duration"], "exact", at=last_try)
+                pos = res["offset"] + CFG["clip_seconds"]
+                set_progress(app, rec.track()["id"], pos, rec.tracks[rec.idx]["duration"], "exact", at=last_try)
+                rec.track_started, rec.exact_start = last_try - pos, True
             continue
         if res and res.get("title"):
             misses = 0
             tid = make_id(res["artist"], res["title"])
-            # First song after the needle drop: if it opens a side of its album, that's the record
-            if not rec and discogs_ready() and needle_drop and now - active_since < 240:
+            # A song on a record, CD or tape: assume its album is playing and follow the tracklist
+            if not rec:
                 asyncio.create_task(check_album_start(res))
             needle_drop = False
             # Two different songs in a row with no record chosen: work out which record this is
@@ -2159,6 +2240,8 @@ async def api_config(request):
         cfg["discogs_token"] = CFG["discogs_token"] = (body.get("discogs_token") or "").strip()
     if "phone_follows_pc" in body:
         cfg["phone_follows_pc"] = CFG["phone_follows_pc"] = bool(body.get("phone_follows_pc"))
+    if "follow_album" in body:
+        cfg["follow_album"] = CFG["follow_album"] = bool(body.get("follow_album"))
     if body.get("mic_sensitivity") in SENSITIVITY:
         cfg["mic_sensitivity"] = CFG["mic_sensitivity"] = body["mic_sensitivity"]
     if "room_medium" in body:
@@ -3106,6 +3189,7 @@ async def api_now(request):
                               "phone_follows_pc": CFG.get("phone_follows_pc", True),
                               "saved": bool(st.track and st.track.get("id") in st.db.saved_ids),
                               "media_default": CFG.get("room_medium"),
+                              "follow_album": CFG.get("follow_album", True),
                               "ask_medium": bool(st.track and st.track.get("source") in ROOM_SOURCES and st.track.get("status") == "playing"
                                                  and not st.track.get("medium") and not room_medium(request.app)),
                               "discogs_ready": discogs_ready(),

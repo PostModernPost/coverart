@@ -622,6 +622,8 @@
     <div class="sizes">
       <button class="pill" data-rm="">Ask</button><button class="pill" data-rm="vinyl">Vinyl</button><button class="pill" data-rm="cd">CD</button>
       <button class="pill" data-rm="cassette">Cassette</button><button class="pill" data-rm="radio">Radio</button><button class="pill" data-rm="other">Other</button></div></div>
+  <div class="setting" id="followAlbumRow">
+    <div>Follow the album<small>When a song on a record, CD or tape is recognized, Liner Notes assumes the album is playing and shows the next songs in order, switching when each one's length is up, even if Shazam can't match them. Turn off for mixtapes and compilations, or load the compilation with Manual search.</small></div><div class="switch"></div></div>
   <div class="setting" id="idleModeRow" style="cursor:default">
     <div>When nothing is playing<small>Recently played shows the album you just played, your other recent records and songs you saved. The slideshow shows album covers from your history.</small></div>
     <div class="sizes">
@@ -814,6 +816,7 @@ async function poll() {
     $("followRow").classList.toggle("on", d.phone_follows_pc !== false);
     if (!saveBusy) setHearts(!!d.saved);
     mediaDefault = d.media_default || "";
+    $("followAlbumRow").classList.toggle("on", d.follow_album !== false);
     document.querySelectorAll("#mediaRow [data-rm]").forEach(b => b.classList.toggle("on", b.dataset.rm === mediaDefault));
     $("mediumAsk").classList.toggle("on", !!d.ask_medium && !mediumBusy);
     if (d.listen) showListening(d.listen);
@@ -1692,6 +1695,11 @@ document.addEventListener("click", async e => {
   if (e.target.id === "useMic") { e.target.disabled = true; e.target.textContent = "Switching…"; await fetch("/api/phone/use-mic", { method: "POST" }); }
 });
 $("phoneSetupRow").addEventListener("click", openPhoneSetup);
+$("followAlbumRow").addEventListener("click", async () => {
+  const on = !$("followAlbumRow").classList.contains("on");
+  $("followAlbumRow").classList.toggle("on", on);
+  try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ follow_album: on }) }); } catch (e) {}
+});
 $("followRow").addEventListener("click", async () => {
   const on = !$("followRow").classList.contains("on");
   $("followRow").classList.toggle("on", on);
