@@ -651,6 +651,11 @@
     <div id="meter"><div id="meterFill"></div><div class="mk" id="mkFloor" title="Room background"></div><div class="mk gold" id="mkStart" title="Music starts"></div><div class="mk" id="mkKeep" title="Music keeps going"></div></div>
     <div class="legend" id="meterLegend"><span><i class="lg-floor"></i>Room background</span><span><i class="lg-start"></i>Counts as music</span><span><i class="lg-keep"></i>Keeps a song going</span></div>
     <div class="muted" id="meterNow"></div>
+    <div id="clipBox" style="margin-top:1.4em;display:none">
+      <div>Hear what Shazam heard<small class="muted" id="clipWhen" style="display:block;margin-top:.2em"></small></div>
+      <audio id="clipAudio" controls preload="none" style="width:100%;margin-top:.6em"></audio>
+      <small class="muted" style="display:block;margin-top:.4em">If it sounds muffled, faint or full of room noise, Shazam will struggle too. A mic closer to a speaker helps most.</small>
+    </div>
   </div>
   <h3 style="margin-top:3vmin;margin-bottom:0">Spotify</h3>
   <div id="spotifyBox">
@@ -1240,6 +1245,14 @@ async function meterTick() {
   catch (e) { return; }
   document.querySelectorAll("#sensRow [data-sens]").forEach(b => b.classList.toggle("on", b.dataset.sens === d.sensitivity));
   if (!d.has_mic) { $("meterNow").textContent = "No microphone is connected."; return; }
+  if (d.clip_at) {
+    $("clipBox").style.display = "block";
+    const mins = Math.round((Date.now() / 1000 - d.clip_at) / 60);
+    $("clipWhen").textContent = `The last ${12} seconds sent to Shazam, ${mins < 1 ? "just now" : mins + " min ago"}` + (d.mic_name ? ` · ${d.mic_name}` : "");
+    if ($("clipAudio").dataset.at !== String(d.clip_at) && $("clipAudio").paused) {
+      $("clipAudio").dataset.at = String(d.clip_at); $("clipAudio").src = "/api/mic/last-clip.wav?t=" + d.clip_at;
+    }
+  }
   $("meterFill").style.width = dbPos(d.level) + "%";
   $("mkFloor").style.left = dbPos(d.floor) + "%";
   $("mkStart").style.left = dbPos(d.start) + "%";
@@ -1793,15 +1806,38 @@ function banner(text) {
   if (text) { b.textContent = text; b.style.display = "block"; } else { b.style.display = "none"; }
 }
 
-function downsample(input, rate) {
-  const ratio = rate / TARGET_SR, n = Math.floor(input.length / ratio), out = new Int16Array(n);
-  for (let i = 0; i < n; i++) {
-    const a = Math.floor(i * ratio), b = Math.min(input.length, Math.floor((i + 1) * ratio));
-    let sum = 0; for (let j = a; j < b; j++) sum += input[j];
-    const v = Math.max(-1, Math.min(1, sum / Math.max(1, b - a)));
-    out[i] = v < 0 ? v * 32768 : v * 32767;
+// Phone audio to 16 kHz for Shazam. One continuous resampler for the whole recording: a low-pass
+// filter first (so high sounds don't fold back as noise), and no samples dropped between chunks
+// (dropping them adds a click every tenth of a second, which hurts matching).
+function makeResampler(rate) {
+  const ratio = rate / TARGET_SR, HALF = 16, cutoff = 0.9 * (TARGET_SR / 2) / rate;
+  const h = new Float32Array(2 * HALF + 1);
+  let hs = 0;
+  for (let j = -HALF; j <= HALF; j++) {
+    const x = 2 * Math.PI * cutoff * j;
+    const sinc = j === 0 ? 2 * cutoff : Math.sin(x) / (Math.PI * j);
+    const w = 0.42 + 0.5 * Math.cos(Math.PI * j / (HALF + 1)) + 0.08 * Math.cos(2 * Math.PI * j / (HALF + 1));   // Blackman
+    h[j + HALF] = sinc * w; hs += sinc * w;
   }
-  return out;
+  for (let j = 0; j < h.length; j++) h[j] /= hs;
+  let tail = new Float32Array(0), pos = HALF;          // pos: where the next output sample sits in (tail + input)
+  return input => {
+    const buf = new Float32Array(tail.length + input.length);
+    buf.set(tail); buf.set(input, tail.length);
+    const out = [];
+    while (Math.round(pos) + HALF < buf.length) {
+      const c = Math.round(pos);
+      let acc = 0;
+      for (let j = -HALF; j <= HALF; j++) acc += h[j + HALF] * buf[c + j];
+      const v = Math.max(-1, Math.min(1, acc));
+      out.push(v < 0 ? v * 32768 : v * 32767);
+      pos += ratio;
+    }
+    const keepFrom = Math.max(0, Math.floor(pos) - HALF);
+    tail = buf.slice(keepFrom);
+    pos -= keepFrom;
+    return Int16Array.from(out);
+  };
 }
 
 async function openMic() {
@@ -1822,7 +1858,8 @@ async function openMic() {
   banner(null);
   mic.src = mic.ctx.createMediaStreamSource(mic.stream);
   mic.node = mic.ctx.createScriptProcessor(4096, 1, 1);
-  mic.node.onaudioprocess = e => mic.chunks.push(downsample(e.inputBuffer.getChannelData(0), mic.ctx.sampleRate));
+  const resample = makeResampler(mic.ctx.sampleRate);
+  mic.node.onaudioprocess = e => mic.chunks.push(resample(e.inputBuffer.getChannelData(0)));
   mic.src.connect(mic.node);
   mic.node.connect(mic.ctx.destination);   // required for the processor to run; it outputs silence
   mic.chunks = [];

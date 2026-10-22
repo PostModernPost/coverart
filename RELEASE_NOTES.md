@@ -1,3 +1,2 @@
-- Follow the album: when Shazam recognizes a song on a record, CD or tape, Liner Notes looks up that album's tracklist (Discogs, or Apple Music when Discogs doesn't have it) and assumes the album is playing. The next songs come up in order, switching when each one's length is up (timed from where Shazam said you were), even if Shazam can't match them. A Shazam match for a different song still wins, and a song that isn't on the album drops the guess. Turn it off in Settings for mixtapes and compilations.
-- This used to happen only when the very first song after the needle drop opened a side; now any recognized song works.
-- A quiet breakdown late in a song no longer counts as the gap before the next track; only gaps near the song's end do.
+- Better audio from the phone's mic: the phone page now converts its recording for Shazam with one continuous, filtered resampler. Before, it dropped a sample at the edge of every tenth-of-a-second chunk, adding tiny clicks that can throw off matching.
+- Settings > Microphone > Hear what Shazam heard: play back the last 12-second clip Liner Notes sent, so you can tell whether it's too faint, muffled or noisy.

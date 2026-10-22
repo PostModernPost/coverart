@@ -1725,6 +1725,7 @@ async def _turntable_inner(app, mic, shz):
         wav = L.clip_wav(CFG["clip_seconds"])
         if not wav:
             continue
+        app["last_clip"] = (wav, time.time())          # Settings can play back what Shazam heard
         log(f"identifying ({'new song' if gap else 'check'}, level {L.level:.4f})")
         try:
             res = await shazam_identify(shz, wav)
@@ -2467,6 +2468,13 @@ async def api_listen_now(request):
     return web.json_response({"ok": True, "seconds": CFG["clip_seconds"]})
 
 
+async def api_last_clip(request):
+    clip = request.app.get("last_clip")
+    if not clip:
+        return web.Response(status=404, text="No clip yet")
+    return web.Response(body=clip[0], content_type="audio/wav", headers={"Cache-Control": "no-store"})
+
+
 async def api_mic_level(request):
     """For the mic meter in Settings: what the mic hears now, the room's background, and the two lines."""
     app = request.app
@@ -2476,7 +2484,9 @@ async def api_mic_level(request):
     return web.json_response({"level": m.get("level") if fresh else None, "floor": NOISE["floor"],
                               "start": music_cutoff(), "keep": keep_cutoff(),
                               "mode": app.get("listen_mode", "off"), "has_mic": app.get("mic") is not None,
-                              "sensitivity": CFG.get("mic_sensitivity") or "normal"})
+                              "sensitivity": CFG.get("mic_sensitivity") or "normal",
+                              "clip_at": (app.get("last_clip") or (None, None))[1],
+                              "mic_name": getattr(app.get("mic"), "name", None)})
 
 
 async def api_idle(request):
@@ -3333,6 +3343,7 @@ def build_app(demo=False):
     app.router.add_get("/api/idle", api_idle)
     app.router.add_post("/api/listen-now", api_listen_now)
     app.router.add_get("/api/mic/level", api_mic_level)
+    app.router.add_get("/api/mic/last-clip.wav", api_last_clip)
     app.router.add_get("/api/credits", api_credits)
     app.router.add_post("/api/medium", api_medium)
     app.router.add_get("/api/recap", api_recap)
