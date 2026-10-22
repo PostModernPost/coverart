@@ -141,6 +141,8 @@
   #stFill.due { background: #e8556d; }
   #stylusBox label { display: flex; align-items: center; justify-content: space-between; gap: 1em; margin: .8em 0; }
   #stLifeOwn.on { border-color: var(--gold); }
+  #micSel { font-size: .9em; padding: .45em .9em; max-width: 22em; color-scheme: dark; cursor: pointer; }
+  #micSel option { background: #1d1d20; color: var(--fg); }
   #stylusBox input.field { width: 10em; color-scheme: dark; font-size: 1em; padding: .45em .9em; }
   #jp, #slides { position: absolute; inset: 0; transition: opacity 2.5s ease; }
   #jp { display: flex; align-items: center; justify-content: center; gap: 6vmin; padding: 6vmin 7vmin; box-sizing: border-box; }
@@ -686,6 +688,9 @@
     <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone or iPhone.</small></div>
     <span class="pill">Set up</span></div>
   <h3 style="margin-top:3vmin;margin-bottom:0">Microphone</h3>
+  <div class="setting" id="micRow" style="cursor:default">
+    <div>Listen with<small id="micHint">The microphone Liner Notes uses to hear records. Changing it restarts Liner Notes.</small></div>
+    <select id="micSel" class="field" aria-label="Microphone"><option>Loading…</option></select></div>
   <div class="setting" id="sensRow" style="cursor:default">
     <div>Sensitivity<small>How quiet music can be and still count. Try High if the mic is across the room and Liner Notes misses records; Low if it reacts to talking or the TV.</small></div>
     <div class="sizes"><button class="pill" data-sens="low">Low</button><button class="pill" data-sens="normal">Normal</button><button class="pill" data-sens="high">High</button></div></div>
@@ -1398,6 +1403,28 @@ $("tb-settings").addEventListener("click", () => {
   clearInterval(meterTimer);
   setTimeout(() => { meterTimer = setInterval(meterTick, 1000); meterTick(); }, 100);   // after the panel opens
 });
+async function loadMics() {
+  try {
+    const r = await fetch("/api/mic/list");
+    if (!r.ok) { $("micRow").style.display = "none"; return; }       // only from Liner Notes on the PC
+    const d = await r.json(), sel = $("micSel");
+    const opts = [["", "Windows default"], ["phone", "The phone's microphone"], ...d.choices.map(n => [n, n])];
+    if (d.selected && !opts.some(o => o[0] === d.selected)) opts.push([d.selected, d.selected + " (not connected)"]);
+    sel.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
+    sel.value = d.selected || "";
+    $("micHint").textContent = (d.listening_with ? "Listening with " + d.listening_with + ". " : "No microphone is working right now. ") +
+      "Changing it restarts Liner Notes.";
+  } catch (e) {}
+}
+$("micSel").addEventListener("change", async () => {
+  try {
+    const r = await fetch("/api/mic/select", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ device: $("micSel").value }) });
+    const d = await r.json();
+    if (!d.ok) { toast(d.error || "Couldn't switch microphones."); loadMics(); return; }
+    toast(d.restarting ? "Switching microphones: Liner Notes is restarting…" : "Saved. Restart Liner Notes to use it.");
+  } catch (e) { toast("Couldn't reach Liner Notes."); }
+});
+$("tb-settings").addEventListener("click", loadMics);
 $("sensRow").addEventListener("click", async e => {
   const b = e.target.closest("[data-sens]"); if (!b) return;
   e.stopPropagation();

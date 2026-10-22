@@ -1448,6 +1448,25 @@ def pick_device(dev):
     return None
 
 
+def mic_choices():
+    """Microphones and inputs on this PC: full-length names (WASAPI lists them untruncated), deduplicated."""
+    try:
+        import sounddevice as sd
+        devs = sd.query_devices()
+        apis = sd.query_hostapis()
+        wasapi = next((i for i, a in enumerate(apis) if "WASAPI" in a["name"]), None)
+        names = []
+        for d in devs:
+            if d["max_input_channels"] > 0 and (wasapi is None or d["hostapi"] == wasapi):
+                n = d["name"]
+                if n not in names and "Stereo Mix" not in n and "Hands-Free" not in n:
+                    names.append(n)
+        return names
+    except Exception as e:
+        log("device list failed:", e)
+        return []
+
+
 SHAZAM_REPLY = {}
 
 
@@ -3324,6 +3343,36 @@ async def api_phone_install(request):
     return web.json_response({"ok": True})
 
 
+async def api_mic_list(request):
+    """The microphones Settings offers, and which one is listening now."""
+    cur = CFG.get("audio_device")
+    names = await asyncio.to_thread(mic_choices)
+    mic = request.app.get("mic")
+    if str(cur).lower() == "phone":
+        sel = "phone"
+    elif not cur:
+        sel = ""
+    else:
+        sel = next((n for n in names if n.lower() == str(cur).lower()), None) or \
+              next((n for n in names if str(cur).lower() in n.lower()), str(cur))
+    return web.json_response({"choices": names, "selected": sel, "listening_with": mic.name if mic else None})
+
+
+async def api_mic_select(request):
+    """Listen with a different microphone: "" = Windows default, "phone", or a name from the list.
+    The listening part opens the mic once at start, so Liner Notes restarts."""
+    body = await request.json()
+    dev = body.get("device") or None
+    if dev and dev != "phone" and dev not in await asyncio.to_thread(mic_choices):
+        return web.json_response({"ok": False, "error": "That microphone isn't connected."}, status=400)
+    save_cfg(audio_device=dev)
+    log("microphone set to", dev or "Windows default")
+    fn = request.app.get("on_restart")
+    if fn:
+        asyncio.get_running_loop().call_later(0.5, fn)
+    return web.json_response({"ok": True, "restarting": bool(fn)})
+
+
 async def api_phone_use_mic(request):
     """Switch listening to the phone's microphone (restarts the listening part)."""
     cfg = {}
@@ -3591,6 +3640,8 @@ def build_app(demo=False):
     app.router.add_get("/api/idle", api_idle)
     app.router.add_post("/api/listen-now", api_listen_now)
     app.router.add_get("/api/mic/level", api_mic_level)
+    app.router.add_get("/api/mic/list", api_mic_list)
+    app.router.add_post("/api/mic/select", api_mic_select)
     app.router.add_get("/api/mic/last-clip.wav", api_last_clip)
     app.router.add_get("/api/credits", api_credits)
     app.router.add_get("/api/similar", api_similar)

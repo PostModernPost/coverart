@@ -424,22 +424,7 @@ def save_cfg(cfg):
 
 
 def mic_choices():
-    """Full-length input names (WASAPI lists them untruncated), deduplicated."""
-    try:
-        import sounddevice as sd
-        devs = sd.query_devices()
-        apis = sd.query_hostapis()
-        wasapi = next((i for i, a in enumerate(apis) if "WASAPI" in a["name"]), None)
-        names = []
-        for d in devs:
-            if d["max_input_channels"] > 0 and (wasapi is None or d["hostapi"] == wasapi):
-                n = d["name"]
-                if n not in names and "Stereo Mix" not in n and "Hands-Free" not in n:
-                    names.append(n)
-        return names
-    except Exception as e:
-        print("device list failed:", e, flush=True)
-        return []
+    return core.mic_choices()
 
 
 # ------------------------------------------------------------- phone over USB

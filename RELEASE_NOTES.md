@@ -1,3 +1,1 @@
-- Recognition: the audio sent to Shazam goes back to how it was before 0.7.28, just turned up, without the filtering and compression added then. Clips are 10 seconds.
-- Listen now records 10 fresh seconds after you click it, instead of sending what it had already heard, and waits out Shazam's "try again in 12 seconds" so it doesn't get an automatic no match.
-- The Listen now button only shows when a song couldn't be identified.
+- Settings > Microphone > Listen with: pick which microphone hears your records (Windows default, the phone's mic, a webcam, a USB input or line-in). Liner Notes restarts to switch. The tray's Microphone menu still works too.
