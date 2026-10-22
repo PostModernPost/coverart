@@ -140,6 +140,7 @@
   #stFill { height: 100%; width: 0; background: var(--gold); border-radius: 99px; transition: width .6s ease; }
   #stFill.due { background: #e8556d; }
   #stylusBox label { display: flex; align-items: center; justify-content: space-between; gap: 1em; margin: .8em 0; }
+  #stLifeOwn.on { border-color: var(--gold); }
   #stylusBox input.field { width: 10em; color-scheme: dark; font-size: 1em; padding: .45em .9em; }
   #jp, #slides { position: absolute; inset: 0; transition: opacity 2.5s ease; }
   #jp { display: flex; align-items: center; justify-content: center; gap: 6vmin; padding: 6vmin 7vmin; box-sizing: border-box; }
@@ -710,7 +711,8 @@
       <label>Hours it already had then<input type="number" id="stStart" class="field" min="0" step="10" inputmode="numeric"></label>
       <div class="muted" style="margin-top:1em">Replace it after</div>
       <div class="row" id="stLifeRow"><button class="pill" data-life="500">500 h</button><button class="pill" data-life="800">800 h</button>
-        <button class="pill" data-life="1000">1,000 h</button><button class="pill" data-life="1500">1,500 h</button></div>
+        <button class="pill" data-life="1000">1,000 h</button><button class="pill" data-life="1500">1,500 h</button>
+        <input type="number" id="stLifeOwn" class="field" min="50" max="5000" step="50" inputmode="numeric" placeholder="Your own" aria-label="Hours before replacing" style="width:7.5em"></div>
       <p class="muted" style="margin:.8em 0 0">Most diamond styli last 800 to 1,000 hours; basic conical ones nearer 500. Your cartridge maker lists the figure for yours. A worn stylus sounds dull or harsh and wears your records.</p>
     </details>
   </div>
@@ -1175,7 +1177,10 @@ function showStylus(st) {
     $("stSince").value = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : "";
   }
   if (document.activeElement !== $("stStart")) $("stStart").value = st.start_hours ? Math.round(st.start_hours) : "";
-  document.querySelectorAll("#stLifeRow [data-life]").forEach(b => b.classList.toggle("on", +b.dataset.life === st.life));
+  let preset = false;
+  document.querySelectorAll("#stLifeRow [data-life]").forEach(b => { const on = +b.dataset.life === st.life; preset ||= on; b.classList.toggle("on", on); });
+  if (document.activeElement !== $("stLifeOwn")) $("stLifeOwn").value = preset ? "" : Math.round(st.life);
+  $("stLifeOwn").classList.toggle("on", !preset);
 }
 async function loadStylus() {
   try { const r = await fetch("/api/stylus"); if (r.ok) showStylus(await r.json()); else $("stylusBox").innerHTML = '<div class="muted">Stylus hours are set from Liner Notes on the PC.</div>'; } catch (e) {}
@@ -1194,6 +1199,8 @@ $("stReplaced").addEventListener("click", () => {
 $("stSince").addEventListener("change", () => stylusPost({ since: $("stSince").value || null }));
 $("stStart").addEventListener("change", () => stylusPost({ start_hours: $("stStart").value || 0 }));
 $("stLifeRow").addEventListener("click", e => { const b = e.target.closest("[data-life]"); if (b) stylusPost({ life_hours: +b.dataset.life }); });
+$("stLifeOwn").addEventListener("change", () => { const h = +$("stLifeOwn").value; if (h >= 50) stylusPost({ life_hours: Math.min(5000, h) }); });
+$("stLifeOwn").addEventListener("keydown", e => { if (e.key === "Enter") $("stLifeOwn").blur(); });
 $("stylusLater").addEventListener("click", e => { e.stopPropagation(); $("stylusNote").classList.remove("on"); stylusPost({ action: "snooze" }); });
 $("stylusNew").addEventListener("click", e => {
   e.stopPropagation();
