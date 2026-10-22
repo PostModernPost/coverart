@@ -1017,6 +1017,7 @@ class RecordSession:
         self.last_active = time.time()
         self.auto = False          # True when Liner Notes worked out the record itself
         self.medium = discogs_medium(rel)
+        self.rel = rel             # the full Discogs release, for the credits on the info page
 
     # ---- positions
     def last_on_side(self, i):
@@ -2509,6 +2510,141 @@ async def lastfm_loop(app):
             log("last.fm loop:", repr(e))
 
 
+# ---------------------------------------------------------------- credits (Discogs), for the info page
+# Who played what, who produced and engineered it, where it was recorded, and the release notes.
+# Records loaded in record mode use that exact release; other songs use the best Discogs match for the album.
+_credits_cache = {}
+
+
+def _discogs_markup(text):
+    """Discogs notes use [a=Name], [l=Label], [url=...]text[/url], [b]bold[/b]..."""
+    t = text or ""
+    t = re.sub(r"\[url=[^\]]*\](.*?)\[/url\]", r"\1", t, flags=re.S)
+    t = re.sub(r"\[(?:a|l|m|r)=([^\]]+)\]", r"\1", t)
+    t = re.sub(r"\[(?:a|l|m|r)\d+\]", "", t)
+    t = re.sub(r"\[/?(?:b|i|u)\]", "", t)
+    t = re.sub(r"\r\n?", "\n", t)
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+
+def _role(r):
+    return re.sub(r"\s*\[([^\]]+)\]", r" (\1)", (r or "").strip()).strip(" ,")
+
+
+def _track_positions(tracks_field, order):
+    """'A1 to A3, B2' -> {'A1','A2','A3','B2'} using the tracklist's order for ranges."""
+    out = set()
+    for part in re.split(r"\s*,\s*", tracks_field or ""):
+        if not part:
+            continue
+        m = re.match(r"(.+?)\s+to\s+(.+)$", part, flags=re.I)
+        if m and m.group(1) in order and m.group(2) in order:
+            a, b = order.index(m.group(1)), order.index(m.group(2))
+            out.update(order[min(a, b): max(a, b) + 1])
+        else:
+            out.add(part.strip())
+    return out
+
+
+def _group(credits):
+    """One line per person, with everything they did: "Laura Lee: Bass, Vocals"."""
+    people = collections.OrderedDict()
+    for c in credits:
+        name = clean_artist(c.get("anv") or c.get("name"))
+        if not name:
+            continue
+        for role in re.split(r",\s*(?![^\[]*\])", c.get("role") or ""):
+            role = _role(role)
+            if role and role not in people.setdefault(name, []):
+                people[name].append(role)
+    return [{"name": n, "roles": r} for n, r in people.items()]
+
+
+def release_credits(rel, title=None, position=None):
+    tracklist = [t for t in rel.get("tracklist") or [] if t.get("type_", "track") == "track"]
+    order = [(t.get("position") or "").strip() for t in tracklist]
+    track = None
+    if position:
+        track = next((t for t in tracklist if (t.get("position") or "").strip() == position), None)
+    if track is None and title:
+        want = norm(clean_title(title))
+        track = next((t for t in tracklist if norm(clean_title(t.get("title"))) == want), None)
+    pos = (track.get("position") or "").strip() if track else None
+    song, album = list((track or {}).get("extraartists") or []), []
+    for c in rel.get("extraartists") or []:
+        applies = (c.get("tracks") or "").strip()
+        if not applies:
+            album.append(c)
+        elif pos and pos in _track_positions(applies, order):
+            song.append(c)
+    companies = collections.OrderedDict()
+    for c in rel.get("companies") or []:
+        role = c.get("entity_type_name") or ""
+        if role and c.get("name"):
+            names = companies.setdefault(role, [])
+            if clean_artist(c["name"]) not in names:
+                names.append(clean_artist(c["name"]))
+    fmt = rel.get("formats") or [{}]
+    desc = ", ".join([fmt[0].get("name") or ""] + (fmt[0].get("descriptions") or []))
+    pressing = " · ".join(x for x in (desc.strip(", "), rel.get("country"), str(rel.get("year") or "") or None) if x)
+    return {"song": _group(song), "album": _group(album),
+            "companies": [{"role": r, "names": n} for r, n in companies.items()],
+            "notes": _discogs_markup(rel.get("notes"))[:2500] or None,
+            "pressing": pressing, "url": rel.get("uri"), "position": pos,
+            "release": f"{join_artists(rel.get('artists'))} - {rel.get('title')}"}
+
+
+async def find_release(http, artist, album, medium=None):
+    """The Discogs release that best matches an album, preferring the format being played."""
+    key = (norm(artist), norm(album), medium)
+    if key in _credits_cache:
+        return _credits_cache[key]
+    fmt = {"vinyl": "Vinyl", "cd": "CD", "cassette": "Cassette"}.get(medium or "vinyl")
+    rel = None
+    base = {"type": "release", "artist": main_artist(artist), "release_title": clean_title(album), "per_page": 10}
+    for params in ({**base, "format": fmt}, base):
+        res = (await discogs_get(http, "/database/search", params)).get("results", [])
+        res = [r for r in res if norm(clean_title(album)) in norm(r.get("title"))]
+        if res:
+            # a release with credits is more useful than a bare listing; Discogs puts the most-owned first
+            rel = await discogs_get(http, f"/releases/{res[0]['id']}")
+            break
+    _credits_cache[key] = rel
+    return rel
+
+
+async def api_credits(request):
+    app = request.app
+    st: State = app["state"]
+    t = st.history.get(request.query.get("id", ""))
+    if not t or not t.get("artist"):
+        return web.json_response({"credits": None})
+    if not discogs_ready():
+        return web.json_response({"credits": None, "reason": "no_discogs"})
+    cache_key = ("credits", t["id"])
+    if cache_key in _credits_cache:
+        return web.json_response({"credits": _credits_cache[cache_key]})
+    try:
+        rec = app.get("record")
+        if t.get("source") == "record" and rec is not None and getattr(rec, "rel", None):
+            cr = release_credits(rec.rel, t.get("title"), t.get("record_pos"))
+            cr["exact"] = True
+        elif t.get("album"):
+            rel = await find_release(app["http"], t["artist"], t["album"], t.get("medium"))
+            cr = release_credits(rel, t.get("title")) if rel else None
+            if cr:
+                cr["exact"] = False
+        else:
+            cr = None
+    except Exception as e:
+        log("credits lookup failed:", repr(e))
+        return web.json_response({"credits": None, "reason": "error"})
+    if cr and not (cr["song"] or cr["album"] or cr["companies"] or cr["notes"]):
+        cr = {**cr, "empty": True}
+    _credits_cache[cache_key] = cr
+    return web.json_response({"credits": cr})
+
+
 # ---------------------------------------------------------------- shareable recap cards
 _recap_art = collections.OrderedDict()      # art url -> PIL image, the last few dozen
 
@@ -2898,6 +3034,7 @@ def build_app(demo=False):
     app.router.add_post("/api/save", api_save)
     app.router.add_get("/api/saved", api_saved)
     app.router.add_get("/api/idle", api_idle)
+    app.router.add_get("/api/credits", api_credits)
     app.router.add_post("/api/medium", api_medium)
     app.router.add_get("/api/recap", api_recap)
     app.router.add_get("/api/recap.png", api_recap_png)

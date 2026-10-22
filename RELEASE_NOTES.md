@@ -1,1 +1,2 @@
-- Settings, Search, Saved songs, Your listening and recap cards sit in a centered column on wide screens.
+- Credits on the song info page (tap the song, or the i button): who played on this song, who played on the album (one line per person with everything they did), who produced, mixed and engineered it, where it was recorded, mastered and pressed, and the release notes from Discogs.
+- Records loaded in record mode use that exact pressing. Other songs (Spotify, or records Liner Notes recognized on its own) use the closest Discogs match for the album, and the page says which.

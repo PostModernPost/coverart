@@ -300,6 +300,18 @@
   #stats > :not(.close), #saved > :not(.close), #records > :not(.close), #recap > :not(.close) { max-width: 960px; margin-left: auto; margin-right: auto; }
   #settings > :not(.close) { max-width: 640px; margin-left: auto; margin-right: auto; }
 
+  /* credits on the info page */
+  #credits .cgrid { display: grid; grid-template-columns: 1fr; gap: .2em 4vmin; }
+  #credits .cr { display: flex; gap: 1em; padding: .35em 0; border-bottom: 1px solid var(--faint); }
+  #credits .cr span { color: var(--dim); }
+  #credits .cr > :first-child { flex: 0 0 42%; }
+  #credits .cr b { font-weight: 500; }
+  #credits h4 { margin: 1.6em 0 .5em; font-size: .8em; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  #credits h4:first-child { margin-top: 0; }
+  #credits .notes { white-space: pre-wrap; color: var(--fg); opacity: .85; line-height: 1.5; max-width: 60em; }
+  #credits .src { margin-top: 1.4em; font-size: .85em; }
+  #credits a { color: var(--gold); }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -402,7 +414,8 @@
   <div id="i-details"></div>
   <div id="links" class="row"></div>
   <div class="cols">
-    <section><h3>About the artist</h3><div id="bio" class="muted">Loading…</div></section>
+    <div><section><h3>About the artist</h3><div id="bio" class="muted">Loading…</div></section>
+      <section id="creditsBox" style="margin-top:5vmin"><h3>Credits</h3><div id="credits" class="muted">Loading…</div></section></div>
     <section><h3>Lyrics</h3><div id="lyrics" class="muted">Loading…</div></section>
   </div>
   <p id="donate">Enjoying Liner Notes? <a id="donate-link" href="#" target="_blank" rel="noopener">Buy me a coffee</a></p>
@@ -1098,9 +1111,38 @@ async function openInfo() {
   } else {
     $("bio").textContent = "No bio found. Try the Bandcamp or Discogs links above.";
   }
+  loadCredits(t);
   if (d.lyrics) { $("lyrics").className = ""; $("lyrics").textContent = d.lyrics; }
   else $("lyrics").innerHTML = `<p style="margin-top:0">No lyrics found.</p>` +
     (d.genius ? `<a class="pill" href="${esc(d.genius)}" target="_blank" rel="noopener">Look up the lyrics on Genius</a>` : "");
+}
+
+// ---------------------------------------------------------------- credits on the info page
+async function loadCredits(t) {
+  const box = $("credits");
+  box.className = "muted"; box.textContent = "Loading…";
+  $("creditsBox").style.display = "block";
+  let d;
+  try { d = await (await fetch("/api/credits?id=" + encodeURIComponent(t.id))).json(); }
+  catch (e) { box.textContent = "Couldn't reach Discogs for the credits."; return; }
+  if (infoFor !== t.id) return;
+  const c = d.credits;
+  if (!c) {
+    if (d.reason === "no_discogs") { $("creditsBox").style.display = "none"; return; }
+    box.textContent = d.reason === "error" ? "Couldn't reach Discogs for the credits." : "Discogs doesn't list this album.";
+    return;
+  }
+  const people = list => `<div class="cgrid">${list.map(x => `<div class="cr"><b>${esc(x.name)}</b><span>${esc(x.roles.join(", "))}</span></div>`).join("")}</div>`;
+  const rows = list => `<div class="cgrid">${list.map(x => `<div class="cr"><span>${esc(x.role)}</span><b>${esc(x.names.join(", "))}</b></div>`).join("")}</div>`;
+  let html = "";
+  if (c.song.length) html += `<h4>On this song</h4>${people(c.song)}`;
+  if (c.album.length) html += `<h4>On the album</h4>${people(c.album)}`;
+  if (c.companies.length) html += `<h4>Recorded, mastered and pressed</h4>${rows(c.companies)}`;
+  if (c.notes) html += `<h4>Notes</h4><div class="notes">${esc(c.notes)}</div>`;
+  if (c.empty) html = `<p style="margin:0">Discogs has this album but no credits for it yet.</p>`;
+  html += `<p class="src muted">From Discogs${c.exact ? ", the record you loaded" : ", the closest match"}: ${esc(c.pressing || c.release)}` +
+    (c.url ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">See it on Discogs</a>` : "") + `</p>`;
+  box.className = ""; box.innerHTML = html;
 }
 
 // ---------------------------------------------------------------- search (one panel for songs and records)

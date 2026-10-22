@@ -1,7 +1,6 @@
 # Liner Notes roadmap
 
 ## Next up
-- Discogs credits in the info panel (players, producer, engineer, studio, notes) for records loaded in record mode
 - Website: what it does, screenshots, download button for the latest release, phone setup guide, Buy Me a Coffee
 
 ## Future features
