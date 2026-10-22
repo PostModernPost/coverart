@@ -1,3 +1,4 @@
 - Last.fm scrobbling and the built-in Spotify app are now included (0.7.11 was built without their keys).
 - Last.fm: connect in Settings and the records you play are logged to your Last.fm profile once a song has played halfway (or 4 minutes). Only records count by default, since Spotify can send its own plays to Last.fm.
 - Spotify: connect in Settings > Spotify and songs you heart go into a "Liner Notes" playlist or your Liked Songs.
+- The project now lives at github.com/PostModernPost/linernotes.
