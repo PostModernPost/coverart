@@ -463,8 +463,11 @@ async function loadStats() {
 }
 
 // ---------------------------------------------------------------- updates
-let upd = null, updBusy = false;
+let upd = null, updBusy = false, seenVersion = null;
 function showUpdate(u) {
+  // The app was updated underneath this window: reload so the window gets the new version too
+  if (seenVersion && u.current !== seenVersion) { location.reload(); return; }
+  seenVersion = u.current;
   upd = u;
   const avail = u.available;
   $("updDot").style.display = avail ? "block" : "none";

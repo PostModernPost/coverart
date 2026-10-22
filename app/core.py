@@ -1015,6 +1015,8 @@ def mic_info(app):
 
 async def api_now(request):
     st: State = request.app["state"]
+    if "Android" not in request.headers.get("User-Agent", ""):
+        request.app["last_window_poll"] = time.time()      # a Cover Art window on the PC is open
     return web.json_response({"version": st.version, "track": st.track, "mic": mic_info(request.app),
                               "donate": CFG.get("donate_url") or "", "update": update_info(request.app)})
 

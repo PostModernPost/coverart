@@ -48,7 +48,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Open Cover Art now"; Flags: nowait postinstall skipifsilent
 ; In-app updates run this installer silently with /updated=1: reopen Cover Art afterwards
-Filename: "{app}\{#AppExe}"; Flags: nowait; Check: IsAppUpdate
+Filename: "{app}\{#AppExe}"; Parameters: "--updated"; Flags: nowait; Check: IsAppUpdate
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/IM {#AppExe} /F"; Flags: runhidden; RunOnceId: "StopCoverArt"

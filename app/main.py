@@ -138,8 +138,38 @@ def find_edge():
     return None
 
 
+def focus_existing_window():
+    """If a Cover Art window is already open, bring it to the front instead of opening another."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def each(hwnd, _):
+            if user32.IsWindowVisible(hwnd):
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(hwnd, buf, 256)
+                if buf.value == APP_NAME:
+                    found.append(hwnd)
+                    return False
+            return True
+
+        user32.EnumWindows(each, 0)
+        if found:
+            user32.ShowWindow(found[0], 9)          # SW_RESTORE (un-minimize)
+            user32.SetForegroundWindow(found[0])
+            return True
+    except Exception as e:
+        print("focus window failed:", e, flush=True)
+    return False
+
+
 def open_window():
     """The display in its own app window (Edge app mode: no tabs, no address bar). Browser as fallback."""
+    if focus_existing_window():
+        return
     edge = find_edge()
     if edge:
         subprocess.Popen([edge, f"--app={URL}", "--window-size=960,600",
@@ -373,6 +403,7 @@ def refresher(icon):
 def main():
     quiet = "--quiet" in sys.argv
     restarting = "--restart" in sys.argv
+    updated = "--updated" in sys.argv
 
     if restarting:                       # wait for the old copy to let go of the port
         for _ in range(40):
@@ -394,7 +425,14 @@ def main():
     def setup(ic):
         ic.visible = True
         threading.Thread(target=refresher, args=(ic,), daemon=True).start()
-        if not quiet and not restarting:
+        if updated:
+            # A window left open from before the update reconnects by itself (it checks every 1.5 s).
+            # Only open one if nothing has checked in.
+            time.sleep(6)
+            app = APP.get("app")
+            if not app or time.time() - app.get("last_window_poll", 0) > 6:
+                open_window()
+        elif not quiet and not restarting:
             time.sleep(1.5)              # let the server come up
             open_window()
         if first_run:
