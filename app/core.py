@@ -128,6 +128,8 @@ class State:
         self.info_cache = {}
 
     def _bump(self, track):
+        if track and track.get("label"):
+            track = {**track, "label": tidy_label(track["label"])}
         self.track = track
         self.version += 1
         if track and track.get("id"):
@@ -157,6 +159,8 @@ class State:
         """Fill in details looked up after the song went on screen (year, label, length, BPM...)."""
         if not fields:
             return
+        if fields.get("label"):
+            fields = {**fields, "label": tidy_label(fields["label"])}
         if tid in self.history:
             self.history[tid].update(fields)
         if self.track and self.track.get("id") == tid:
@@ -169,13 +173,34 @@ ITUNES = "https://itunes.apple.com"
 _itunes_cache = {}
 
 
+LABEL_CUTS = (r",?\s+a division of\b", r",?\s+a (?:[\w&.' -]+ )?company\b", r",?\s+an? [\w&.' -]+ (?:label|imprint)\b",
+              r"\s+under (?:exclusive )?licen[cs]e\b", r"\s+(?:distributed|marketed|manufactured) by\b",
+              r"\s+for the (?:world|united states|us|uk)\b", r"\s+in association with\b", r"\s+/\s+", r";\s")
+LABEL_SUFFIX = r"(?:,?\s+(?:LLC|L\.L\.C\.|Ltd\.?|Limited|Inc\.?|Incorporated|Corp\.?|GmbH|S\.A\.|B\.V\.|Pty\.? Ltd\.?|plc))+\.?$"
+LABEL_NAMES = {"atlantic recording corporation": "Atlantic Records", "umg recordings": "UMG Recordings",
+               "warner records": "Warner Records", "sony music entertainment": "Sony Music"}
+
+
+def tidy_label(label):
+    """'Island Records, a division of Universal Music Operations Limited' -> 'Island Records'"""
+    if not label:
+        return label
+    s = str(label).strip()
+    s = re.sub(r"^.*?[℗©]\s*(?:\d{4}\s*)?", "", s) or s          # leftover copyright marks and year
+    s = re.sub(r"^\(?[PC]\)\s*(?:\d{4}\s*)?", "", s)
+    for cut in LABEL_CUTS:
+        s = re.split(cut, s, maxsplit=1, flags=re.I)[0]
+    s = re.sub(r"\s*\((?:[^)]*(?:music|records|recordings|entertainment|group|ltd|inc|llc)[^)]*)\)$", "", s, flags=re.I)
+    s = re.sub(LABEL_SUFFIX, "", s, flags=re.I).strip(" ,.-")
+    return LABEL_NAMES.get(s.lower(), s) or str(label).strip()
+
+
 def clean_label(copyright_text):
     """'℗ 2019 Dead Oceans' -> 'Dead Oceans'"""
     if not copyright_text:
         return None
     c = re.sub(r"^.*?[℗©]\s*(\d{4})?\s*", "", copyright_text).strip()
-    c = re.split(r"\s+(under exclusive|distributed by|marketed by|under license)", c, flags=re.I)[0].strip(" ,.")
-    return c or None
+    return tidy_label(c) or None
 
 
 def itunes_fields(res):

@@ -1,1 +1,1 @@
-- The window reopens where you left it (position, size, and maximized) after updates and restarts. If that spot is no longer on a screen, it opens centered
+- Record labels show just the label: "Island Records, a division of Universal Music Operations Limited" is now "Island Records" (same for "Capitol Records, LLC", "under exclusive license to...", and similar)
