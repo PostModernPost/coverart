@@ -884,7 +884,7 @@ async function openInfo() {
     $("bio").className = "";
     $("bio").innerHTML = (d.bio.image ? `<img src="${esc(d.bio.image)}" alt="">` : "") +
       `<p>${esc(d.bio.text)}</p>` +
-      (d.bio.url ? `<p><a href="${esc(d.bio.url)}" target="_blank" rel="noopener">Wikipedia</a></p>` : "");
+      (d.bio.url ? `<p><a href="${esc(d.bio.url)}" target="_blank" rel="noopener">More on ${esc(d.bio.source || "Wikipedia")}</a></p>` : "");
   } else {
     $("bio").textContent = "No bio found. Try the Bandcamp or Discogs links above.";
   }

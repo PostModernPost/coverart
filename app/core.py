@@ -400,28 +400,81 @@ MUSIC_WORDS = ("band", "musician", "singer", "rapper", "group", "duo", "songwrit
                "dj", "producer", "composer", "guitarist", "drummer", "pianist", "artist", "project")
 
 
+WIKI_HEADERS = {"User-Agent": "LinerNotes/0.8 (https://github.com/PostModernPost/linernotes; desktop app)"}
+
+
+async def _wiki_summary(http, title):
+    url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title.replace(" ", "_"), safe="")
+    async with http.get(url, headers=WIKI_HEADERS) as r:
+        if r.status != 200:
+            return None
+        d = await r.json(content_type=None)
+    if d.get("type") != "standard":
+        return None
+    blurb = (d.get("description", "") + " " + d.get("extract", "")[:300]).lower()
+    if not any(w in blurb for w in MUSIC_WORDS):
+        return None
+    return {"text": d.get("extract"), "url": d.get("content_urls", {}).get("desktop", {}).get("page"),
+            "image": (d.get("thumbnail") or {}).get("source"), "source": "Wikipedia"}
+
+
+async def _lastfm_bio(http, artist):
+    """Last.fm has bios for lots of small bands Wikipedia doesn't cover."""
+    if not LASTFM_KEY:
+        return None
+    async with http.get(LASTFM_API, params={"method": "artist.getInfo", "artist": artist, "api_key": LASTFM_KEY,
+                                            "autocorrect": "1", "format": "json"}) as r:
+        d = await r.json(content_type=None)
+    a = (d or {}).get("artist") or {}
+    raw = ((a.get("bio") or {}).get("content") or (a.get("bio") or {}).get("summary") or "")
+    text = re.sub(r"<a [^>]*>Read more on Last\.fm</a>\.?", "", raw)
+    text = re.sub(r"User-contributed text is available under the Creative Commons.*$", "", text, flags=re.S)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"[ \t]+", " ", text).strip()
+    if len(text) < 60:
+        return None
+    paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    short = ""
+    for p in paras:                       # first couple of paragraphs, about Wikipedia-summary length
+        if len(short) > 500:
+            break
+        short = (short + "\n\n" + p).strip()
+    return {"text": short, "url": a.get("url"), "image": None, "source": "Last.fm"}
+
+
 async def fetch_bio(http, artist):
+    """Wikipedia first, then Last.fm, then a Wikipedia search for pages titled differently."""
     if not artist:
         return None
-    for title in (f"{artist} (band)", f"{artist} (musician)", f"{artist} (singer)", f"{artist} (rapper)", artist):
+    names = list(dict.fromkeys([artist, main_artist(artist)]))
+    try:
+        for name in names:
+            for title in (f"{name} (band)", f"{name} (musician)", name, f"{name} (singer)", f"{name} (rapper)"):
+                got = await _wiki_summary(http, title)
+                if got:
+                    return got
+    except Exception as e:
+        log("bio lookup (Wikipedia) failed:", e)
+    for name in names:
         try:
-            url = "https://en.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title.replace(" ", "_"))
-            async with http.get(url, headers={"User-Agent": "LinerNotes/1.0"}) as r:
-                if r.status != 200:
-                    continue
-                d = await r.json(content_type=None)
-            if d.get("type") != "standard":
-                continue
-            blurb = (d.get("description", "") + " " + d.get("extract", "")[:300]).lower()
-            if not any(w in blurb for w in MUSIC_WORDS):
-                continue
-            return {
-                "text": d.get("extract"),
-                "url": d.get("content_urls", {}).get("desktop", {}).get("page"),
-                "image": (d.get("thumbnail") or {}).get("source"),
-            }
+            got = await _lastfm_bio(http, name)
+            if got:
+                return got
         except Exception as e:
-            log("bio lookup failed:", e)
+            log("bio lookup (Last.fm) failed:", e)
+    try:
+        lead = main_artist(artist)
+        async with http.get("https://en.wikipedia.org/w/api.php", headers=WIKI_HEADERS, params={
+                "action": "query", "list": "search", "format": "json", "srlimit": "5",
+                "srsearch": f'"{lead}" band OR musician OR singer OR rapper OR duo'}) as r:
+            d = await r.json(content_type=None)
+        for hit in ((d or {}).get("query") or {}).get("search") or []:
+            if norm(lead) in norm(hit.get("title")):
+                got = await _wiki_summary(http, hit["title"])
+                if got:
+                    return got
+    except Exception as e:
+        log("bio lookup (Wikipedia search) failed:", e)
     return None
 
 
@@ -1738,7 +1791,9 @@ try:
     from _version import VERSION
 except Exception:
     VERSION = "dev"
-RELEASES_API = "https://api.github.com/repos/PostModernPost/linernotes/releases/latest"
+# The repo may be named either way (it's being renamed from coverart); GitHub redirects the old name.
+RELEASES_APIS = ("https://api.github.com/repos/PostModernPost/linernotes/releases/latest",
+                 "https://api.github.com/repos/PostModernPost/coverart/releases/latest")
 
 
 def version_tuple(v):
@@ -1752,14 +1807,18 @@ async def check_for_update(app):
     """Ask GitHub for the newest release. Sets app['update'] when it's newer than this copy."""
     if VERSION == "dev":
         return None
-    try:
-        async with app["http"].get(RELEASES_API, headers={"Accept": "application/vnd.github+json",
-                                                          "User-Agent": "LinerNotes"}) as r:
-            if r.status != 200:
-                return None
-            rel = await r.json(content_type=None)
-    except Exception as e:
-        log("update check failed:", e)
+    rel = None
+    for url in RELEASES_APIS:
+        try:
+            async with app["http"].get(url, headers={"Accept": "application/vnd.github+json",
+                                                     "User-Agent": "LinerNotes"}) as r:
+                if r.status == 200:
+                    rel = await r.json(content_type=None)
+                    break
+                log(f"update check: GitHub said {r.status} for {url.split('/repos/')[1]}")
+        except Exception as e:
+            log("update check failed:", e)
+    if not rel:
         return None
     latest = rel.get("tag_name", "")
     asset = next((a for a in rel.get("assets", []) if a.get("name", "").lower().endswith(".exe")), None)

@@ -1,1 +1,2 @@
-- Settings switches sit next to their labels: the settings list is a readable width instead of stretching across the whole screen, and rows light up faintly under the mouse.
+- Artist bios are found for many more bands: if Wikipedia has nothing, Liner Notes uses the artist's Last.fm bio (which covers lots of small and indie bands), then searches Wikipedia for pages titled differently. The link under the bio says where it came from.
+- Fixed: 0.7.13 and 0.7.14 looked for updates at the repo's new name before the rename happened, so "Check now" never found anything. Liner Notes now tries both names.
