@@ -126,6 +126,21 @@
     background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.14); border-radius: 99px; padding: .5em 1.2em; color: var(--fg);
     font-size: calc(var(--ts) * clamp(12px, 2.4vmin, 18px)); white-space: nowrap; }
   #idle.show #idleStatus.on { display: block; }
+  #stylusNote { position: fixed; left: 50%; top: max(9vmin, 56px); transform: translateX(-50%); z-index: 4; display: none; align-items: center; gap: .8em;
+    background: rgba(0,0,0,.6); border: 1px solid rgba(201,160,74,.55); border-radius: 1.6em; padding: .45em .6em .45em 1.2em; width: max-content; color: var(--fg);
+    font-size: calc(var(--ts) * clamp(12px, 2.2vmin, 17px)); max-width: 92vw; box-sizing: border-box; }
+  #idle.show #stylusNote.on { display: flex; }
+  #stylusNote span { line-height: 1.3; }
+  @media (orientation: portrait) { #stylusNote { flex-wrap: wrap; justify-content: center; text-align: center; padding: .7em 1em; width: 92vw; }
+    #stylusNote span { flex-basis: 100%; } }
+  #stylusNote button { flex: none; font-size: .9em; padding: .25em .9em; }
+  #stylusBox { font-size: clamp(14px, 2.6vmin, 18px); margin-top: 1em; }
+  #stylusBox .muted { font-size: .92em; }
+  #stBar { height: 10px; border-radius: 99px; background: rgba(255,255,255,.1); overflow: hidden; margin: .7em 0; }
+  #stFill { height: 100%; width: 0; background: var(--gold); border-radius: 99px; transition: width .6s ease; }
+  #stFill.due { background: #e8556d; }
+  #stylusBox label { display: flex; align-items: center; justify-content: space-between; gap: 1em; margin: .8em 0; }
+  #stylusBox input.field { width: 10em; color-scheme: dark; font-size: 1em; padding: .45em .9em; }
   #jp, #slides { position: absolute; inset: 0; transition: opacity 2.5s ease; }
   #jp { display: flex; align-items: center; justify-content: center; gap: 6vmin; padding: 6vmin 7vmin; box-sizing: border-box; }
   #jp.off, #slides.off { opacity: 0; pointer-events: none; }
@@ -451,6 +466,7 @@
   </div>
   <div id="idleStatus"></div>
   <div id="micInd"><i></i><span></span><button class="listenBtn" id="listenBtn2">Listen now</button></div>
+  <div id="stylusNote"><span id="stylusMsg"></span><button class="pill" id="stylusLater">Later</button><button class="pill" id="stylusNew">Replaced it</button></div>
 </div>
 
 <div id="toolbar">
@@ -682,6 +698,21 @@
       <audio id="clipAudio" controls preload="none" style="width:100%;margin-top:.6em"></audio>
       <small class="muted" style="display:block;margin-top:.4em">If it sounds muffled, faint or full of room noise, Shazam will struggle too. A mic closer to a speaker helps most.</small>
     </div>
+  </div>
+  <h3 style="margin-top:3vmin;margin-bottom:0">Stylus</h3>
+  <div id="stylusBox">
+    <div><b id="stHours">0</b> of <span id="stLife">1,000</span> hours on vinyl</div>
+    <div id="stBar"><div id="stFill"></div></div>
+    <div class="muted" id="stNote"></div>
+    <div class="row" style="margin-top:1em"><button class="pill" id="stReplaced">I put a new stylus on today</button></div>
+    <details id="stAdjust" style="margin-top:1.2em"><summary class="muted" style="cursor:pointer">Adjust</summary>
+      <label>Current stylus went on<input type="date" id="stSince" class="field"></label>
+      <label>Hours it already had then<input type="number" id="stStart" class="field" min="0" step="10" inputmode="numeric"></label>
+      <div class="muted" style="margin-top:1em">Replace it after</div>
+      <div class="row" id="stLifeRow"><button class="pill" data-life="500">500 h</button><button class="pill" data-life="800">800 h</button>
+        <button class="pill" data-life="1000">1,000 h</button><button class="pill" data-life="1500">1,500 h</button></div>
+      <p class="muted" style="margin:.8em 0 0">Most diamond styli last 800 to 1,000 hours; basic conical ones nearer 500. Your cartridge maker lists the figure for yours. A worn stylus sounds dull or harsh and wears your records.</p>
+    </details>
   </div>
   <h3 style="margin-top:3vmin;margin-bottom:0">Spotify</h3>
   <div id="spotifyBox">
@@ -1108,11 +1139,70 @@ function syncIdle() {
     if (!d.last && !d.covers.length) return;                 // nothing in the history yet: keep the spinning record
     $("idle").classList.add("show");
     showJustPlayed();
+    showStylusNote(d.stylus);
     if (idleMode() !== "slides" || !d.covers.length) $("jp").classList.remove("off");
     idleTimer = setInterval(idleTick, 15000);
     idleTick();
   }).catch(() => {});
 }
+function showStylusNote(st) {
+  const on = !!(st && st.warn);
+  $("stylusNote").classList.toggle("on", on);
+  if (!on) return;
+  $("stylusMsg").textContent = st.due
+    ? `Your stylus is past ${fmtH(st.life)} hours. Time for a new one.`
+    : `Stylus: ${fmtH(st.hours)} of about ${fmtH(st.life)} hours. Order a new one soon.`;
+}
+const fmtH = h => Math.round(h).toLocaleString();
+async function stylusPost(body) {
+  try {
+    const r = await fetch("/api/stylus", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (r.ok) { const st = await r.json(); showStylus(st); showStylusNote(st); }
+  } catch (e) {}
+}
+function showStylus(st) {
+  if (!st || st.hours == null) return;
+  $("stHours").textContent = st.hours < 10 ? st.hours.toFixed(1) : fmtH(st.hours);
+  $("stLife").textContent = fmtH(st.life);
+  $("stFill").style.width = (st.pct * 100).toFixed(1) + "%";
+  $("stFill").classList.toggle("due", !!st.due);
+  const since = st.since ? new Date(st.since * 1000) : null;
+  $("stNote").textContent = (st.due ? "It's due for replacing. " : st.warn ? "Nearly due. " : "") +
+    (since ? "Counting records played since " + since.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : "Counting every record played in Liner Notes so far") +
+    (st.start_hours ? `, plus the ${fmtH(st.start_hours)} hours it already had.` : ".");
+  if (document.activeElement !== $("stSince")) {
+    const d = since || null;
+    $("stSince").value = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : "";
+  }
+  if (document.activeElement !== $("stStart")) $("stStart").value = st.start_hours ? Math.round(st.start_hours) : "";
+  document.querySelectorAll("#stLifeRow [data-life]").forEach(b => b.classList.toggle("on", +b.dataset.life === st.life));
+}
+async function loadStylus() {
+  try { const r = await fetch("/api/stylus"); if (r.ok) showStylus(await r.json()); else $("stylusBox").innerHTML = '<div class="muted">Stylus hours are set from Liner Notes on the PC.</div>'; } catch (e) {}
+}
+let stConfirm = null;
+$("stReplaced").addEventListener("click", () => {
+  const b = $("stReplaced");
+  if (!stConfirm) {                       // two taps, so a stray click doesn't wipe the count
+    b.textContent = "Tap again to start from zero";
+    stConfirm = setTimeout(() => { stConfirm = null; b.textContent = "I put a new stylus on today"; }, 4000);
+    return;
+  }
+  clearTimeout(stConfirm); stConfirm = null; b.textContent = "I put a new stylus on today";
+  stylusPost({ action: "replaced" });
+});
+$("stSince").addEventListener("change", () => stylusPost({ since: $("stSince").value || null }));
+$("stStart").addEventListener("change", () => stylusPost({ start_hours: $("stStart").value || 0 }));
+$("stLifeRow").addEventListener("click", e => { const b = e.target.closest("[data-life]"); if (b) stylusPost({ life_hours: +b.dataset.life }); });
+$("stylusLater").addEventListener("click", e => { e.stopPropagation(); $("stylusNote").classList.remove("on"); stylusPost({ action: "snooze" }); });
+$("stylusNew").addEventListener("click", e => {
+  e.stopPropagation();
+  const b = $("stylusNew");
+  if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "Start from zero?"; setTimeout(() => { b.dataset.sure = ""; b.textContent = "Replaced it"; }, 4000); return; }
+  b.dataset.sure = ""; b.textContent = "Replaced it";
+  stylusPost({ action: "replaced" });
+});
+$("tb-settings").addEventListener("click", loadStylus);
 function showJustPlayed() {
   const d = idleData, l = d.last;
   if (!l) return;

@@ -1,1 +1,3 @@
-- Saved song pages are kept for good (no cleanup). Pages older than a month still refresh when you open them; if the refresh comes back empty, the saved page is shown instead.
+- Stylus hours: Settings > Stylus shows how many hours your stylus has played on vinyl, out of about 1,000. Tap "I put a new stylus on today" when you change it, or under Adjust set when the current one went on, how many hours it already had, and when to replace it (500 to 1,500 hours).
+- When it reaches 90%, a reminder appears on the between-records screen, with Later (asks again after another 25 hours) and Replaced it.
+- Only vinyl counts, and a song stopped partway counts only the time it played.

@@ -75,7 +75,11 @@ CFG = {
     "room_medium": None,
     "mic_sensitivity": "normal",
     "hold_seconds": 60,
-    "follow_album": True,          # after a song is recognized on physical media, follow its album's tracklist            # during a song Shazam found, this much quiet before deciding the record stopped   # low / normal / high: how quiet music can be and still count           # what plays music in the room: vinyl, cd, cassette, radio, other; None = ask
+    "follow_album": True,          # after a song is recognized on physical media, follow its album's tracklist
+    "stylus_since": None,          # when the current stylus went on (unix time); None = since the first record in Liner Notes
+    "stylus_start_hours": 0,       # hours the stylus already had when tracking started
+    "stylus_life_hours": 1000,     # replace it around here (most diamond styli: 800 to 1,000 hours)
+    "stylus_snooze_hours": 0,      # "remind me later": don't nag again until this many hours
     "discogs_token": "",           # optional personal Discogs token (the app has its own key when built)
     "donate_url": "https://buymeacoffee.com/goodisanoun",  # shown in the info panel ("" hides it)
 }
@@ -1904,6 +1908,21 @@ class History:
             db.execute("UPDATE plays SET source=? WHERE source='room' AND ts>=?", (medium, since))
             db.execute("UPDATE saved SET source=? WHERE source='room' AND ts>=?", (medium, since))
 
+    def vinyl_seconds(self, since):
+        """Time spent playing vinyl since `since`. Each play counts for its song length, but never past
+        the start of the next play, so a song cut short (or a side flipped early) isn't over-counted."""
+        with self._db() as db:
+            rows = db.execute("SELECT ts, source, duration_ms FROM plays WHERE ts>=? ORDER BY ts", (since or 0,)).fetchall()
+        total = 0.0
+        for i, (ts, source, dur) in enumerate(rows):
+            if source != "vinyl":
+                continue
+            secs = (dur or 210000) / 1000
+            end = rows[i + 1][0] if i + 1 < len(rows) else time.time()    # a song still playing counts so far
+            secs = min(secs, max(0.0, end - ts))
+            total += min(secs, 1800)                # nothing on a record runs longer than a side
+        return total
+
     # ---- song pages saved on this PC, so they open instantly (and offline) the next time
     def cache_get(self, key, max_age_days=30):
         with self._db() as db:
@@ -2561,7 +2580,72 @@ async def api_idle(request):
             last["ended"] = st.idle_at
         else:
             last["ended"] = min(time.time(), last["ts"] + (last.get("duration_ms") or 210000) / 1000)
+    try:
+        d["stylus"] = await asyncio.to_thread(stylus_status, st.db)
+    except Exception:
+        pass
     return web.json_response(d)
+
+
+# ---------------------------------------------------------------- stylus hours
+STYLUS_WARN = 0.9          # nudge at 90% of the stylus's life
+
+
+def stylus_status(db):
+    life = float(CFG.get("stylus_life_hours") or 1000)
+    since = CFG.get("stylus_since")
+    hours = float(CFG.get("stylus_start_hours") or 0) + db.vinyl_seconds(since) / 3600
+    snooze = float(CFG.get("stylus_snooze_hours") or 0)
+    return {"hours": round(hours, 1), "life": life, "since": since, "start_hours": float(CFG.get("stylus_start_hours") or 0),
+            "pct": min(1.0, hours / life) if life else 0, "due": hours >= life,
+            "warn": hours >= life * STYLUS_WARN and hours >= snooze}
+
+
+def save_cfg(**changes):
+    cfg = {}
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+    cfg.update(changes)
+    CFG.update(changes)
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+async def api_stylus(request):
+    db = request.app["state"].db
+    if request.method == "POST":
+        body = await request.json()
+        action = body.get("action")
+        if action == "replaced":            # a new stylus went on today
+            save_cfg(stylus_since=time.time(), stylus_start_hours=0, stylus_snooze_hours=0)
+            log("stylus: replaced, counting from zero")
+        elif action == "snooze":            # remind me again after another 25 hours of records
+            save_cfg(stylus_snooze_hours=stylus_status(db)["hours"] + 25)
+        else:
+            ch = {}
+            if "since" in body:             # a date (YYYY-MM-DD) the current stylus went on, or null = all history
+                try:
+                    ch["stylus_since"] = time.mktime(time.strptime(body["since"], "%Y-%m-%d")) if body["since"] else None
+                except Exception:
+                    pass
+            if "start_hours" in body:
+                try:
+                    ch["stylus_start_hours"] = max(0.0, min(10000.0, float(body["start_hours"] or 0)))
+                except Exception:
+                    pass
+            if "life_hours" in body:
+                try:
+                    ch["stylus_life_hours"] = max(50.0, min(5000.0, float(body["life_hours"])))
+                except Exception:
+                    pass
+            if ch:
+                ch["stylus_snooze_hours"] = 0
+                save_cfg(**ch)
+    return web.json_response(await asyncio.to_thread(stylus_status, db))
 
 
 async def api_saved(request):
@@ -3270,7 +3354,7 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/")
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/", "/api/stylus")
 
 
 @web.middleware
@@ -3284,16 +3368,7 @@ async def local_only_guard(request, handler):
 
 
 def save_config_value(key, value):
-    cfg = {}
-    if os.path.exists(cfg_path):
-        try:
-            with open(cfg_path, encoding="utf-8") as f:
-                cfg = json.load(f)
-        except Exception:
-            cfg = {}
-    cfg[key] = CFG[key] = value
-    with open(cfg_path, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2)
+    save_cfg(**{key: value})
 
 
 async def api_share_wifi(request):
@@ -3530,6 +3605,8 @@ def build_app(demo=False):
     app.router.add_get("/api/similar", api_similar)
     app.router.add_post("/api/song", api_song)
     app.router.add_post("/api/medium", api_medium)
+    app.router.add_get("/api/stylus", api_stylus)
+    app.router.add_post("/api/stylus", api_stylus)
     app.router.add_get("/api/recap", api_recap)
     app.router.add_get("/api/recap.png", api_recap_png)
     app.router.add_post("/api/recap/save", api_recap_save)

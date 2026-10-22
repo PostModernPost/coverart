@@ -1,12 +1,9 @@
 # Liner Notes roadmap
 
 ## Next up
-- Website: what it does, screenshots, download button for the latest release, phone setup guide, Buy Me a Coffee
-
-## Future features
-- Stylus hours: track hours played on vinyl and say when the stylus is due for replacing (about 800 to 1,000 hours)
 - Shows near you: upcoming concerts for the artist on screen
 
+## Future features
 - Your shelf: every record you've played as a collection; Discogs collection sync, marketplace value, records not played in a while
 - End-of-side chime on the PC
 - On this day: "a year ago today you played..." notes on the between-records screen
