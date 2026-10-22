@@ -43,9 +43,15 @@
     text-transform: uppercase; color: var(--dim); border: 1px solid rgba(255,255,255,.2); padding: .3em .7em; border-radius: 99px; align-self: flex-start; }
   @media (max-aspect-ratio: 7/5) { #source { align-self: center; } }
   .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
-  #findBtn { display: none; margin-top: 1.4em; background: var(--gold); color: #111; border: 0; border-radius: 99px;
-    padding: .7em 1.4em; font-weight: 650; font-size: calc(var(--ts) * clamp(13px, 2.8vmin, 20px)); cursor: pointer; align-self: flex-start; }
-  @media (max-aspect-ratio: 7/5) { #findBtn { align-self: center; } }
+  #actRow { display: flex; gap: .8em; flex-wrap: wrap; margin-top: 1.4em; align-self: flex-start; }
+  @media (max-aspect-ratio: 7/5) { #actRow { align-self: center; justify-content: center; } }
+  #findBtn { display: none; background: var(--gold); color: #111; border: 0; border-radius: 99px;
+    padding: .7em 1.4em; font-weight: 650; font-size: calc(var(--ts) * clamp(13px, 2.8vmin, 20px)); cursor: pointer; }
+  .listenBtn { display: none; background: none; color: var(--fg); border: 1.5px solid rgba(255,255,255,.45); border-radius: 99px;
+    padding: .65em 1.3em; font-weight: 600; font-size: calc(var(--ts) * clamp(13px, 2.8vmin, 20px)); cursor: pointer; }
+  .listenBtn:hover { background: rgba(255,255,255,.1); }
+  .listenBtn.busy { opacity: .7; cursor: default; }
+  #micInd .listenBtn { display: inline-block; font-size: 1em; padding: .25em .9em; margin-left: .4em; pointer-events: auto; }
 
   #progress { display: none; align-items: center; gap: 1em; margin-top: .9em; width: min(100%, 26em); }
   @media (max-aspect-ratio: 7/5) { #progress { align-self: center; } }
@@ -331,6 +337,19 @@
   #micInd.hearing i { animation-duration: 1.1s; }
   #micInd.off i { background: #6b6b70; animation: none; }
 
+  /* mic meter in settings */
+  #sensRow { flex-wrap: wrap; }
+  #sensRow .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; margin-top: .2em; justify-content: flex-start; }
+  #meterBox { padding: 1.4em 0 2em; border-bottom: 1px solid var(--faint); font-size: clamp(14px, 2.6vmin, 18px); }
+  #meter { position: relative; height: 18px; border-radius: 99px; background: rgba(255,255,255,.08); margin: 1em 0 .7em; overflow: hidden; }
+  #meterFill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, #6f8fb5, #c9a04a); transition: width .4s ease; }
+  #meter .mk { position: absolute; top: -2px; bottom: -2px; width: 3px; background: rgba(255,255,255,.55); }
+  #meter .mk.gold { background: var(--gold); width: 4px; }
+  #meterBox .legend { display: flex; gap: 1.2em; flex-wrap: wrap; font-size: .85em; color: var(--dim); }
+  #meterBox .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: .4em; vertical-align: middle; }
+  .lg-floor, .lg-keep { background: rgba(255,255,255,.55); } .lg-start { background: var(--gold); }
+  #meterNow { margin-top: .7em; }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -399,7 +418,7 @@
       <div class="row"><button class="pill" data-m="vinyl">Vinyl</button><button class="pill" data-m="cd">CD</button><button class="pill" data-m="cassette">Cassette</button><button class="pill" data-m="radio">Radio</button><button class="pill" data-m="other">Other</button></div>
       <label><input type="checkbox" id="mediumDefault"> Always use this</label></div>
     <div class="looking" id="looking"><i></i><span id="lookingText">Still listening</span></div>
-    <button id="findBtn">Search for it</button>
+    <div id="actRow"><button id="listenBtn" class="listenBtn">Listen now</button><button id="findBtn">Manual search</button></div>
   </div>
 </div>
 
@@ -410,7 +429,7 @@
     <div id="slides" class="off"><div class="bgl"></div><div class="bgl hide"></div><div class="sl hide"></div><div class="sl hide"></div></div>
   </div>
   <div id="idleStatus"></div>
-  <div id="micInd"><i></i><span></span></div>
+  <div id="micInd"><i></i><span></span><button class="listenBtn" id="listenBtn2">Listen now</button></div>
 </div>
 
 <div id="toolbar">
@@ -621,6 +640,16 @@
   <div class="setting" id="phoneSetupRow" style="cursor:pointer">
     <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone or iPhone.</small></div>
     <span class="pill">Set up</span></div>
+  <h3 style="margin-top:3vmin;margin-bottom:0">Microphone</h3>
+  <div class="setting" id="sensRow" style="cursor:default">
+    <div>Sensitivity<small>How quiet music can be and still count. Try High if the mic is across the room and Liner Notes misses records; Low if it reacts to talking or the TV.</small></div>
+    <div class="sizes"><button class="pill" data-sens="low">Low</button><button class="pill" data-sens="normal">Normal</button><button class="pill" data-sens="high">High</button></div></div>
+  <div id="meterBox">
+    <div class="muted" id="meterHint">Put a record on and watch the bar. It should go well past the gold line for Liner Notes to notice the music.</div>
+    <div id="meter"><div id="meterFill"></div><div class="mk" id="mkFloor" title="Room background"></div><div class="mk gold" id="mkStart" title="Music starts"></div><div class="mk" id="mkKeep" title="Music keeps going"></div></div>
+    <div class="legend" id="meterLegend"><span><i class="lg-floor"></i>Room background</span><span><i class="lg-start"></i>Counts as music</span><span><i class="lg-keep"></i>Keeps a song going</span></div>
+    <div class="muted" id="meterNow"></div>
+  </div>
   <h3 style="margin-top:3vmin;margin-bottom:0">Spotify</h3>
   <div id="spotifyBox">
     <div class="muted" id="spStatus">Checking…</div>
@@ -758,6 +787,7 @@ function render(t, keepArt) {
   $("source").textContent = badge;
   $("source").style.display = badge && !unknown ? "inline-block" : "none";
   $("findBtn").style.display = unknown ? "inline-block" : "none";
+  $("listenBtn").style.display = ["turntable", "record", "manual"].includes(t.source) ? "inline-block" : "none";
   $("infoBtn").style.display = unknown ? "none" : "grid";
   $("heartBtn").style.display = unknown ? "none" : "grid";
   $("lyHeart").style.visibility = unknown ? "hidden" : "visible";
@@ -998,6 +1028,8 @@ function showListening(l) {
   else if (l.mode === "off") { txt = "Not listening while music plays on this PC"; cls = "off"; }
   ind.className = "on " + cls;
   ind.querySelector("span").textContent = txt;
+  $("listenBtn2").style.display = l.has_mic && l.mic_live && l.mode !== "off" && !active ? "inline-block" : "none";
+  listenNowProgress(l.now_state);
 }
 let lastListenActive = false;
 function updateIdleText() {
@@ -1161,6 +1193,69 @@ function wakeFromDark() {
   stayAwake();
 }
 $("idleDark").addEventListener("click", e => { e.stopPropagation(); wakeFromDark(); armIdleOff(); });
+
+// ---------------------------------------------------------------- Listen now
+let listenBusy = false;
+async function listenNow(e) {
+  e.stopPropagation();
+  if (listenBusy) return;
+  try {
+    const r = await (await fetch("/api/listen-now", { method: "POST" })).json();
+    if (!r.ok) { toast(r.error || "Couldn't start listening."); return; }
+    listenBusy = true; setListenButtons("Listening…");
+    setTimeout(() => { if (listenBusy) { listenBusy = false; setListenButtons(null); } }, 45000);
+  } catch (err) { toast("Couldn't reach Liner Notes."); }
+}
+function setListenButtons(text) {
+  for (const id of ["listenBtn", "listenBtn2"]) {
+    const b = $(id); b.textContent = text || "Listen now"; b.classList.toggle("busy", !!text);
+  }
+}
+function listenNowProgress(state) {
+  if (!listenBusy || !state) return;
+  if (state === "recording") setListenButtons("Listening…");
+  else if (state === "asking") setListenButtons("Asking Shazam…");
+  else {
+    listenBusy = false; setListenButtons(null);
+    toast(state === "found" ? "Found it." : "Shazam couldn't match it. Try again in a bit, or use Manual search.");
+  }
+}
+$("listenBtn").addEventListener("click", listenNow);
+$("listenBtn2").addEventListener("click", listenNow);
+
+// ---------------------------------------------------------------- mic meter and sensitivity (settings)
+let meterTimer = null;
+function dbPos(v) {                       // loudness on a log scale: -66 dB (silent room) to -6 dB (very loud)
+  if (!v || v <= 0) return 0;
+  const db = 20 * Math.log10(v);
+  return Math.max(0, Math.min(100, (db + 66) / 60 * 100));
+}
+async function meterTick() {
+  if (!$("settings").classList.contains("open")) { clearInterval(meterTimer); meterTimer = null; return; }
+  let d;
+  try { const r = await fetch("/api/mic/level"); if (r.status === 403) { $("meterBox").style.display = "none"; clearInterval(meterTimer); return; } d = await r.json(); }
+  catch (e) { return; }
+  document.querySelectorAll("#sensRow [data-sens]").forEach(b => b.classList.toggle("on", b.dataset.sens === d.sensitivity));
+  if (!d.has_mic) { $("meterNow").textContent = "No microphone is connected."; return; }
+  $("meterFill").style.width = dbPos(d.level) + "%";
+  $("mkFloor").style.left = dbPos(d.floor) + "%";
+  $("mkStart").style.left = dbPos(d.start) + "%";
+  $("mkKeep").style.left = dbPos(d.keep) + "%";
+  $("meterNow").textContent = d.level == null ? "Waiting for the mic…" :
+    d.level >= d.start ? "That counts as music." :
+    d.level >= d.keep ? "Loud enough to keep a song going, not quite enough to start." : "Quieter than music needs to be.";
+}
+$("tb-settings").addEventListener("click", () => {
+  clearInterval(meterTimer);
+  setTimeout(() => { meterTimer = setInterval(meterTick, 1000); meterTick(); }, 100);   // after the panel opens
+});
+$("sensRow").addEventListener("click", async e => {
+  const b = e.target.closest("[data-sens]"); if (!b) return;
+  e.stopPropagation();
+  document.querySelectorAll("#sensRow [data-sens]").forEach(x => x.classList.toggle("on", x === b));
+  try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mic_sensitivity: b.dataset.sens }) }); } catch (err) {}
+  meterTick();
+});
 
 // ---------------------------------------------------------------- panels
 function openPanel(id) { document.querySelectorAll(".panel.open").forEach(p => p.classList.remove("open")); $(id).classList.add("open"); }
@@ -1668,7 +1763,7 @@ if (location.hash === "#phone") setTimeout(openPhoneSetup, 300);
 addEventListener("hashchange", () => { if (location.hash === "#phone") openPhoneSetup(); });
 
 // ---------------------------------------------------------------- wiring
-$("stage").addEventListener("click", e => { if (e.target.id === "findBtn") return; openInfo(); });
+$("stage").addEventListener("click", e => { if (e.target.id === "findBtn" || e.target.closest("#actRow")) return; openInfo(); });
 $("findBtn").addEventListener("click", e => { e.stopPropagation(); openSearch(); });
 $("infoBtn").addEventListener("click", e => { e.stopPropagation(); openInfo(); });
 $("tb-search").addEventListener("click", e => { e.stopPropagation(); openSearch(); });

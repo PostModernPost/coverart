@@ -64,14 +64,16 @@ CFG = {
     "gap_seconds": 1.0,            # a gap this long triggers a fresh identify
     "probe_every_seconds": 20,     # standby: how often to take a short sample
     "probe_seconds": 2,            # standby: length of that sample
-    "clip_seconds": 8,             # length of audio sent to Shazam
+    "clip_seconds": 12,             # length of audio sent to Shazam
     "retry_seconds": 15,           # when nothing is identified yet, try this often
     "recheck_seconds": 45,         # while a record is playing, re-check this often (catches gapless track changes)
     "idle_after_seconds": 20,      # silence this long = turntable stopped
     "poll_seconds": 1.0,           # how often to check Spotify / PC media
     "ignore_apps": [],             # e.g. ["msedge", "chrome"] to ignore browser videos
     "phone_follows_pc": True,      # phone screen turns off when this PC sleeps, back on when it wakes
-    "room_medium": None,           # what plays music in the room: vinyl, cd, cassette, radio, other; None = ask
+    "room_medium": None,
+    "mic_sensitivity": "normal",
+    "hold_seconds": 60,            # during a song Shazam found, this much quiet before deciding the record stopped   # low / normal / high: how quiet music can be and still count           # what plays music in the room: vinyl, cd, cassette, radio, other; None = ask
     "discogs_token": "",           # optional personal Discogs token (the app has its own key when built)
     "donate_url": "https://buymeacoffee.com/goodisanoun",  # shown in the info panel ("" hides it)
 }
@@ -1129,9 +1131,28 @@ class RecordSession:
 NOISE = {"floor": 0.0}      # how loud the room is with no music, learned from standby samples
 
 
+SENSITIVITY = {           # (minimum level, x room noise) to START listening, and x room noise to KEEP going
+    "low":    (2.0, 3.0, 1.8),
+    "normal": (1.0, 2.0, 1.35),
+    "high":   (0.5, 1.5, 1.2),
+}
+
+
+def _sens():
+    return SENSITIVITY.get(CFG.get("mic_sensitivity") or "normal", SENSITIVITY["normal"])
+
+
 def music_cutoff():
-    """Loudness that counts as music: the configured minimum, or well above this room's usual noise."""
-    return max(CFG["silence_threshold"], NOISE["floor"] * 2.0)
+    """Loudness that counts as music starting: the configured minimum, or well above this room's usual noise."""
+    m_min, m_floor, _ = _sens()
+    return max(CFG["silence_threshold"] * m_min, NOISE["floor"] * m_floor)
+
+
+def keep_cutoff():
+    """A lower line for music that's already playing, so quiet stretches (a soft breakdown, a fade)
+    don't count as the record stopping. Still clearly above the room's own background noise."""
+    m_min, _, m_keep = _sens()
+    return max(CFG["silence_threshold"] * m_min * 0.5, NOISE["floor"] * m_keep)
 
 
 def learn_room_noise(level):
@@ -1190,7 +1211,7 @@ class AudioBuffer:
         typical = float(self.np.median(self.recent)) if len(self.recent) >= 100 else None
         self.recent.append(rms)
         self.short.append(rms)
-        thr = music_cutoff()
+        thr = keep_cutoff()           # music is already playing here: the lower "keep going" line
         # Music keeps the room loud nearly all the time; typing, knocks and voices come in bursts.
         if len(self.short) >= 25 and sorted(self.short)[len(self.short) // 5] >= thr:
             self.last_music = time.time()
@@ -1233,10 +1254,27 @@ class AudioBuffer:
         return r[len(r) // 10], r[len(r) // 2], r[-1]
 
 
+def clean_clip(data, sr):
+    """Make a room-mic recording easier for Shazam: cut rumble and hum below 80 Hz, bring it up to a
+    steady level, and soften peaks instead of clipping them."""
+    np = __import__("numpy")
+    if not len(data):
+        return data
+    x = data.astype(np.float64) - float(np.mean(data))
+    spec = np.fft.rfft(x)
+    freqs = np.fft.rfftfreq(len(x), 1.0 / sr)
+    spec[freqs < 80] = 0
+    spec[(freqs >= 80) & (freqs < 120)] *= np.linspace(0, 1, int(np.sum((freqs >= 80) & (freqs < 120))) or 1)
+    x = np.fft.irfft(spec, len(x))
+    rms = float(np.sqrt(np.mean(x * x))) or 1e-9
+    x = x * min(0.12 / rms, 60.0)                 # about -18 dB average, at most 60x louder
+    x = np.tanh(x * 1.2) / np.tanh(1.2)           # gentle limiter for the loud bits
+    return x.astype(np.float32)
+
+
 def to_wav(data, sr):
     np = __import__("numpy")
-    peak = float(np.max(np.abs(data))) if len(data) else 0.0
-    data = data * min(0.9 / (peak or 1.0), 20.0)   # boost quiet mic recordings
+    data = clean_clip(data, sr)
     pcm = (np.clip(data, -1, 1) * 32767).astype(np.int16)
     bio = io.BytesIO()
     with wave.open(bio, "wb") as w:
@@ -1469,6 +1507,8 @@ async def _turntable_inner(app, mic, shz):
         # Spotify etc. on the PC wins; no need for the mic at all
         if app.get("pc_playing"):
             set_mode(app, mic, "off")
+            for k in ("listen_now_at", "listen_now_started"):
+                app.pop(k, None)
             continue
 
         if rec and app["listen_mode"] != "active" and now - rec.last_active > 3 * 3600:
@@ -1495,8 +1535,23 @@ async def _turntable_inner(app, mic, shz):
             else:
                 while mic.probes:
                     samples.append(mic.probes.popleft())
+            if app.get("listen_now_at") and now - app["listen_now_at"] < 60 and not app.get("listen_now_started"):
+                app["listen_now_started"] = now          # Listen now: record right away, whatever the level
+                L.reset()
+                last_try = 0.0
+                misses = 0
+                set_mode(app, mic, "active")
+                active_since = now
+                continue
+            if mic.kind == "pc" and app.get("meter_until", 0) > now and now - last_probe >= 1.0:
+                last_probe = now - CFG["probe_every_seconds"] + 1.0     # the mic meter is open: sample every second
+                try:
+                    samples.append(await loop.run_in_executor(None, mic.probe, 0.8))
+                except Exception as e:
+                    log("mic sample failed:", e)
             for data in samples:
                 level = music_level(data, mic.sr)
+                app["meter"] = {"level": level, "at": time.time()}
                 if level < music_cutoff():
                     learn_room_noise(level)
                     continue
@@ -1528,7 +1583,16 @@ async def _turntable_inner(app, mic, shz):
                 log(f"mic level: quiet {s[0]:.4f}, typical {s[1]:.4f}, loud {s[2]:.4f} "
                     f"(music cutoff {music_cutoff():.4f}, room {NOISE['floor']:.4f})")
 
-        if now - max(L.last_music, active_since) > CFG["idle_after_seconds"]:
+        if len(L.short) >= 25:
+            app["meter"] = {"level": sorted(L.short)[len(L.short) // 5], "at": now}
+        if app.get("listen_now_at") and not app.get("listen_now_started"):
+            app["listen_now_started"] = now           # already listening: the next check happens right away
+        listen_now = bool(app.get("listen_now_started"))
+        # A song Shazam found is still within its length: wait much longer before deciding the record stopped
+        quiet_limit = CFG["hold_seconds"] if song_still_playing(app, t) else CFG["idle_after_seconds"]
+        if listen_now:
+            quiet_limit = max(quiet_limit, 30)
+        if now - max(L.last_music, active_since) > quiet_limit:
             if rec:
                 rec.on_stop()
                 if rec.side_done:
@@ -1550,21 +1614,29 @@ async def _turntable_inner(app, mic, shz):
                 show_record(app, rec, rec.advance())
                 log(f"track length passed: next track {rec.tracks[rec.idx]['pos']}")
 
-        if L.sound_for < CFG["clip_seconds"]:
+        if listen_now:
+            # Listen now: send whatever the mic has heard once there's a full clip, loud enough or not
+            if L.samples < CFG["clip_seconds"] * mic.sr:
+                continue
+            app["listen_now_state"] = "asking"
+        elif L.sound_for < CFG["clip_seconds"]:
             continue          # wait for a full clip of music since the start or the last gap
 
         identified = on_tt and t.get("status") == "playing"
         # After misses, wait longer each time (15 s, 30 s, 60 s, then every 90 s) so an unknown song
         # doesn't hammer Shazam; a gap (new song) resets this.
         retry_wait = min(CFG["retry_seconds"] * (2 ** max(0, misses - 1)), 90)
-        due = (L.gap_seen or app.pop("force_check", False)
+        due = (L.gap_seen or app.pop("force_check", False) or listen_now
                or (not identified and now - last_try >= retry_wait)
                or (misses > 0 and now - last_try >= retry_wait)
                or (now - last_try >= CFG["recheck_seconds"]))
         app["next_try"] = max(last_try + (CFG["recheck_seconds"] if identified and not misses else retry_wait),
                               not_before)
-        if not due or now < not_before:
+        if not due or (now < not_before and not listen_now):
             continue
+        if listen_now:
+            app.pop("listen_now_started", None)
+            app.pop("listen_now_at", None)
         gap = L.gap_seen
         L.gap_seen = False
         if gap:
@@ -1579,6 +1651,9 @@ async def _turntable_inner(app, mic, shz):
         except Exception as e:
             log("shazam error:", repr(e))
             res = None
+        if listen_now:
+            app["listen_now_state"] = "found" if res and res.get("title") else "no_match"
+            app["listen_now_done"] = time.time()
 
         on_record = rec.find(res["title"], res["artist"]) if (rec and res and res.get("title")) else None
         if rec and rec.auto and res and res.get("title") and on_record is None:
@@ -1632,7 +1707,7 @@ async def _turntable_inner(app, mic, shz):
             # In record mode the tracklist already says what's playing, so keep showing that.
             # A song Shazam found earlier, on a record, CD or tape, plays to its end: long beat-only
             # stretches and breakdowns often don't match, and that doesn't mean the song changed.
-            if (gap or (misses >= 2 and not picked)) and not (rec and rec.idx is not None):
+            if (gap or listen_now or (misses >= 2 and not picked)) and not (rec and rec.idx is not None):
                 if song_still_playing(app, t):
                     log("no match, but the song Shazam found is still within its length: keeping it")
                 else:
@@ -2084,6 +2159,8 @@ async def api_config(request):
         cfg["discogs_token"] = CFG["discogs_token"] = (body.get("discogs_token") or "").strip()
     if "phone_follows_pc" in body:
         cfg["phone_follows_pc"] = CFG["phone_follows_pc"] = bool(body.get("phone_follows_pc"))
+    if body.get("mic_sensitivity") in SENSITIVITY:
+        cfg["mic_sensitivity"] = CFG["mic_sensitivity"] = body["mic_sensitivity"]
     if "room_medium" in body:
         cfg["room_medium"] = CFG["room_medium"] = body["room_medium"] if body["room_medium"] in MEDIA else None
     if "lastfm_include_pc" in body:
@@ -2291,6 +2368,32 @@ async def api_medium(request):
         st.history[st.track["id"]] = st.track
         st.version += 1
     return web.json_response({"ok": True, "medium": m, "default": CFG.get("room_medium")})
+
+
+async def api_listen_now(request):
+    """The Listen now button: record a clip and ask Shazam right away."""
+    app = request.app
+    if app.get("mic") is None:
+        return web.json_response({"ok": False, "error": "No microphone to listen with."})
+    if app.get("pc_playing"):
+        return web.json_response({"ok": False, "error": "Something is playing on this PC, so that's what's shown."})
+    app["listen_now_at"] = time.time()
+    app.pop("listen_now_started", None)
+    app["listen_now_state"] = "recording"
+    app["listen_now_done"] = 0
+    return web.json_response({"ok": True, "seconds": CFG["clip_seconds"]})
+
+
+async def api_mic_level(request):
+    """For the mic meter in Settings: what the mic hears now, the room's background, and the two lines."""
+    app = request.app
+    app["meter_until"] = time.time() + 6          # keep sampling while the meter is open
+    m = app.get("meter") or {}
+    fresh = time.time() - (m.get("at") or 0) < 4
+    return web.json_response({"level": m.get("level") if fresh else None, "floor": NOISE["floor"],
+                              "start": music_cutoff(), "keep": keep_cutoff(),
+                              "mode": app.get("listen_mode", "off"), "has_mic": app.get("mic") is not None,
+                              "sensitivity": CFG.get("mic_sensitivity") or "normal"})
 
 
 async def api_idle(request):
@@ -2922,7 +3025,7 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/")
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/")
 
 
 @web.middleware
@@ -2984,6 +3087,8 @@ def mic_info(app):
     mic = app.get("mic")
     if not mic or mic.kind != "phone":
         return {"mode": "off"}
+    if app.get("meter_until", 0) > time.time() and app.get("listen_mode") == "standby":
+        return {"mode": "standby", "every": 2, "seconds": 1}          # the mic meter is open
     return {"mode": app.get("listen_mode", "off"), "every": CFG["probe_every_seconds"],
             "seconds": CFG["probe_seconds"]}
 
@@ -3007,6 +3112,8 @@ async def api_now(request):
                               "listen": {"mode": request.app.get("listen_mode", "off"),
                                          "has_mic": request.app.get("mic") is not None,
                                          "mic_live": mic_live(request.app),
+                                         "now_state": request.app.get("listen_now_state") if (
+                                             request.app.get("listen_now_at") or time.time() - (request.app.get("listen_now_done") or 0) < 6) else None,
                                          "next_try": request.app.get("next_try"), "now": time.time()}})
 
 
@@ -3140,6 +3247,8 @@ def build_app(demo=False):
     app.router.add_post("/api/save", api_save)
     app.router.add_get("/api/saved", api_saved)
     app.router.add_get("/api/idle", api_idle)
+    app.router.add_post("/api/listen-now", api_listen_now)
+    app.router.add_get("/api/mic/level", api_mic_level)
     app.router.add_get("/api/credits", api_credits)
     app.router.add_post("/api/medium", api_medium)
     app.router.add_get("/api/recap", api_recap)

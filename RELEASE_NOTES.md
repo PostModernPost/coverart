@@ -1,2 +1,4 @@
-- "Just played" is big and gold on the between-records screen, so it's clear the album shown already finished.
-- A listening light in the bottom corner while nothing is playing: "Listening for music" (slow pulse), "Hearing music…" (fast pulse) when it picks something up, or a grey light saying why it isn't listening (no microphone, or the phone's mic page isn't open).
+- Quiet parts no longer end the song: once music is playing, a lower "keep going" level counts, and while a song Shazam found is still within its length, Liner Notes waits a minute of real quiet (not 20 seconds) before deciding the record stopped.
+- Listen now: a button on the main screen and the between-records screen that records a clip and asks Shazam right away, even if the music is too quiet to wake Liner Notes on its own. "Search for it" is now "Manual search".
+- Settings > Microphone: a live meter shows how loud the mic hears the room against the levels that count as music, and a Sensitivity choice (Low, Normal, High) for mics far from the speakers.
+- Clips sent to Shazam are cleaned up first (rumble and hum below 80 Hz removed, brought to a steady level) and are 12 seconds long instead of 8, which should help with a mic across the room.
