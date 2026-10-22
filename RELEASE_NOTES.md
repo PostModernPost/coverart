@@ -1,1 +1,1 @@
-- Stylus: under Settings > Stylus > Adjust, type your own number of hours before replacing (50 to 5,000), for when your cartridge maker gives a figure that isn't one of the presets.
+- More like this: band names line up whether or not the band has a picture, and each band gets a little more room so the Spotify and Bandcamp links don't crowd.
