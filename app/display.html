@@ -83,6 +83,7 @@
   #lyricLines.plain p { opacity: .85; font-weight: 500; }
   #lyricLines .gap { height: .8em; }
   #lyricLines .none { opacity: .6; font-weight: 500; }
+  #lyricLines .pill { display: inline-block; margin-top: 1em; font-weight: 500; }
   @media (min-aspect-ratio: 7/5) {
     body.lyrics-show #stage { gap: 6vmin; padding: 4vmin 6vmin; }
     body.lyrics-show #art { height: min(62vh, 44vw); } }
@@ -765,7 +766,8 @@ function loadLyrics(t) {
       box.innerHTML = d.lyrics.split("\n").map(w => w.trim() ? `<p>${esc(w)}</p>` : `<div class="gap"></div>`).join("");
       $("lyricsCol").scrollTop = 0;
     } else {
-      box.innerHTML = `<p class="none">No lyrics found for this one.</p>`;
+      box.innerHTML = `<p class="none">No lyrics found for this one.</p>` +
+        (d.genius ? `<a class="pill" href="${esc(d.genius)}" target="_blank" rel="noopener">Look up the lyrics on Genius</a>` : "");
     }
   });
 }
@@ -871,7 +873,8 @@ async function openInfo() {
     $("bio").textContent = "No bio found. Try the Bandcamp or Discogs links above.";
   }
   if (d.lyrics) { $("lyrics").className = ""; $("lyrics").textContent = d.lyrics; }
-  else $("lyrics").textContent = "No lyrics found.";
+  else $("lyrics").innerHTML = `<p style="margin-top:0">No lyrics found.</p>` +
+    (d.genius ? `<a class="pill" href="${esc(d.genius)}" target="_blank" rel="noopener">Look up the lyrics on Genius</a>` : "");
 }
 
 // ---------------------------------------------------------------- search (one panel for songs and records)

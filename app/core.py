@@ -303,26 +303,94 @@ def parse_lrc(text):
     return out
 
 
+# Words streaming services tack onto titles that lyric sites don't use
+TITLE_EXTRAS = re.compile(
+    r"\s*(?:[-–]\s*(?:\d{4}\s+)?(?:re-?master(?:ed)?|remix|mix|live|mono|stereo|single|radio|edit|version|acoustic|demo|bonus|deluxe|from|feat|with)\b.*$"
+    r"|[\(\[](?:[^\)\]]*\b(?:re-?master(?:ed)?|feat\.?|ft\.|with|live|mono|stereo|version|edit|explicit|clean|bonus|deluxe|anniversary)\b[^\)\]]*)[\)\]])",
+    re.I)
+
+
+def clean_title(title):
+    """'Lido Shuffle - 2007 Remaster' -> 'Lido Shuffle'; 'Song (feat. X) [Live]' -> 'Song'"""
+    t = title or ""
+    for _ in range(3):
+        t2 = TITLE_EXTRAS.sub("", t).strip()
+        if t2 == t or not t2:
+            break
+        t = t2
+    return t
+
+
+def main_artist(artist):
+    """'Khruangbin & Leon Bridges' -> 'Khruangbin'. Only used as a last try, since bands like Simon & Garfunkel exist."""
+    return re.split(r"\s*(?:,|&|\bfeat\.?|\bft\.|\bx\b|\band\b|\bwith\b)\s*", artist or "", maxsplit=1, flags=re.I)[0].strip()
+
+
+async def _lrclib(http, params):
+    async with http.get("https://lrclib.net/api/search?" + urllib.parse.urlencode(params),
+                        headers={"User-Agent": "LinerNotes/1.0 +https://github.com/PostModernPost/coverart"}) as r:
+        return (await r.json(content_type=None)) or []
+
+
+def _pick_lrclib(results, duration_s):
+    if duration_s:      # versions of the same song (live, edits) differ in length; take the closest
+        results = sorted(results, key=lambda x: abs((x.get("duration") or 0) - duration_s))
+    for res in results:
+        if res.get("syncedLyrics"):
+            return res.get("plainLyrics") or "", parse_lrc(res["syncedLyrics"])
+    for res in results:
+        if res.get("plainLyrics"):
+            return res["plainLyrics"], None
+        if res.get("instrumental"):
+            return "(Instrumental)", None
+    return None
+
+
 async def fetch_lyrics(http, artist, title, album, duration_s=None):
-    """Lyrics from LRCLIB: (plain text, timed lines or None). Prefers timed lyrics of the right length."""
-    try:
-        q = urllib.parse.urlencode({"artist_name": artist, "track_name": title})
-        async with http.get("https://lrclib.net/api/search?" + q,
-                            headers={"User-Agent": "LinerNotes/1.0"}) as r:
-            data = await r.json(content_type=None)
-        results = data or []
-        if duration_s:      # versions of the same song (live, edits) differ in length; take the closest
-            results = sorted(results, key=lambda x: abs((x.get("duration") or 0) - duration_s))
-        for res in results:
-            if res.get("syncedLyrics"):
-                return res.get("plainLyrics") or "", parse_lrc(res["syncedLyrics"])
-        for res in results:
-            if res.get("plainLyrics"):
-                return res["plainLyrics"], None
-            if res.get("instrumental"):
-                return "(Instrumental)", None
-    except Exception as e:
-        log("lyrics lookup failed:", e)
+    """(plain text, timed lines or None). LRCLIB first (it has timed lyrics), trying the exact title, then
+    the title without "Remaster"/"Live"/"feat." extras, then a looser search; lyrics.ovh as a last resort."""
+    title, artist = (title or "").strip(), (artist or "").strip()
+    if not title or not artist:
+        return None, None
+    short, lead = clean_title(title), main_artist(artist)
+    tries = [{"artist_name": artist, "track_name": title}]
+    if short.lower() != title.lower():
+        tries.append({"artist_name": artist, "track_name": short})
+    if lead.lower() != artist.lower():
+        tries.append({"artist_name": lead, "track_name": short})
+    tries.append({"q": f"{lead} {short}"})
+    seen = set()
+    for params in tries:
+        key = tuple(sorted(params.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            results = await _lrclib(http, params)
+        except Exception as e:
+            log("lyrics lookup failed:", e)
+            break
+        if "q" in params:       # a loose search can return other songs; keep the ones that match
+            results = [x for x in results if norm(lead) in norm(x.get("artistName")) and
+                       norm(clean_title(x.get("trackName"))) == norm(short)]
+        got = _pick_lrclib(results, duration_s)
+        if got:
+            return got
+    # lyrics.ovh: plain lyrics only, from other lyric sites
+    for a in dict.fromkeys((artist, lead)):
+        try:
+            url = "https://api.lyrics.ovh/v1/" + urllib.parse.quote(a, safe="") + "/" + urllib.parse.quote(short, safe="")
+            async with http.get(url, timeout=ClientTimeout(total=6)) as r:
+                if r.status != 200:
+                    continue
+                d = await r.json(content_type=None)
+            text = (d or {}).get("lyrics") or ""
+            text = re.sub(r"^Paroles de la chanson .*? par .*?\r?\n", "", text).replace("\r\n", "\n").strip()
+            text = re.sub(r"\n{3,}", "\n\n", text)
+            if len(text) > 20:
+                return text, None
+        except Exception as e:
+            log("lyrics.ovh lookup failed:", e)
     return None, None
 
 
@@ -2283,7 +2351,8 @@ async def api_info(request):
         fetch_lyrics(http, t["artist"], t["title"], t.get("album"), (t.get("duration_ms") or 0) / 1000 or None),
         fetch_bio(http, t["artist"]),
     )
-    info = {"lyrics": lyrics, "synced": synced, "bio": bio}
+    info = {"lyrics": lyrics, "synced": synced, "bio": bio,
+            "genius": "https://genius.com/search?q=" + urllib.parse.quote(f"{main_artist(t['artist'])} {clean_title(t['title'])}")}
     st.info_cache[tid] = info
     return web.json_response(info)
 

@@ -1,2 +1,2 @@
-- Save the band: tap the heart next to a song to keep it. Saved songs are under the new heart at the top of the screen, with Spotify and Bandcamp links, and they work for records too.
-- Connect Spotify (Settings > Spotify) and every song you heart also goes into a private "Liner Notes" playlist, or your Liked Songs if you'd rather. Songs you hearted before connecting get added when you connect. Un-hearting removes it from Spotify too.
+- Lyrics are found for more songs. Titles like "Lido Shuffle - 2007 Remaster", "(feat. ...)" or "- Live at ..." are retried without the extra words, songs with several artists are retried with the main one, and if LRCLIB still has nothing, Liner Notes checks lyrics.ovh.
+- When no lyrics turn up, a "Look up the lyrics on Genius" button opens the song's Genius search.
