@@ -1,2 +1,3 @@
-- Credits on the song info page (tap the song, or the i button): who played on this song, who played on the album (one line per person with everything they did), who produced, mixed and engineered it, where it was recorded, mastered and pressed, and the release notes from Discogs.
-- Records loaded in record mode use that exact pressing. Other songs (Spotify, or records Liner Notes recognized on its own) use the closest Discogs match for the album, and the page says which.
+- Choose what a screen shows when nothing is playing (Settings > When nothing is playing): recently played then a slideshow, just recently played, just the slideshow of covers, or the spinning record.
+- Turn off when nothing plays: after 5, 15, 30 or 60 minutes with nothing playing, the PC window hides to the tray, and a phone screen goes dark and turns off. The window comes back, and a phone plugged in over USB turns back on, when the next song starts. Each screen has its own setting.
+- Settings with several choices show them on their own line under the label.

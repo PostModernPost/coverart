@@ -175,6 +175,11 @@ class State:
         self.version += 1
         if track and track.get("id"):
             self.history[track["id"]] = track
+        if track and track.get("status") == "playing" and self.app is not None:
+            try:
+                wake_screens(self.app)
+            except Exception as e:
+                log("waking screens failed:", e)
         if track and track.get("status") == "playing" and track.get("id") != self.last_logged and self.db:
             self.last_logged = track["id"]
             try:
@@ -1951,6 +1956,35 @@ async def api_window_fullscreen(request):
     return web.json_response({"ok": fn is not None, "full": full})
 
 
+async def api_screen_idle(request):
+    """A screen with nothing to show for a while turns off: the PC window hides to the tray, a USB phone's
+    screen goes off. Both come back when the next song starts (State.wake_screens)."""
+    app = request.app
+    body = await request.json()
+    if body.get("target") == "window":
+        fn = app.get("on_hide_window")
+        if fn:
+            fn()
+            app["window_idle_hidden"] = True
+    elif "Android" in request.headers.get("User-Agent", "") and adb_path():
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, adb_phone_screens, False)
+        app["phone_idle_off"] = True
+    return web.json_response({"ok": True})
+
+
+def wake_screens(app):
+    """The next song started: bring back screens that turned off because nothing was playing."""
+    if app.get("window_idle_hidden"):
+        app["window_idle_hidden"] = False
+        fn = app.get("on_show_window_quiet") or app.get("on_show_window")
+        if fn:
+            threading.Thread(target=fn, daemon=True).start()
+    if app.get("phone_idle_off"):
+        app["phone_idle_off"] = False
+        threading.Thread(target=adb_phone_screens, args=(True,), daemon=True).start()
+
+
 async def api_window(request):
     """A second launch of Liner Notes asks the running one to show its window."""
     fn = request.app.get("on_show_window")
@@ -2858,7 +2892,7 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save")
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/")
 
 
 @web.middleware
@@ -3026,6 +3060,7 @@ def build_app(demo=False):
     app.router.add_get("/api/update", api_update)
     app.router.add_post("/api/window", api_window)
     app.router.add_post("/api/window/fullscreen", api_window_fullscreen)
+    app.router.add_post("/api/screen/idle", api_screen_idle)
     app.router.add_get("/api/records/search", api_records_search)
     app.router.add_post("/api/records/load", api_records_load)
     app.router.add_post("/api/records/position", api_records_position)

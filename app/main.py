@@ -163,6 +163,29 @@ def show_window():
 open_window = show_window
 
 
+def hide_window():
+    """Hide the window to the tray (nothing has played for a while)."""
+    w = WINDOW.get("w")
+    if w is not None and WINDOW.get("visible"):
+        try:
+            WINDOW["visible"] = False
+            w.hide()
+        except Exception as e:
+            print("hide window failed:", e, flush=True)
+
+
+def show_window_quiet():
+    """Bring the window back after hiding it for being idle, without jumping in front of what you're doing."""
+    w = WINDOW.get("w")
+    if w is None or WINDOW.get("visible"):
+        return
+    try:
+        WINDOW["visible"] = True
+        w.show()
+    except Exception as e:
+        print("show window failed:", e, flush=True)
+
+
 def open_panel(name):
     """Show the window with one of its panels open (e.g. the phone setup guide)."""
     show_window()
@@ -497,6 +520,8 @@ def server_thread():
     app = core.build_app()
     loop.run_until_complete(core.serve(app))
     app["on_show_window"] = show_window
+    app["on_hide_window"] = hide_window
+    app["on_show_window_quiet"] = show_window_quiet
     app["on_toggle_fullscreen"] = toggle_fullscreen
     app["on_restart"] = lambda: restart(ICON["i"]) if ICON.get("i") else None
     APP["app"] = app

@@ -255,6 +255,9 @@
   #pcAway { position: fixed; inset: 0; z-index: 50; background: #000; display: none; align-items: flex-end; justify-content: center;
     padding-bottom: 6vmin; color: rgba(255,255,255,.18); font-size: calc(var(--ts) * clamp(11px, 2.2vmin, 15px)); }
   body.pc-away #pcAway { display: flex; }
+  #idleDark { position: fixed; inset: 0; z-index: 49; background: #000; display: none; align-items: flex-end; justify-content: center;
+    padding-bottom: 6vmin; color: rgba(255,255,255,.16); font-size: clamp(11px, 2.2vmin, 15px); cursor: pointer; }
+  body.idle-dark #idleDark { display: flex; }
 
   /* save the band */
   .heart { width: calc(var(--ts) * clamp(26px, 5vmin, 36px)); height: calc(var(--ts) * clamp(26px, 5vmin, 36px)); border-radius: 50%;
@@ -293,7 +296,10 @@
   #mediumAsk label { display: flex; align-items: center; gap: .5em; margin-top: .7em; color: var(--dim); cursor: pointer; }
   #mediumAsk input { width: 1.1em; height: 1.1em; accent-color: var(--gold); }
   @media (max-aspect-ratio: 7/5) { #mediumAsk { margin-left: auto; margin-right: auto; } #mediumAsk .row { justify-content: center; } #mediumAsk label { justify-content: center; } }
-  #mediaRow .sizes { display: flex; flex-wrap: wrap; gap: 1vmin; justify-content: flex-end; }
+  /* settings with several choices: the choices go on their own line under the label */
+  #textSize, #mediaRow, #idleModeRow, #idleOffRow { flex-wrap: wrap; }
+  #textSize .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
+  #mediaRow .sizes, #idleModeRow .sizes, #idleOffRow .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
   #aboutMark { width: 44px; height: 44px; vertical-align: middle; margin-right: .7em; }
 
   /* listening history and saved songs: a readable width on big screens */
@@ -583,7 +589,16 @@
     <div class="sizes">
       <button class="pill" data-rm="">Ask</button><button class="pill" data-rm="vinyl">Vinyl</button><button class="pill" data-rm="cd">CD</button>
       <button class="pill" data-rm="cassette">Cassette</button><button class="pill" data-rm="radio">Radio</button><button class="pill" data-rm="other">Other</button></div></div>
-  <div class="setting" data-key="idleShow"><div>Between records<small>When nothing is playing, show the album you just played and your recent records, then a slow slideshow of album covers from your history. Off shows a spinning record.</small></div><div class="switch"></div></div>
+  <div class="setting" id="idleModeRow" style="cursor:default">
+    <div>When nothing is playing<small>Recently played shows the album you just played, your other recent records and songs you saved. The slideshow shows album covers from your history.</small></div>
+    <div class="sizes">
+      <button class="pill" data-im="both">Recent, then slideshow</button><button class="pill" data-im="recent">Recently played</button>
+      <button class="pill" data-im="slides">Slideshow</button><button class="pill" data-im="record">Spinning record</button></div></div>
+  <div class="setting" id="idleOffRow" style="cursor:default">
+    <div>Turn off when nothing plays<small id="idleOffHint">After this long with nothing playing, this screen turns off. It comes back on with the next song.</small></div>
+    <div class="sizes">
+      <button class="pill" data-io="0">Never</button><button class="pill" data-io="5">5 min</button><button class="pill" data-io="15">15 min</button>
+      <button class="pill" data-io="30">30 min</button><button class="pill" data-io="60">1 hour</button></div></div>
   <div class="setting" data-key="showBpm"><div>BPM<small>Tempo of the song, when it can be found. ≈ means estimated from the sound.</small></div><div class="switch"></div></div>
   <div class="setting" id="fsSetting">
     <div>Fullscreen<small id="fsHint">Hides the browser's bars until you leave the page.</small></div><div class="switch"></div></div>
@@ -622,6 +637,7 @@
 </div>
 
 <div id="toast"></div>
+<div id="idleDark">Nothing playing. This screen turns back on with the next song.</div>
 <div id="pcAway">Liner Notes on your PC is off or asleep</div>
 <button id="fsBtn" aria-label="Fullscreen" title="Fullscreen">
   <svg id="fsIn" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
@@ -642,7 +658,7 @@ function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","
 
 // ---------------------------------------------------------------- settings (per screen)
 const SETTINGS_DEFAULT = { lyricsBeside: false, textSize: "1.6", showYear: true, showLabel: true, showGenre: true,
-                           showProgress: true, showBpm: false, idleShow: true };
+                           showProgress: true, showBpm: false, idleMode: "both", idleOff: 0 };
 let settings = { ...SETTINGS_DEFAULT };
 try { Object.assign(settings, JSON.parse(localStorage.getItem("coverart-settings") || "{}")); } catch (e) {}
 if (settings.showDetails === false) {          // older single switch
@@ -660,6 +676,7 @@ function applySettings() {
   document.documentElement.style.setProperty("--ts", textScale());
   document.querySelectorAll("#textSize [data-ts]").forEach(b => b.classList.toggle("on", String(settings.textSize || "auto") === b.dataset.ts));
   document.querySelectorAll(".setting[data-key]").forEach(el => el.classList.toggle("on", !!settings[el.dataset.key]));
+  if (typeof syncIdleRows === "function") syncIdleRows();
   $("fsSetting").classList.toggle("on", typeof isFull === "function" ? isFull() : !!document.fullscreenElement);
   if (current) render(current, true);
 }
@@ -669,7 +686,6 @@ document.querySelectorAll("#textSize [data-ts]").forEach(b => b.addEventListener
 addEventListener("resize", () => document.documentElement.style.setProperty("--ts", textScale()));
 document.querySelectorAll(".setting[data-key]").forEach(el => el.addEventListener("click", () => {
   settings[el.dataset.key] = !settings[el.dataset.key]; saveSettings(); applySettings();
-  if (el.dataset.key === "idleShow") { idleOn = null; syncIdle(); }
 }));
 const standalone = matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches;
 if ((standalone || !document.fullscreenEnabled) && !new URLSearchParams(location.search).has("window")) {
@@ -694,6 +710,7 @@ function render(t, keepArt) {
   const idle = !t;
   $("idle").style.display = idle ? "flex" : "none";
   syncIdle();
+  if (!idle) { wakeFromDark(); clearTimeout(idleOffTimer); idleOffTimer = null; } else if (!idleOffTimer) armIdleOff();
   $("stage").style.display = idle ? "none" : "flex";
   $("bg").style.opacity = idle ? 0 : 1;
   if (idle) { closePanel("info"); document.body.classList.remove("lyrics-show"); lyr = { id: null }; return; }
@@ -988,7 +1005,7 @@ function agoText(ts) {
   return "Played " + new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 function syncIdle() {
-  const want = !current && settings.idleShow !== false && !lastListenActive;
+  const want = !current && idleMode() !== "record" && !lastListenActive;
   if (want === idleOn) return;
   idleOn = want;
   $("idle").classList.toggle("show", false);
@@ -1001,6 +1018,7 @@ function syncIdle() {
     if (!d.last && !d.covers.length) return;                 // nothing in the history yet: keep the spinning record
     $("idle").classList.add("show");
     showJustPlayed();
+    if (idleMode() !== "slides" || !d.covers.length) $("jp").classList.remove("off");
     idleTimer = setInterval(idleTick, 15000);
     idleTick();
   }).catch(() => {});
@@ -1023,9 +1041,10 @@ function idleTick() {
   if (!idleOn || !idleData) return;
   const l = idleData.last;
   // the "just played" card for a few minutes after a record ends (or right away if it ended long ago)
-  const fresh = l && (Date.now() - idleSince < JP_MINUTES * 60000);
+  const mode = idleMode();
+  const fresh = mode === "recent" || (mode === "both" && l && (Date.now() - idleSince < JP_MINUTES * 60000));
   if (l) $("jpWhen").textContent = agoText(l.ts) + (ON_MEDIUM[l.source] || "");
-  if (fresh || idleData.covers.length < 2) { $("jp").classList.remove("off"); $("slides").classList.add("off"); return; }
+  if ((fresh && l) || idleData.covers.length < 2) { $("jp").classList.remove("off"); $("slides").classList.add("off"); return; }
   if (!slideTimer) startSlides();
 }
 function startSlides() {
@@ -1073,6 +1092,53 @@ $("mediaRow").addEventListener("click", async e => {
   document.querySelectorAll("#mediaRow [data-rm]").forEach(x => x.classList.toggle("on", x === b));
   try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_medium: b.dataset.rm || null }) }); } catch (err) {}
 });
+
+// ---------------------------------------------------------------- what this screen does when nothing plays
+function idleMode() {
+  if (settings.idleShow === false && !settings.idleMode) return "record";      // the old on/off switch
+  return settings.idleMode || "both";
+}
+function syncIdleRows() {
+  document.querySelectorAll("#idleModeRow [data-im]").forEach(b => b.classList.toggle("on", b.dataset.im === idleMode()));
+  document.querySelectorAll("#idleOffRow [data-io]").forEach(b => b.classList.toggle("on", +b.dataset.io === (+settings.idleOff || 0)));
+  $("idleOffHint").textContent = IN_WINDOW
+    ? "After this long with nothing playing, the window hides to the tray by the clock. It comes back when the next song starts."
+    : "After this long with nothing playing, this screen goes dark and turns off. A phone plugged in over USB turns back on with the next song; other screens come back when you tap them.";
+}
+$("idleModeRow").addEventListener("click", e => {
+  const b = e.target.closest("[data-im]"); if (!b) return;
+  e.stopPropagation(); settings.idleMode = b.dataset.im; saveSettings(); syncIdleRows(); idleOn = null; syncIdle();
+});
+$("idleOffRow").addEventListener("click", e => {
+  const b = e.target.closest("[data-io]"); if (!b) return;
+  e.stopPropagation(); settings.idleOff = +b.dataset.io; saveSettings(); syncIdleRows(); armIdleOff();
+});
+
+// turning the screen off after a while with nothing playing
+let idleOffTimer = null, screenDark = false;
+function armIdleOff() {
+  clearTimeout(idleOffTimer); idleOffTimer = null;
+  const mins = +settings.idleOff || 0;
+  if (current || !mins || screenDark) return;
+  idleOffTimer = setTimeout(goDark, mins * 60000);
+}
+function goDark() {
+  if (current) return;
+  if (lastListenActive) { idleOffTimer = setTimeout(goDark, 60000); return; }     // music in the room, still working it out
+  const target = IN_WINDOW ? "window" : "screen";
+  fetch("/api/screen/idle", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ target }) }).catch(() => {});
+  if (IN_WINDOW) return;                     // the window hides to the tray; the server brings it back
+  screenDark = true;
+  document.body.classList.add("idle-dark");
+  letScreenSleep();
+}
+function wakeFromDark() {
+  if (!screenDark) return;
+  screenDark = false;
+  document.body.classList.remove("idle-dark");
+  stayAwake();
+}
+$("idleDark").addEventListener("click", e => { e.stopPropagation(); wakeFromDark(); armIdleOff(); });
 
 // ---------------------------------------------------------------- panels
 function openPanel(id) { document.querySelectorAll(".panel.open").forEach(p => p.classList.remove("open")); $(id).classList.add("open"); }
@@ -1700,7 +1766,7 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
 // keep a phone/tablet screen awake while the page is open
 let wakeLock = null, pcAway = false;
 async function stayAwake() {
-  if (pcAway) return;                      // the PC is off or asleep: let the phone's screen time out
+  if (pcAway || screenDark) return;        // the PC is off or asleep, or nothing is playing: let the screen time out
   try {
     if ("wakeLock" in navigator && document.visibilityState === "visible" && !wakeLock)
       wakeLock = await navigator.wakeLock.request("screen");
