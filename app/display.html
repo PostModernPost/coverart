@@ -353,6 +353,18 @@
   .lg-floor, .lg-keep { background: rgba(255,255,255,.55); } .lg-start { background: var(--gold); }
   #meterNow { margin-top: .7em; }
 
+  /* more like this */
+  #similar .sims { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 2.4vmin 2vmin; }
+  #similar .sim { text-align: center; min-width: 0; }
+  #similar .sim img, #similar .sim .noimg { width: 84px; height: 84px; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto .6em;
+    background: #1d1d20; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+  #similar .sim .noimg { display: grid; place-items: center; font-size: 30px; font-weight: 700; color: var(--dim); }
+  #similar .sim b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #similar .sim .known { display: block; font-size: .8em; color: var(--gold); margin-top: .15em; }
+  #similar .sim .lk { display: flex; justify-content: center; gap: .7em; margin-top: .35em; font-size: .82em; }
+  #similar .sim .lk a { color: var(--dim); }
+  #similar .sim .lk a:hover { color: var(--fg); }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -457,6 +469,7 @@
   <div id="links" class="row"></div>
   <div class="cols">
     <div><section><h3>About the artist</h3><div id="bio" class="muted">Loading…</div></section>
+      <section id="similarBox" style="margin-top:5vmin"><h3>More like this</h3><div id="similar" class="muted">Loading…</div></section>
       <section id="creditsBox" style="margin-top:5vmin"><h3>Credits</h3><div id="credits" class="muted">Loading…</div></section></div>
     <section><h3>Lyrics</h3><div id="lyrics" class="muted">Loading…</div></section>
   </div>
@@ -1318,11 +1331,31 @@ async function openInfo() {
     $("bio").textContent = "No bio found. Try the Bandcamp or Discogs links above.";
   }
   loadCredits(t);
+  loadSimilar(t);
   if (d.shazam && !$("links").querySelector("[data-shazam]"))
     $("links").insertAdjacentHTML("afterbegin", `<a class="pill" data-shazam href="${esc(d.shazam)}" target="_blank" rel="noopener">Shazam</a>`);
   if (d.lyrics) { $("lyrics").className = ""; $("lyrics").textContent = d.lyrics; }
   else $("lyrics").innerHTML = `<p style="margin-top:0">No lyrics found.</p>` +
     (d.genius ? `<a class="pill" href="${esc(d.genius)}" target="_blank" rel="noopener">Look up the lyrics on Genius</a>` : "");
+}
+
+// ---------------------------------------------------------------- more like this
+async function loadSimilar(t) {
+  const box = $("similar");
+  box.className = "muted"; box.textContent = "Loading…"; $("similarBox").style.display = "block";
+  let d;
+  try { d = await (await fetch("/api/similar?id=" + encodeURIComponent(t.id))).json(); }
+  catch (e) { $("similarBox").style.display = "none"; return; }
+  if (infoFor !== t.id) return;
+  if (!d.artists || !d.artists.length) { $("similarBox").style.display = "none"; return; }
+  box.className = "";
+  box.innerHTML = `<div class="sims">${d.artists.map(a => `
+    <div class="sim">
+      ${a.image ? `<img src="${esc(a.image)}" alt="" loading="lazy">` : `<div class="noimg">${esc((a.name || "?")[0])}</div>`}
+      <b title="${esc(a.name)}">${esc(a.name)}</b>
+      ${a.plays ? `<span class="known">${a.plays === 1 ? "Played once" : "Played " + a.plays + " times"}</span>` : ""}
+      <span class="lk"><a href="${esc(a.links.spotify)}" target="_blank" rel="noopener">Spotify</a><a href="${esc(a.links.bandcamp)}" target="_blank" rel="noopener">Bandcamp</a></span>
+    </div>`).join("")}</div>`;
 }
 
 // ---------------------------------------------------------------- credits on the info page

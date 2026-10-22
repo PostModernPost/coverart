@@ -1,2 +1,1 @@
-- Liner Notes only shows music from this PC now: Spotify, Apple Music, Tidal and other music players, plus music sites in a browser (Spotify, YouTube Music, Bandcamp). YouTube, Reddit and other videos no longer take over the screen. Settings > Apps on this PC > Everything brings back the old behavior.
-- Firefox shows up as "Firefox" instead of a code.
+- More like this: the song info page shows up to 8 similar artists, with their picture and Spotify and Bandcamp links. Similar artists come from Last.fm, which is good at small and indie bands, or from Deezer when Last.fm has none. Artists you've already played here say how many times.

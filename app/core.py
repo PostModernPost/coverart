@@ -1903,6 +1903,15 @@ class History:
             db.execute("UPDATE plays SET source=? WHERE source='room' AND ts>=?", (medium, since))
             db.execute("UPDATE saved SET source=? WHERE source='room' AND ts>=?", (medium, since))
 
+    def artist_plays(self, names):
+        """How many times each of these artists has been played here, keyed by norm(name)."""
+        with self._db() as db:
+            rows = db.execute("SELECT artist, COUNT(*) FROM plays GROUP BY lower(artist)").fetchall()
+        counts = {}
+        for a, n in rows:
+            counts[norm(a)] = counts.get(norm(a), 0) + n
+        return {norm(x): counts.get(norm(x), 0) for x in names}
+
     def saved_list(self):
         with self._db() as db:
             db.row_factory = sqlite3.Row
@@ -2935,6 +2944,81 @@ async def api_credits(request):
     return web.json_response({"credits": cr})
 
 
+# ---------------------------------------------------------------- more like this (similar artists)
+# Last.fm's similar artists (good for small and indie bands), with Deezer's related artists when
+# Last.fm has nothing. Pictures come from Deezer, since Last.fm no longer serves artist images.
+_similar_cache = {}
+
+
+async def _deezer_artist(http, name):
+    try:
+        async with http.get(f"{DEEZER}/search/artist", params={"q": name, "limit": "3"}) as r:
+            d = await r.json(content_type=None)
+        for a in (d or {}).get("data") or []:
+            if norm(a.get("name")) == norm(name):
+                return a
+        return ((d or {}).get("data") or [None])[0]
+    except Exception:
+        return None
+
+
+async def similar_artists(http, artist, limit=8):
+    lead = main_artist(artist)
+    key = norm(lead)
+    if key in _similar_cache:
+        return _similar_cache[key]
+    names = []
+    if LASTFM_KEY:
+        try:
+            async with http.get(LASTFM_API, params={"method": "artist.getSimilar", "artist": lead, "api_key": LASTFM_KEY,
+                                                    "autocorrect": "1", "limit": str(limit + 4), "format": "json"}) as r:
+                d = await r.json(content_type=None)
+            for a in ((d or {}).get("similarartists") or {}).get("artist") or []:
+                if a.get("name") and norm(a["name"]) != key:
+                    names.append({"name": a["name"], "match": float(a.get("match") or 0), "lastfm": a.get("url")})
+        except Exception as e:
+            log("similar artists (Last.fm) failed:", repr(e))
+    if not names:
+        me = await _deezer_artist(http, lead)
+        if me and me.get("id"):
+            try:
+                async with http.get(f"{DEEZER}/artist/{me['id']}/related", params={"limit": str(limit)}) as r:
+                    d = await r.json(content_type=None)
+                for a in (d or {}).get("data") or []:
+                    names.append({"name": a.get("name"), "image": a.get("picture_medium"), "match": None})
+            except Exception as e:
+                log("similar artists (Deezer) failed:", repr(e))
+    names = names[:limit]
+
+    async def picture(x):
+        if not x.get("image"):
+            a = await _deezer_artist(http, x["name"])
+            if a and norm(a.get("name")) == norm(x["name"]):
+                x["image"] = a.get("picture_medium")
+    await asyncio.gather(*(picture(x) for x in names))
+    for x in names:
+        q = urllib.parse.quote(x["name"])
+        x["links"] = {"spotify": f"https://open.spotify.com/search/{q}", "bandcamp": f"https://bandcamp.com/search?q={q}&item_type=b",
+                      "lastfm": x.get("lastfm") or f"https://www.last.fm/music/{urllib.parse.quote(x['name'].replace(' ', '+'))}"}
+    _similar_cache[key] = names
+    return names
+
+
+async def api_similar(request):
+    st: State = request.app["state"]
+    t = st.history.get(request.query.get("id", ""))
+    if not t or not t.get("artist"):
+        return web.json_response({"artists": []})
+    try:
+        names = await similar_artists(request.app["http"], t["artist"])
+    except Exception as e:
+        log("similar artists failed:", repr(e))
+        names = []
+    plays = st.db.artist_plays([x["name"] for x in names]) if names else {}
+    out = [{**x, "plays": plays.get(norm(x["name"]), 0)} for x in names]
+    return web.json_response({"artists": out, "for": main_artist(t["artist"])})
+
+
 # ---------------------------------------------------------------- shareable recap cards
 _recap_art = collections.OrderedDict()      # art url -> PIL image, the last few dozen
 
@@ -3376,6 +3460,7 @@ def build_app(demo=False):
     app.router.add_get("/api/mic/level", api_mic_level)
     app.router.add_get("/api/mic/last-clip.wav", api_last_clip)
     app.router.add_get("/api/credits", api_credits)
+    app.router.add_get("/api/similar", api_similar)
     app.router.add_post("/api/medium", api_medium)
     app.router.add_get("/api/recap", api_recap)
     app.router.add_get("/api/recap.png", api_recap_png)
