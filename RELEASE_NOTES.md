@@ -1,3 +1,5 @@
-- iPhone support in the phone guide: share Liner Notes on your Wi-Fi with one button and scan a QR code with the iPhone's camera. The iPhone works as the screen; listening stays on the PC
-- While sharing on Wi-Fi, other devices can view and search, but only this PC can change settings or install updates
-- Fullscreen button in the bottom-right corner of the main screen: easy to spot before, almost invisible once you're fullscreen (tap it again to exit)
+- Song length and a live position bar: exact for Spotify and other apps on the PC, exact for records Shazam recognizes, and estimated (~) for songs known only from a record's tracklist
+- BPM (off by default; turn it on in Settings). Looked up from Deezer, or estimated from the sound for records (≈)
+- Liner Notes now fills in whatever a source leaves out (year, label, genre, length, BPM) from Apple's and Deezer's catalogs, for Spotify as well as records
+- Year, record label, genre and song length each have their own switch in Settings
+- New "i" button next to the song for more info (tapping the art or title still works too)

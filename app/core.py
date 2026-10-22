@@ -153,6 +153,16 @@ class State:
         if self.track is not None:
             self._bump(None)
 
+    def enrich(self, tid, fields):
+        """Fill in details looked up after the song went on screen (year, label, length, BPM...)."""
+        if not fields:
+            return
+        if tid in self.history:
+            self.history[tid].update(fields)
+        if self.track and self.track.get("id") == tid:
+            self.track = {**self.track, **fields}
+            self.version += 1
+
 
 # ---------------------------------------------------------------- lookups
 ITUNES = "https://itunes.apple.com"
@@ -336,7 +346,32 @@ async def current_pc_media(mgr):
     props = await s.try_get_media_properties_async()
     if not props or not props.title:
         return None
-    return props, app_id
+    return props, app_id, s
+
+
+def timeline_position(session):
+    """Spotify & co. tell Windows exactly where in the song they are."""
+    tl = session.get_timeline_properties()
+
+    def secs(v):
+        if v is None:
+            return None
+        if hasattr(v, "total_seconds"):
+            return v.total_seconds()
+        try:
+            return int(v) / 1e7            # 100-nanosecond ticks
+        except Exception:
+            return None
+    pos, end = secs(tl.position), secs(tl.end_time)
+    upd = tl.last_updated_time
+    if pos is not None and upd is not None and hasattr(upd, "timestamp"):
+        try:
+            pos += max(0.0, time.time() - upd.timestamp())   # reported as of its last update
+        except Exception:
+            pass
+    if end is not None and end <= 0:
+        end = None
+    return pos, end
 
 
 def app_label(app_id):
@@ -366,7 +401,7 @@ async def pc_media_loop(app):
         if res:
             stopped_since = None
             app["pc_playing"] = True
-            props, app_id = res
+            props, app_id, session = res
             artist = props.artist or props.album_artist or ""
             title = props.title
             tid = make_id(artist, title)
@@ -383,13 +418,19 @@ async def pc_media_loop(app):
                     log("thumbnail read failed:", e)
                 info = await itunes_lookup(http, artist, title) or {}
                 album = album or info.get("album")
-                st.show({
+                show_and_enrich(app, {
                     "id": tid, "title": title, "artist": artist, "album": album,
                     "art": info.get("art") or art, "source": "pc", "app": app_label(app_id), "status": "playing",
                     "year": info.get("year"), "label": info.get("label"), "genre": info.get("genre"),
                     "duration_ms": info.get("duration_ms"),
                     "links": search_links(artist, title, album),
                 })
+            try:
+                pos, end = timeline_position(session)
+                if pos is not None:
+                    set_progress(app, tid, pos, end, "exact")
+            except Exception:
+                pass
         else:
             app["pc_playing"] = False
             if st.track and st.track.get("source") == "pc":
@@ -397,6 +438,150 @@ async def pc_media_loop(app):
                 if time.time() - stopped_since > 4:   # brief gaps happen when skipping tracks
                     st.idle()
         await asyncio.sleep(CFG["poll_seconds"])
+
+
+# ---------------------------------------------------------------- song position
+def set_progress(app, tid, pos_s, dur_s=None, kind="exact", at=None):
+    """Where in the song we are: pos_s seconds at time `at`. kind: exact (Spotify, Shazam) or estimate."""
+    app["progress"] = {"id": tid, "pos_s": pos_s, "at": at or time.time(), "dur_s": dur_s, "kind": kind}
+
+
+def progress_now(app):
+    t = app["state"].track
+    if not t or t.get("status") != "playing":
+        return None
+    dur = (t.get("duration_ms") or 0) / 1000 or None
+    p = app.get("progress")
+    if p and p["id"] == t["id"]:
+        dur = p.get("dur_s") or dur
+        pos = None if p["pos_s"] is None else p["pos_s"] + (time.time() - p["at"]) * (1 if p.get("playing", True) else 0)
+        if pos is not None and dur:
+            pos = max(0, min(pos, dur))
+        return {"pos": pos, "dur": dur, "kind": p["kind"]}
+    return {"pos": None, "dur": dur, "kind": None} if dur else None
+
+
+def record_progress(app, rec):
+    """Record mode without a Shazam match: count from when the song started."""
+    if rec and rec.idx is not None:
+        t = rec.tracks[rec.idx]
+        set_progress(app, make_id(rec.track()["artist"], t["title"]), 0, t["duration"], "estimate", at=rec.track_started)
+
+
+# ---------------------------------------------------------------- more song details (Deezer) and tempo
+DEEZER = "https://api.deezer.com"
+
+
+async def deezer_lookup(http, artist, title):
+    """Deezer's free catalog: BPM, length, release year, label, genre."""
+    key = ("dz", norm(artist), norm(title))
+    if key in _itunes_cache:
+        return _itunes_cache[key]
+    info = None
+    try:
+        q = f'artist:"{artist}" track:"{title}"'
+        async with http.get(f"{DEEZER}/search", params={"q": q, "limit": 8}) as r:
+            data = await r.json(content_type=None)
+        best = None
+        for d in data.get("data") or []:
+            a, b = norm(artist), norm((d.get("artist") or {}).get("name"))
+            if a and b and (a in b or b in a):
+                if norm(d.get("title")) == norm(title) or norm(d.get("title_short")) == norm(title):
+                    best = d
+                    break
+                best = best or d
+        if best:
+            async with http.get(f"{DEEZER}/track/{best['id']}") as r:
+                tr = await r.json(content_type=None)
+            info = {"bpm": round(tr["bpm"]) if tr.get("bpm") else None,
+                    "duration_ms": (tr.get("duration") or 0) * 1000 or None,
+                    "year": (tr.get("release_date") or "")[:4] or None,
+                    "album": (tr.get("album") or {}).get("title"), "label": None, "genre": None}
+            album_id = (tr.get("album") or {}).get("id")
+            if album_id:
+                async with http.get(f"{DEEZER}/album/{album_id}") as r:
+                    al = await r.json(content_type=None)
+                info["label"] = al.get("label")
+                info["genre"] = ((al.get("genres") or {}).get("data") or [{}])[0].get("name")
+                info["year"] = info["year"] if info["year"] and info["year"] != "0000" else (al.get("release_date") or "")[:4] or None
+    except Exception as e:
+        log("deezer lookup failed:", e)
+        return None
+    _itunes_cache[key] = info
+    return info
+
+
+def estimate_bpm(samples, sr):
+    """Tempo from the sound itself: how often loudness jumps repeat (60 to 180 BPM)."""
+    np = __import__("numpy")
+    hop = max(1, int(sr / 100))                          # 100 loudness readings per second
+    frames = len(samples) // hop
+    if frames < 600:                                     # need at least 6 seconds
+        return None
+    x = samples[:frames * hop].reshape(frames, hop)
+    env = np.log1p(np.sqrt((x * x).mean(axis=1)) * 1000)
+    onset = np.maximum(0, np.diff(env))
+    onset = onset - onset.mean()
+    ac = np.correlate(onset, onset, mode="full")[len(onset) - 1:]
+    lo, hi = int(6000 / 180), int(6000 / 60)
+    if hi >= len(ac) or ac[0] <= 0:
+        return None
+    lags = np.arange(lo, hi + 1)
+    seg = ac[lo:hi + 1] / ac[0]
+    weight = np.exp(-0.5 * (np.log2((6000 / lags) / 120) / 0.7) ** 2)    # prefer ~120 to avoid half/double
+    i = int(np.argmax(seg * weight))
+    if seg[i] < 0.1:                                     # no steady beat
+        return None
+    # refine with the neighbours for a non-integer lag
+    if 0 < i < len(seg) - 1:
+        a, b, c = seg[i - 1], seg[i], seg[i + 1]
+        d = 0.5 * (a - c) / (a - 2 * b + c) if (a - 2 * b + c) != 0 else 0
+    else:
+        d = 0
+    return round(6000 / (lags[i] + d))
+
+
+async def enrich_track(app, t):
+    """Look up whatever the source didn't give us, then update the screen."""
+    try:
+        if not t or t.get("status") != "playing" or not t.get("artist"):
+            return
+        http = app["http"]
+        fields = {}
+        want = ("year", "label", "genre", "duration_ms", "album")
+        if any(not t.get(k) for k in want):
+            it = await itunes_lookup(http, t["artist"], t["title"]) or {}
+            fields.update({k: it.get(k) for k in want if not t.get(k) and it.get(k)})
+        merged = {**t, **fields}
+        if not merged.get("bpm") or any(not merged.get(k) for k in ("year", "label", "genre", "duration_ms")):
+            dz = await deezer_lookup(http, t["artist"], t["title"]) or {}
+            fields.update({k: dz.get(k) for k in ("bpm", "year", "label", "genre", "duration_ms", "album")
+                           if not merged.get(k) and dz.get(k)})
+        if not t.get("bpm") and not fields.get("bpm") and t.get("source") in ("turntable", "record"):
+            mic = app.get("mic")
+            if mic is not None:
+                samples = mic.buf.last_samples(10)
+                if samples is not None:
+                    bpm = await asyncio.get_running_loop().run_in_executor(None, estimate_bpm, samples, mic.sr)
+                    if bpm:
+                        fields["bpm"], fields["bpm_estimated"] = bpm, True
+        app["state"].enrich(t["id"], {k: v for k, v in fields.items() if v})
+    except Exception as e:
+        log("details lookup failed:", repr(e))
+
+
+def show_and_enrich(app, track):
+    st = app["state"]
+    same = st.track and st.track.get("id") == track.get("id") and st.track.get("source") == track.get("source")
+    st.show(track)
+    if not same:
+        asyncio.get_running_loop().create_task(enrich_track(app, track))
+
+
+def show_record(app, rec, track):
+    """A song from the record's tracklist: show it, and count its position from when it started."""
+    show_and_enrich(app, track)
+    record_progress(app, rec)
 
 
 # ---------------------------------------------------------------- record mode (Discogs)
@@ -728,6 +913,13 @@ class AudioBuffer:
         if rms >= thr:
             self.last_sound = time.time()
 
+    def last_samples(self, seconds):
+        np = self.np
+        with self.lock:
+            if not self.chunks:
+                return None
+            return np.concatenate(list(self.chunks))[-int(seconds * self.sr):]
+
     def clip_wav(self, seconds):
         np = self.np
         with self.lock:
@@ -866,6 +1058,7 @@ async def shazam_identify(shz, wav_bytes):
         "label": meta.get("Label"), "year": (meta.get("Released") or "")[:4] or None,
         "genre": (tr.get("genres") or {}).get("primary"),
         "art": imgs.get("coverarthq") or imgs.get("coverart"), "shazam_url": tr.get("url"),
+        "offset": ((out.get("matches") or [{}])[0] or {}).get("offset"),   # where in the song the clip began
     }
 
 
@@ -941,7 +1134,7 @@ async def _turntable_inner(app, mic, shz):
         log(f"needle drop on {found.tracks[idx]['pos']}: playing {found.artist} - {found.title}")
         cur = st.track
         if cur and cur.get("source") == "turntable" and norm(cur.get("title")) == norm(song["title"]):
-            st.show(found.set_index(idx))
+            show_record(app, found, found.set_index(idx))
         else:
             found.set_index(idx)
 
@@ -961,7 +1154,7 @@ async def _turntable_inner(app, mic, shz):
         log(f"worked out the record: {found.artist} - {found.title} (now {found.tracks[idx]['pos']})")
         cur = st.track
         if cur and cur.get("source") == "turntable" and norm(cur.get("title")) == norm(second["title"]):
-            st.show(found.set_index(idx))
+            show_record(app, found, found.set_index(idx))
         else:
             found.set_index(idx)
     set_mode(app, mic, "standby")
@@ -1021,7 +1214,7 @@ async def _turntable_inner(app, mic, shz):
                     needle_drop = True
                     if rec and rec.tracks:
                         rec_gaps = L.gap_count
-                        st.show(rec.on_music_start())
+                        show_record(app, rec, rec.on_music_start())
                     break
             continue
 
@@ -1053,10 +1246,10 @@ async def _turntable_inner(app, mic, shz):
             if L.gap_count != rec_gaps and L.sound_for >= 1.0:
                 rec_gaps = L.gap_count
                 if rec.gap_means_next(now):
-                    st.show(rec.advance())
+                    show_record(app, rec, rec.advance())
                     log(f"gap: next track {rec.tracks[rec.idx]['pos']}")
             elif rec.overdue(now):
-                st.show(rec.advance())
+                show_record(app, rec, rec.advance())
                 log(f"track length passed: next track {rec.tracks[rec.idx]['pos']}")
 
         if L.sound_for < CFG["clip_seconds"]:
@@ -1097,7 +1290,10 @@ async def _turntable_inner(app, mic, shz):
             misses = 0
             if rec.idx != on_record:
                 log(f"Shazam says track {rec.tracks[on_record]['pos']}: moving there")
-                st.show(rec.set_index(on_record))
+                show_record(app, rec, rec.set_index(on_record))
+            if res.get("offset") is not None:
+                set_progress(app, rec.track()["id"], res["offset"] + CFG["clip_seconds"],
+                             rec.tracks[rec.idx]["duration"], "exact", at=last_try)
             continue
         if res and res.get("title"):
             misses = 0
@@ -1114,7 +1310,7 @@ async def _turntable_inner(app, mic, shz):
             if not (t and t.get("id") == tid):
                 info = await itunes_lookup(app["http"], res["artist"], res["title"]) or {}
                 album = res["album"] or info.get("album")
-                st.show({
+                show_and_enrich(app, {
                     "id": tid, "title": res["title"], "artist": res["artist"], "album": album,
                     "art": res["art"] or info.get("art"), "source": "turntable", "app": "Turntable",
                     "status": "playing", "year": res["year"] or info.get("year"),
@@ -1122,6 +1318,10 @@ async def _turntable_inner(app, mic, shz):
                     "duration_ms": info.get("duration_ms"),
                     "links": search_links(res["artist"], res["title"], album, res["shazam_url"]),
                 })
+            if res.get("offset") is not None:
+                cur = st.track or {}
+                set_progress(app, tid, res["offset"] + CFG["clip_seconds"],
+                             (cur.get("duration_ms") or 0) / 1000 or None, "exact", at=last_try)
         else:
             misses += 1
             log(f"no match (Shazam reply: {SHAZAM_REPLY})")
@@ -1253,8 +1453,7 @@ async def api_pick(request):
     info = await itunes_track(request.app["http"], body.get("track_id"))
     if not info:
         return web.json_response({"ok": False}, status=404)
-    st: State = request.app["state"]
-    st.show({
+    show_and_enrich(request.app, {
         "id": make_id(info["artist"], info["title"]), "title": info["title"], "artist": info["artist"],
         "album": info["album"], "art": info["art"], "source": "manual", "app": "Picked by you",
         "status": "playing", "year": info["year"], "label": info["label"], "genre": info["genre"],
@@ -1432,7 +1631,7 @@ async def api_records_load(request):
     app["record"] = rec
     log(f"record loaded: {rec.artist} - {rec.title} ({len(rec.tracks)} tracks)")
     if app.get("listen_mode") == "active":          # already playing: start at track 1, Shazam will correct it
-        app["state"].show(rec.set_index(0))
+        show_record(app, rec, rec.set_index(0))
         app["force_check"] = True
     return web.json_response({"ok": True, "record": rec.summary()})
 
@@ -1444,7 +1643,7 @@ async def api_records_position(request):
     if not rec:
         return web.json_response({"ok": False})
     body = await request.json()
-    app["state"].show(rec.set_index(body.get("index", 0)))
+    show_record(app, rec, rec.set_index(body.get("index", 0)))
     return web.json_response({"ok": True, "record": rec.summary()})
 
 
@@ -1666,6 +1865,7 @@ async def api_now(request):
     return web.json_response({"version": st.version, "track": st.track, "mic": mic_info(request.app),
                               "donate": CFG.get("donate_url") or "", "update": update_info(request.app),
                               "record": request.app["record"].summary() if request.app.get("record") else None,
+                              "progress": progress_now(request.app),
                               "discogs_ready": discogs_ready(),
                               "listen": {"mode": request.app.get("listen_mode", "off"),
                                          "next_try": request.app.get("next_try"), "now": time.time()}})
