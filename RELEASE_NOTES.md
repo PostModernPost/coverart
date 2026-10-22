@@ -1,0 +1,6 @@
+- Updates itself: Cover Art now checks for new versions and installs them with one click
+- Song details: year, record label and genre
+- Search for a song when a record can't be identified
+- Listening history and stats
+- Optional lyrics beside the album art
+- The phone screen installs as a fullscreen app

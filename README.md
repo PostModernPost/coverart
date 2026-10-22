@@ -45,6 +45,6 @@ pip install -r requirements.txt
 pythonw app/main.py
 ```
 
-Every push to `main` builds the installer on GitHub Actions (download it from the run's artifacts). Pushing a tag like `v1.0.0` also publishes it as a release.
+Every push to `main` builds the installer on GitHub Actions. To publish a release, raise the number in `VERSION` and update `RELEASE_NOTES.md`: that build becomes the release, and installed copies offer the update.
 
 Song recognition uses the unofficial `shazamio` library, which is fine for personal use but could stop working if Shazam changes its service.

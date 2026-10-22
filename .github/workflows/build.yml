@@ -25,12 +25,25 @@ jobs:
       - name: Install packages
         run: pip install -r requirements.txt pyinstaller
 
+      # Releasing = raising the number in the VERSION file on main. If no release exists for that
+      # number yet, this build becomes it. Otherwise it's a test build numbered 0.0.<run>.
       - name: Version number
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if ($env:GITHUB_REF -like "refs/tags/v*") { $v = $env:GITHUB_REF_NAME.TrimStart("v") }
+          $PSNativeCommandUseErrorActionPreference = $false
+          $file = (Get-Content VERSION -Raw).Trim()
+          $release = "false"
+          if ($env:GITHUB_REF -like "refs/tags/v*") { $v = $env:GITHUB_REF_NAME.TrimStart("v"); $release = "true" }
+          elseif ($env:GITHUB_REF -eq "refs/heads/main") {
+            gh release view "v$file" --repo $env:GITHUB_REPOSITORY *> $null
+            if ($LASTEXITCODE -ne 0) { $v = $file; $release = "true" } else { $v = "0.0.$env:GITHUB_RUN_NUMBER" }
+            $global:LASTEXITCODE = 0
+          }
           else { $v = "0.0.$env:GITHUB_RUN_NUMBER" }
           "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "RELEASE=$release" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "VERSION = `"$v`"" | Out-File -FilePath app\_version.py -Encoding utf8
 
       - name: Icon
@@ -105,8 +118,12 @@ jobs:
           name: CoverArt-Setup-${{ env.VERSION }}
           path: dist/CoverArt-Setup-*.exe
 
-      - name: Publish release (version tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish release
+        if: env.RELEASE == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.VERSION }}
+          name: Cover Art ${{ env.VERSION }}
+          body_path: RELEASE_NOTES.md
+          target_commitish: ${{ github.sha }}
           files: dist/CoverArt-Setup-*.exe
