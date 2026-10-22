@@ -336,8 +336,35 @@
   #aboutMark { width: 44px; height: 44px; vertical-align: middle; margin-right: .7em; }
 
   /* listening history and saved songs: a readable width on big screens */
-  #stats > :not(.close), #saved > :not(.close), #records > :not(.close), #recap > :not(.close) { max-width: 960px; margin-left: auto; margin-right: auto; }
+  #stats > :not(.close), #saved > :not(.close), #records > :not(.close), #recap > :not(.close), #shelf > :not(.close) { max-width: 960px; margin-left: auto; margin-right: auto; }
   #settings > :not(.close) { max-width: 640px; margin-left: auto; margin-right: auto; }
+  /* your shelf */
+  #shelfTools { display: flex; flex-wrap: wrap; gap: 1em 2em; align-items: center; margin-top: 1.4em; }
+  #shelfTools .row { margin: 0; }
+  #shelfFind { width: 14em; font-size: .95em; padding: .45em 1em; }
+  #shelfGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2.6em 1.6em; margin-top: 2em; }
+  .shelfItem { cursor: pointer; min-width: 0; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; }
+  .shelfItem .cv { position: relative; aspect-ratio: 1; border-radius: 4px; overflow: hidden; background: #1d1d20; box-shadow: 0 8px 20px rgba(0,0,0,.45); }
+  .shelfItem .cv img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .shelfItem .cv .ph { position: absolute; inset: 0; display: grid; place-items: center; font-size: 2.6em; font-weight: 700; color: var(--dim); }
+  .shelfItem .md { position: absolute; left: .5em; bottom: .5em; background: rgba(0,0,0,.7); border-radius: 99px; padding: .1em .6em; font-size: .72em; color: var(--fg); font-style: normal; }
+  .shelfItem:hover .cv { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .shelfItem b, .shelfItem span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .shelfItem b { margin-top: .7em; font-weight: 600; }
+  .shelfItem span { color: var(--dim); font-size: .9em; }
+  .shelfItem small { display: block; color: var(--dim); font-size: .8em; margin-top: .2em; }
+  #shelfDetail { display: none; margin-top: 1.6em; }
+  #shelf.detail #shelfDetail { display: block; } #shelf.detail #shelfList { display: none; }
+  #sdTop { display: flex; gap: 2em; align-items: flex-start; flex-wrap: wrap; margin-top: 1.4em; }
+  #sdArt { width: min(280px, 60vw); aspect-ratio: 1; object-fit: cover; border-radius: 4px; background: #1d1d20; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+  #sdInfo { flex: 1; min-width: 14em; }
+  #sdInfo h3 { margin: 0; font-size: 1.6em; text-transform: none; letter-spacing: 0; color: var(--fg); }
+  #sdSongs { margin-top: 2em; }
+  #sdSongs button { display: flex; width: 100%; justify-content: space-between; gap: 1em; background: none; border: 0; border-bottom: 1px solid var(--faint);
+    color: var(--fg); font: inherit; padding: .7em 0; cursor: pointer; text-align: left; }
+  #sdSongs button:hover b { color: var(--gold); }
+  #sdSongs button span { color: var(--dim); flex: none; }
+  .toastAct { background: none; border: 0; color: var(--gold); font: inherit; font-weight: 600; cursor: pointer; padding: 0 0 0 .6em; }
 
   /* credits on the info page */
   #credits .cgrid { display: grid; grid-template-columns: 1fr; gap: .2em 4vmin; }
@@ -479,6 +506,8 @@
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
   <button id="tb-saved" title="Saved songs" aria-label="Saved songs">
     <svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button>
+  <button id="tb-shelf" title="Your shelf" aria-label="Your shelf">
+    <svg viewBox="0 0 24 24"><path d="M3 20h18M5 20V6M9 20V4M13 20V8"/><circle cx="18" cy="15" r="4"/><circle cx="18" cy="15" r=".6"/></svg></button>
   <button id="tb-stats" title="Listening history" aria-label="Listening history">
     <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
   <button id="tb-settings" title="Settings" aria-label="Settings"><span id="updDot"></span>
@@ -614,6 +643,26 @@
 </div>
 
 <!-- stats -->
+<div id="shelf" class="panel">
+  <button class="close" aria-label="Close">&times;</button>
+  <h2>Your shelf</h2>
+  <div class="sub" id="shelfSub">Every record, CD and tape you've played, added as you play it.</div>
+  <div id="shelfList">
+    <div id="shelfTools">
+      <div class="row" id="shelfMedia"></div>
+      <div class="row" id="shelfSort"><button class="pill on" data-sort="recent">Recently played</button><button class="pill" data-sort="most">Most played</button>
+        <button class="pill" data-sort="artist">Artist</button><button class="pill" data-sort="dusty">Not played lately</button></div>
+      <input id="shelfFind" class="field" placeholder="Find on your shelf" autocomplete="off" aria-label="Find on your shelf">
+    </div>
+    <div id="shelfGrid"></div>
+  </div>
+  <div id="shelfDetail">
+    <button class="pill" id="sdBack">‹ Your shelf</button>
+    <div id="sdTop"><img id="sdArt" alt=""><div id="sdInfo"></div></div>
+    <div id="sdSongs"></div>
+  </div>
+</div>
+
 <div id="stats" class="panel">
   <button class="close" aria-label="Close">&times;</button>
   <h2>Your listening</h2>
@@ -1597,9 +1646,15 @@ async function loadStats() {
 
 // ---------------------------------------------------------------- save the band
 let saveBusy = false, toastTimer = null;
-function toast(msg) {
+function toast(msg, action) {
   const el = $("toast"); el.textContent = msg; el.classList.add("show");
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), 3800);
+  if (action) {                       // e.g. Undo
+    const b = document.createElement("button"); b.className = "toastAct"; b.textContent = action.label;
+    b.onclick = e => { e.stopPropagation(); el.classList.remove("show"); action.fn(); };
+    el.append(" ", b);
+  }
+  el.style.pointerEvents = action ? "auto" : "";
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("show"), action ? 7000 : 3800);
 }
 function setHearts(on) {
   for (const id of ["heartBtn", "lyHeart"]) {
@@ -1996,6 +2051,82 @@ $("lyricsBtn").addEventListener("click", e => {
   e.stopPropagation(); settings.lyricsBeside = !settings.lyricsBeside; saveSettings(); applySettings();
 });
 $("tb-stats").addEventListener("click", e => { e.stopPropagation(); openPanel("stats"); loadStats(); });
+
+// ---------------------------------------------------------------- your shelf
+const SHELF_MEDIA = { vinyl: ["Vinyl", "record", "records"], cd: ["CD", "CD", "CDs"], cassette: ["Cassette", "tape", "tapes"], other: ["Other", "other", "other"] };
+let shelf = [], shelfMedium = "", shelfSort = "recent", shelfOpen = null;
+const shortDate = ts => new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: new Date(ts * 1000).getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
+async function loadShelf() {
+  $("shelf").classList.remove("detail");
+  try { shelf = (await (await fetch("/api/shelf")).json()).albums || []; } catch (e) { shelf = []; }
+  const counts = {};
+  shelf.forEach(a => counts[a.medium] = (counts[a.medium] || 0) + 1);
+  const kinds = Object.keys(SHELF_MEDIA).filter(m => counts[m]);
+  $("shelfSub").textContent = shelf.length
+    ? kinds.map(m => `${counts[m]} ${counts[m] === 1 ? SHELF_MEDIA[m][1] : SHELF_MEDIA[m][2]}`).join(" · ") + ", added as you play them."
+    : "Every record, CD and tape you play shows up here.";
+  if (shelfMedium && !counts[shelfMedium]) shelfMedium = "";
+  $("shelfMedia").innerHTML = kinds.length > 1 ? [["", "All"], ...kinds.map(m => [m, SHELF_MEDIA[m][0]])]
+    .map(([m, t]) => `<button class="pill${m === shelfMedium ? " on" : ""}" data-m="${m}">${t}</button>`).join("") : "";
+  drawShelf();
+}
+function drawShelf() {
+  const q = $("shelfFind").value.trim().toLowerCase();
+  let list = shelf.filter(a => (!shelfMedium || a.medium === shelfMedium) &&
+    (!q || (a.album + " " + a.artist + " " + (a.label || "")).toLowerCase().includes(q)));
+  const by = { recent: (a, b) => b.last - a.last, most: (a, b) => b.plays - a.plays || b.last - a.last,
+               artist: (a, b) => (a.artist || "").localeCompare(b.artist || "", undefined, { sensitivity: "base" }) || (a.year || "").localeCompare(b.year || ""),
+               dusty: (a, b) => a.last - b.last }[shelfSort];
+  list = list.slice().sort(by);
+  $("shelfGrid").innerHTML = !shelf.length
+    ? `<p class="muted">Nothing yet. Put a record on: once Liner Notes knows what it is, the album lands here.</p>`
+    : !list.length ? `<p class="muted">Nothing on your shelf matches that.</p>`
+    : list.map(a => `<button class="shelfItem" data-key="${esc(a.key)}">
+        <div class="cv">${a.art ? `<img src="${esc(a.art)}" alt="" loading="lazy">` : `<div class="ph">${esc((a.album || "?")[0])}</div>`}
+          ${shelfMedium ? "" : `<i class="md">${SHELF_MEDIA[a.medium][0]}</i>`}</div>
+        <b title="${esc(a.album)}">${esc(a.album)}</b><span title="${esc(a.artist)}">${esc(a.artist)}</span>
+        <small>${a.plays === 1 ? "Played once" : a.plays + " plays"} · ${shortDate(a.last)}</small></button>`).join("");
+}
+async function openShelfItem(key) {
+  const a = shelf.find(x => x.key === key); if (!a) return;
+  shelfOpen = a;
+  $("shelf").classList.add("detail"); $("shelf").scrollTop = 0;
+  $("sdArt").src = a.art || BLANK;
+  $("sdArt").style.visibility = a.art ? "visible" : "hidden";
+  $("sdInfo").innerHTML = `<h3>${esc(a.album)}</h3><p style="font-size:1.15em;margin:.3em 0 1em">${esc(a.artist)}</p>
+    <p class="muted" style="margin:.2em 0">${[SHELF_MEDIA[a.medium][0], a.year, a.label].filter(Boolean).map(esc).join(" · ")}</p>
+    <p class="muted" style="margin:.2em 0">${a.plays === 1 ? "Played once" : `Played ${a.plays} times`}, ${shortDate(a.first) === shortDate(a.last) ? "on " + shortDate(a.last) : `first on ${shortDate(a.first)}, last on ${shortDate(a.last)}`}</p>
+    <div class="row" style="margin-top:1.4em"><button class="pill" id="sdRemove">Remove from shelf</button></div>
+    <p class="muted" style="font-size:.85em;margin-top:.8em">Remove anything you don't own, or a wrong match. It stays in your listening history.</p>`;
+  $("sdSongs").innerHTML = `<p class="muted">Loading…</p>`;
+  try {
+    const songs = (await (await fetch("/api/shelf?key=" + encodeURIComponent(key))).json()).songs || [];
+    $("sdSongs").innerHTML = `<p class="kicker" style="margin:0 0 .4em">Songs you've heard from it</p>` + songs.map((s, i) =>
+      `<button data-i="${i}"><b>${esc(s.title)}${s.artist && s.artist.toLowerCase() !== (a.artist || "").toLowerCase() ? ` <span style="font-weight:400">· ${esc(s.artist)}</span>` : ""}</b><span>${s.plays === 1 ? "once" : s.plays + "×"}</span></button>`).join("");
+    $("sdSongs").onclick = e => { const b = e.target.closest("[data-i]"); if (b) { const s = songs[+b.dataset.i]; openSong({ title: s.title, artist: s.artist, album: s.album, art: s.art || a.art }); } };
+  } catch (e) { $("sdSongs").innerHTML = ""; }
+}
+async function shelfHide(key, hide) {
+  try {
+    const r = await fetch("/api/shelf/hide", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, hide }) });
+    return r.ok;
+  } catch (e) { return false; }
+}
+$("shelfDetail").addEventListener("click", async e => {
+  if (e.target.id !== "sdRemove" || !shelfOpen) return;
+  const a = shelfOpen;
+  if (!(await shelfHide(a.key, true))) { toast("Only Liner Notes on the PC can change your shelf."); return; }
+  loadShelf();
+  toast(`Removed ${a.album}.`, { label: "Undo", fn: async () => { await shelfHide(a.key, false); loadShelf(); } });
+});
+$("sdBack").addEventListener("click", () => { $("shelf").classList.remove("detail"); });
+$("shelfGrid").addEventListener("click", e => { const b = e.target.closest("[data-key]"); if (b) openShelfItem(b.dataset.key); });
+$("shelfMedia").addEventListener("click", e => { const b = e.target.closest("[data-m]"); if (!b) return; shelfMedium = b.dataset.m;
+  document.querySelectorAll("#shelfMedia .pill").forEach(x => x.classList.toggle("on", x === b)); drawShelf(); });
+$("shelfSort").addEventListener("click", e => { const b = e.target.closest("[data-sort]"); if (!b) return; shelfSort = b.dataset.sort;
+  document.querySelectorAll("#shelfSort .pill").forEach(x => x.classList.toggle("on", x === b)); drawShelf(); });
+$("shelfFind").addEventListener("input", drawShelf);
+$("tb-shelf").addEventListener("click", e => { e.stopPropagation(); openPanel("shelf"); loadShelf(); });
 $("tb-settings").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
 
 // ---------------------------------------------------------------- phone microphone

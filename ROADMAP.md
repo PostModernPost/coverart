@@ -4,7 +4,7 @@
 - Shows near you: upcoming concerts for the artist on screen
 
 ## Future features
-- Your shelf: every record you've played as a collection; Discogs collection sync, marketplace value, records not played in a while
+- Your shelf, next steps: Discogs collection sync (records you own but haven't played yet), marketplace value, add a record by hand
 - End-of-side chime on the PC
 - On this day: "a year ago today you played..." notes on the between-records screen
 - Smart lights that take on the album cover's colors (Philips Hue and similar)

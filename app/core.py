@@ -1197,6 +1197,7 @@ class RecordSession:
         side, n, count = self.side_info(self.idx)
         artist = t["artist"] if (self.various or t["artist"]) else self.artist
         return {"id": make_id(artist, t["title"]), "title": t["title"], "artist": artist, "album": self.title,
+                "album_artist": self.artist,
                 "art": self.cover, "source": "record", "medium": self.medium,
                 "app": (f"Track {n} of {count}" if self.medium == "cd" or not side.isalpha() else f"Side {side} · {n} of {count}"),
                 "status": "playing",
@@ -1867,6 +1868,9 @@ class History:
                 tid TEXT PRIMARY KEY, ts REAL NOT NULL, title TEXT, artist TEXT, album TEXT, year TEXT,
                 label TEXT, genre TEXT, art TEXT, source TEXT, spotify_uri TEXT)""")
             db.execute("CREATE TABLE IF NOT EXISTS song_cache (key TEXT PRIMARY KEY, ts REAL NOT NULL, data TEXT)")
+            db.execute("CREATE TABLE IF NOT EXISTS shelf_hidden (key TEXT PRIMARY KEY, ts REAL NOT NULL)")
+            if "album_artist" not in {r[1] for r in db.execute("PRAGMA table_info(plays)")}:
+                db.execute("ALTER TABLE plays ADD COLUMN album_artist TEXT")   # the record's artist (Various Artists on a compilation)
         self.saved_ids = self._saved_ids()
 
     def _saved_ids(self):
@@ -1933,6 +1937,75 @@ class History:
             total += min(secs, 1800)                # nothing on a record runs longer than a side
         return total
 
+    # ---- your shelf: every album heard on a record, CD or tape
+    SHELF_MEDIA = ("vinyl", "cd", "cassette", "other")
+
+    @staticmethod
+    def shelf_key(medium, album, artist):
+        """Same record, however each source spells it: 'Rumours (2004 Remaster)' and 'Rumours' match."""
+        a = re.sub(r"\s*[\(\[][^)\]]*[\)\]]", "", album or "")
+        a = re.sub(r"\s+-\s+(deluxe|expanded|remaster(ed)?|anniversary|special).*$", "", a, flags=re.I)
+        art = re.sub(r"^the\s+", "", (artist or "").strip(), flags=re.I)
+        return f"{(medium or '').lower()}|{norm(a) or norm(album)}|{norm(art)}"
+
+    def _shelf_rows(self):
+        with self._db() as db:
+            db.row_factory = sqlite3.Row
+            rows = [dict(r) for r in db.execute(
+                f"SELECT ts, title, artist, album, album_artist, source, art, year, label FROM plays "
+                f"WHERE source IN ({','.join('?' * len(self.SHELF_MEDIA))}) AND album IS NOT NULL AND trim(album)!='' "
+                f"ORDER BY ts", self.SHELF_MEDIA)]
+            hidden = {r[0] for r in db.execute("SELECT key FROM shelf_hidden")}
+        for r in rows:
+            r["key"] = self.shelf_key(r["source"], r["album"], r["album_artist"] or r["artist"])
+        return rows, hidden
+
+    def shelf(self):
+        rows, hidden = self._shelf_rows()
+        out = {}
+        for r in rows:
+            if r["key"] in hidden:
+                continue
+            a = out.get(r["key"])
+            if not a:
+                a = out[r["key"]] = {"key": r["key"], "medium": r["source"], "album": r["album"],
+                                     "artist": r["album_artist"] or r["artist"], "plays": 0, "first": r["ts"],
+                                     "art": None, "year": None, "label": None, "_songs": set()}
+            a["plays"] += 1
+            a["last"] = r["ts"]
+            a["_songs"].add(norm(r["title"]))
+            if r["album_artist"]:                         # a record followed from its tracklist: its own names win
+                a["artist"], a["album"], a["_named"] = r["album_artist"], r["album"], True
+            elif not a.get("_named") and len(r["album"]) < len(a["album"]):
+                a["album"] = r["album"]                   # 'Rumours' over 'Rumours (2004 Remaster)'
+            for k in ("art", "year", "label"):
+                a[k] = r[k] or a[k]                       # the most recent known value
+        albums = sorted(out.values(), key=lambda a: -a["last"])
+        for a in albums:
+            a["songs"] = len(a.pop("_songs"))
+            a.pop("_named", None)
+        return albums
+
+    def shelf_songs(self, key):
+        rows, _ = self._shelf_rows()
+        songs = {}
+        for r in rows:
+            if r["key"] != key:
+                continue
+            k = norm(r["title"]) + "|" + norm(r["artist"])
+            s = songs.setdefault(k, {"title": r["title"], "artist": r["artist"], "album": r["album"], "art": r["art"], "plays": 0})
+            s["plays"] += 1
+            s["last"] = r["ts"]
+            s["art"] = r["art"] or s["art"]
+        return list(songs.values())
+
+    def shelf_hide(self, key, hide=True):
+        with self._db() as db:
+            if hide:
+                db.execute("INSERT OR REPLACE INTO shelf_hidden (key, ts) VALUES (?, ?)", (key, time.time()))
+            else:
+                db.execute("DELETE FROM shelf_hidden WHERE key=?", (key,))
+
     # ---- song pages saved on this PC, so they open instantly (and offline) the next time
     def cache_get(self, key, max_age_days=30):
         with self._db() as db:
@@ -1977,11 +2050,11 @@ class History:
         if art and art.startswith("/api/art/"):
             art = None                  # Windows thumbnails aren't kept, so don't store a dead link
         with self._db() as db:
-            db.execute("INSERT INTO plays (ts,title,artist,album,year,label,genre,source,art,duration_ms) "
-                       "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO plays (ts,title,artist,album,year,label,genre,source,art,duration_ms,album_artist) "
+                       "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                        (time.time(), t.get("title"), t.get("artist"), t.get("album"), t.get("year"),
                         t.get("label"), t.get("genre"), (t.get("medium") or "room") if t.get("source") in ROOM_SOURCES
-                        else (t.get("app") or "PC"), art, t.get("duration_ms")))
+                        else (t.get("app") or "PC"), art, t.get("duration_ms"), t.get("album_artist")))
 
     def stats(self, days):
         since = time.time() - days * 86400 if days else 0
@@ -2656,6 +2729,21 @@ async def api_stylus(request):
                 ch["stylus_snooze_hours"] = 0
                 save_cfg(**ch)
     return web.json_response(await asyncio.to_thread(stylus_status, db))
+
+
+async def api_shelf(request):
+    db = request.app["state"].db
+    if request.query.get("key"):
+        return web.json_response({"songs": await asyncio.to_thread(db.shelf_songs, request.query["key"])})
+    return web.json_response({"albums": await asyncio.to_thread(db.shelf)})
+
+
+async def api_shelf_hide(request):
+    body = await request.json()
+    if not body.get("key"):
+        return web.json_response({"ok": False}, status=400)
+    await asyncio.to_thread(request.app["state"].db.shelf_hide, body["key"], body.get("hide", True))
+    return web.json_response({"ok": True})
 
 
 async def api_saved(request):
@@ -3394,7 +3482,7 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/", "/api/stylus")
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/", "/api/stylus", "/api/shelf/hide")
 
 
 @web.middleware
@@ -3648,6 +3736,8 @@ def build_app(demo=False):
     app.router.add_post("/api/song", api_song)
     app.router.add_post("/api/medium", api_medium)
     app.router.add_get("/api/stylus", api_stylus)
+    app.router.add_get("/api/shelf", api_shelf)
+    app.router.add_post("/api/shelf/hide", api_shelf_hide)
     app.router.add_post("/api/stylus", api_stylus)
     app.router.add_get("/api/recap", api_recap)
     app.router.add_get("/api/recap.png", api_recap_png)

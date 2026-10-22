@@ -1,1 +1,4 @@
-- Settings > Microphone > Listen with: pick which microphone hears your records (Windows default, the phone's mic, a webcam, a USB input or line-in). Liner Notes restarts to switch. The tray's Microphone menu still works too.
+- Your shelf: a new button in the toolbar shows every record, CD and tape you've played, added automatically the first time Liner Notes knows what's playing. Radio and apps on the PC don't count.
+- Filter by vinyl, CD or tape; sort by recently played, most played, artist, or not played lately; search by album, artist or label.
+- Tap an album to see when you first and last played it, how many times, and the songs you've heard from it (tap a song for its page). Remove anything you don't own or that was matched wrong, with Undo. It stays in your listening history.
+- Compilations followed from their tracklist (like Vinyl Moon) stay together as one album, and "Rumours" and "Rumours (2004 Remaster)" count as the same record.
