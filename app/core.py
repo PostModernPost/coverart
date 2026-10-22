@@ -330,7 +330,7 @@ def main_artist(artist):
 
 async def _lrclib(http, params):
     async with http.get("https://lrclib.net/api/search?" + urllib.parse.urlencode(params),
-                        headers={"User-Agent": "LinerNotes/1.0 +https://github.com/PostModernPost/coverart"}) as r:
+                        headers={"User-Agent": "LinerNotes/1.0 +https://github.com/PostModernPost/linernotes"}) as r:
         return (await r.json(content_type=None)) or []
 
 
@@ -666,7 +666,7 @@ def estimate_bpm(samples, sr):
 # so it's asked first. Streaming copyright lines describe today's reissue ("Warner Records Inc.
 # Manufactured and Marketed by Rhino...").
 MB = "https://musicbrainz.org/ws/2"
-MB_HEADERS = {"User-Agent": "LinerNotes/0.8 ( https://github.com/PostModernPost/coverart )", "Accept": "application/json"}
+MB_HEADERS = {"User-Agent": "LinerNotes/0.8 ( https://github.com/PostModernPost/linernotes )", "Accept": "application/json"}
 _mb_lock = None
 _mb_last = 0.0
 
@@ -790,7 +790,7 @@ except Exception:
 
 
 def discogs_headers():
-    h = {"User-Agent": "LinerNotes/1.0 +https://github.com/PostModernPost/coverart"}
+    h = {"User-Agent": "LinerNotes/1.0 +https://github.com/PostModernPost/linernotes"}
     token = (CFG.get("discogs_token") or "").strip()
     if token:
         h["Authorization"] = f"Discogs token={token}"
@@ -1736,7 +1736,7 @@ try:
     from _version import VERSION
 except Exception:
     VERSION = "dev"
-RELEASES_API = "https://api.github.com/repos/PostModernPost/coverart/releases/latest"
+RELEASES_API = "https://api.github.com/repos/PostModernPost/linernotes/releases/latest"
 
 
 def version_tuple(v):
