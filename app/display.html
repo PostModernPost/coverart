@@ -110,6 +110,45 @@
     color: var(--dim); font-size: calc(var(--ts) * clamp(14px, 3.5vmin, 30px)); gap: 3vmin; }
   #idle .record { width: 30vmin; height: 30vmin; animation-duration: 20s; opacity: .5; }
 
+  /* ---------- between records ---------- */
+  #idleShow { position: fixed; inset: 0; display: none; z-index: 1; }
+  #idle.show #idleShow { display: block; }
+  #idle.show > .record, #idle.show > #idleText { display: none; }
+  #idleStatus { position: fixed; left: 50%; bottom: 4vmin; transform: translateX(-50%); z-index: 3; display: none;
+    background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.14); border-radius: 99px; padding: .5em 1.2em; color: var(--fg);
+    font-size: calc(var(--ts) * clamp(12px, 2.4vmin, 18px)); white-space: nowrap; }
+  #idle.show #idleStatus.on { display: block; }
+  #jp, #slides { position: absolute; inset: 0; transition: opacity 2.5s ease; }
+  #jp { display: flex; align-items: center; justify-content: center; gap: 6vmin; padding: 6vmin 7vmin; box-sizing: border-box; }
+  #jp.off, #slides.off { opacity: 0; pointer-events: none; }
+  #jpArt.record { border-radius: 50%; }
+  #jpArt { height: min(74vh, 46vw); aspect-ratio: 1; object-fit: cover; border-radius: 6px; box-shadow: 0 20px 60px rgba(0,0,0,.6); flex: none; background: #1a1a1d; }
+  #jpSide { min-width: 0; max-width: 46vw; color: var(--fg); }
+  #jpSide .kicker { font-size: calc(var(--ts) * clamp(10px, 1.8vmin, 14px)); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin: 0 0 .8em; }
+  #jpAlbum { font-size: calc(var(--ts) * clamp(18px, 4.6vmin, 46px)); font-weight: 650; line-height: 1.1; margin: 0; }
+  #jpArtist { font-size: calc(var(--ts) * clamp(14px, 3.2vmin, 30px)); margin: .25em 0 0; opacity: .9; }
+  #jpWhen { font-size: calc(var(--ts) * clamp(11px, 2.1vmin, 17px)); color: var(--dim); margin: .5em 0 0; }
+  #jpRecent { display: flex; gap: 1.4vmin; margin-top: 4vmin; flex-wrap: wrap; }
+  #jpRecent img { width: calc(var(--ts) * clamp(38px, 7vmin, 72px)); aspect-ratio: 1; object-fit: cover; border-radius: 4px; opacity: .85; background: #1a1a1d; }
+  #jpSaved { margin-top: 3.5vmin; }
+  #jpSaved div { font-size: calc(var(--ts) * clamp(11px, 2.1vmin, 17px)); color: var(--dim); margin: .25em 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #jpSaved div b { color: var(--fg); font-weight: 600; }
+  #jpSaved div i { color: #e8556d; font-style: normal; margin-right: .4em; }
+  @media (max-aspect-ratio: 7/5) {
+    #jp { flex-direction: column; gap: 3vmin; text-align: center; }
+    #jpArt { height: auto; width: min(64vw, 46vh); }
+    #jpSide { max-width: 90vw; } #jpRecent { justify-content: center; } }
+  #slides .bgl { position: absolute; inset: -8%; background-size: cover; background-position: center; filter: blur(60px) brightness(.4) saturate(1.2);
+    transition: opacity 3s ease; }
+  #slides .sl { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.4vmin;
+    transition: opacity 3s ease; }
+  #slides .sl img { height: min(72vh, 80vw); aspect-ratio: 1; object-fit: cover; border-radius: 6px; box-shadow: 0 24px 70px rgba(0,0,0,.65);
+    animation: drift 16s ease-in-out both; }
+  #slides .sl .cap { color: var(--dim); font-size: calc(var(--ts) * clamp(11px, 2.2vmin, 18px)); text-align: center; max-width: 80vw; }
+  #slides .sl .cap b { color: var(--fg); font-weight: 600; }
+  #slides .hide { opacity: 0; }
+  @keyframes drift { from { transform: scale(1) translateY(.6vmin); } to { transform: scale(1.045) translateY(-.6vmin); } }
+
   /* ---------- toolbar ---------- */
   #toolbar { position: fixed; top: max(1.5vmin, env(safe-area-inset-top)); right: 2vmin; display: flex; gap: 1vmin; z-index: 5; }
   #toolbar button { background: rgba(0,0,0,.25); border: 0; border-radius: 50%; width: clamp(34px, 7vmin, 48px);
@@ -305,7 +344,14 @@
   </div>
 </div>
 
-<div id="idle"><div class="record"></div><div id="idleText">Nothing playing</div></div>
+<div id="idle"><div class="record"></div><div id="idleText">Nothing playing</div>
+  <div id="idleShow">
+    <div id="jp" class="off"><img id="jpArt" alt=""><div id="jpSide"><p class="kicker">Just played</p><p id="jpAlbum" class="clamp"></p>
+      <p id="jpArtist" class="clamp"></p><p id="jpWhen"></p><div id="jpRecent"></div><div id="jpSaved"></div></div></div>
+    <div id="slides" class="off"><div class="bgl"></div><div class="bgl hide"></div><div class="sl hide"></div><div class="sl hide"></div></div>
+  </div>
+  <div id="idleStatus"></div>
+</div>
 
 <div id="toolbar">
   <button id="lyricsBtn" title="Lyrics" aria-label="Lyrics">
@@ -474,6 +520,7 @@
   <div class="setting" data-key="showLabel"><div>Record label</div><div class="switch"></div></div>
   <div class="setting" data-key="showGenre"><div>Genre</div><div class="switch"></div></div>
   <div class="setting" data-key="showProgress"><div>Song length and position<small>Exact for Spotify and other apps on this PC, and for records Shazam recognizes. Songs known only from a record's tracklist are estimated (~).</small></div><div class="switch"></div></div>
+  <div class="setting" data-key="idleShow"><div>Between records<small>When nothing is playing, show the album you just played and your recent records, then a slow slideshow of album covers from your history. Off shows a spinning record.</small></div><div class="switch"></div></div>
   <div class="setting" data-key="showBpm"><div>BPM<small>Tempo of the song, when it can be found. ≈ means estimated from the sound.</small></div><div class="switch"></div></div>
   <div class="setting" id="fsSetting">
     <div>Fullscreen<small id="fsHint">Hides the browser's bars until you leave the page.</small></div><div class="switch"></div></div>
@@ -531,7 +578,7 @@ function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","
 
 // ---------------------------------------------------------------- settings (per screen)
 const SETTINGS_DEFAULT = { lyricsBeside: false, textSize: "1.6", showYear: true, showLabel: true, showGenre: true,
-                           showProgress: true, showBpm: false };
+                           showProgress: true, showBpm: false, idleShow: true };
 let settings = { ...SETTINGS_DEFAULT };
 try { Object.assign(settings, JSON.parse(localStorage.getItem("coverart-settings") || "{}")); } catch (e) {}
 if (settings.showDetails === false) {          // older single switch
@@ -558,6 +605,7 @@ document.querySelectorAll("#textSize [data-ts]").forEach(b => b.addEventListener
 addEventListener("resize", () => document.documentElement.style.setProperty("--ts", textScale()));
 document.querySelectorAll(".setting[data-key]").forEach(el => el.addEventListener("click", () => {
   settings[el.dataset.key] = !settings[el.dataset.key]; saveSettings(); applySettings();
+  if (el.dataset.key === "idleShow") { idleOn = null; syncIdle(); }
 }));
 const standalone = matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches;
 if ((standalone || !document.fullscreenEnabled) && !new URLSearchParams(location.search).has("window")) {
@@ -581,6 +629,7 @@ function render(t, keepArt) {
   current = t;
   const idle = !t;
   $("idle").style.display = idle ? "flex" : "none";
+  syncIdle();
   $("stage").style.display = idle ? "none" : "flex";
   $("bg").style.opacity = idle ? 0 : 1;
   if (idle) { closePanel("info"); document.body.classList.remove("lyrics-show"); lyr = { id: null }; return; }
@@ -849,6 +898,87 @@ function updateIdleText() {
   if (!current && active) msg = "Hearing music, figuring out what it is…";
   else if (record && record.side_done) msg = record.next_side ? `Side ${record.done_side} is done · flip to side ${record.next_side}` : `That's the end of ${record.title}`;
   $("idleText").textContent = msg;
+  $("idleStatus").textContent = msg;
+  $("idleStatus").classList.toggle("on", msg !== "Nothing playing");
+  syncIdle();
+}
+
+// ---------------------------------------------------------------- between records
+// Nothing playing: the album that just finished plus recent records for a few minutes, then a slow
+// slideshow of covers from the listening history. While the mic is working out a song, the spinning record shows instead.
+const JP_MINUTES = 3, SLIDE_SECONDS = 14;
+let idleOn = false, idleData = null, idleSince = 0, idleTimer = null, slideTimer = null, slideOrder = [], slideIdx = 0, slideFlip = 0;
+function agoText(ts) {
+  const m = Math.round((Date.now() / 1000 - ts) / 60);
+  if (m < 1) return "Just now";
+  if (m < 60) return `Finished ${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `Played ${h} hr ago`;
+  return "Played " + new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function syncIdle() {
+  const want = !current && settings.idleShow !== false && !lastListenActive;
+  if (want === idleOn) return;
+  idleOn = want;
+  $("idle").classList.toggle("show", false);
+  clearInterval(idleTimer); clearInterval(slideTimer); idleTimer = slideTimer = null;
+  if (!want) { $("jp").classList.add("off"); $("slides").classList.add("off"); return; }
+  idleSince = Date.now();
+  fetch("/api/idle").then(r => r.json()).then(d => {
+    if (!idleOn) return;
+    idleData = d;
+    if (!d.last && !d.covers.length) return;                 // nothing in the history yet: keep the spinning record
+    $("idle").classList.add("show");
+    showJustPlayed();
+    idleTimer = setInterval(idleTick, 15000);
+    idleTick();
+  }).catch(() => {});
+}
+function showJustPlayed() {
+  const d = idleData, l = d.last;
+  if (!l) return;
+  const same = c => (c.album || "").toLowerCase() === (l.album || "").toLowerCase() && (c.artist || "").toLowerCase() === (l.artist || "").toLowerCase();
+  const lastArt = l.art || (d.covers.find(same) || {}).art || "";
+  $("jpArt").src = lastArt || BLANK;
+  $("jpArt").classList.toggle("record", !lastArt);
+  $("jpAlbum").textContent = l.album || l.title || "";
+  $("jpArtist").textContent = l.artist || "";
+  $("jpWhen").textContent = agoText(l.ts) + (l.source === "vinyl" ? " · on the turntable" : "");
+  $("jpRecent").innerHTML = d.recent.slice(0, 6).map(r => `<img src="${esc(r.art)}" alt="" title="${esc(r.album + " · " + r.artist)}" loading="lazy">`).join("");
+  $("jpSaved").innerHTML = d.saved.length ? `<p class="kicker" style="margin:0 0 .5em">Saved lately</p>` +
+    d.saved.slice(0, 3).map(x => `<div><i>♥</i><b>${esc(x.title)}</b> · ${esc(x.artist)}</div>`).join("") : "";
+}
+function idleTick() {
+  if (!idleOn || !idleData) return;
+  const l = idleData.last;
+  // the "just played" card for a few minutes after a record ends (or right away if it ended long ago)
+  const fresh = l && (Date.now() - idleSince < JP_MINUTES * 60000);
+  if (l) $("jpWhen").textContent = agoText(l.ts) + (l.source === "vinyl" ? " · on the turntable" : "");
+  if (fresh || idleData.covers.length < 2) { $("jp").classList.remove("off"); $("slides").classList.add("off"); return; }
+  if (!slideTimer) startSlides();
+}
+function startSlides() {
+  const covers = idleData.covers.slice();
+  for (let i = covers.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [covers[i], covers[j]] = [covers[j], covers[i]]; }
+  slideOrder = covers; slideIdx = 0;
+  nextSlide();
+  $("jp").classList.add("off"); $("slides").classList.remove("off");
+  slideTimer = setInterval(nextSlide, SLIDE_SECONDS * 1000);
+}
+function nextSlide() {
+  if (!slideOrder.length) return;
+  const c = slideOrder[slideIdx++ % slideOrder.length];
+  const img = new Image();
+  img.onload = () => {
+    const sls = document.querySelectorAll("#slides .sl"), bgs = document.querySelectorAll("#slides .bgl");
+    const a = slideFlip, b = 1 - slideFlip; slideFlip = b;
+    sls[b].innerHTML = `<img src="${esc(c.art)}" alt=""><div class="cap"><b>${esc(c.album)}</b> · ${esc(c.artist)}${c.year ? " · " + esc(oneYear(c.year) || "") : ""}</div>`;
+    bgs[b].style.backgroundImage = `url("${c.art}")`;
+    sls[b].classList.remove("hide"); bgs[b].classList.remove("hide");
+    sls[a].classList.add("hide"); bgs[a].classList.add("hide");
+  };
+  img.onerror = () => { slideOrder.splice((slideIdx - 1) % slideOrder.length, 1); };
+  img.src = c.art;
 }
 
 // ---------------------------------------------------------------- panels

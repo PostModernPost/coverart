@@ -1626,6 +1626,22 @@ class History:
         self.saved_ids.discard(tid)
         return row[0] if row else None
 
+    def idle_data(self):
+        """What the screen shows between records: the last album, recent ones, saved songs, covers for a slideshow."""
+        with self._db() as db:
+            db.row_factory = sqlite3.Row
+            rows = lambda sql: [dict(r) for r in db.execute(sql)]
+            last = rows("SELECT ts, title, artist, album, year, label, source, art FROM plays ORDER BY ts DESC LIMIT 1")
+            recent = rows("SELECT album, artist, MAX(art) art, MAX(ts) ts, source FROM plays WHERE album IS NOT NULL AND album!='' "
+                          "AND art IS NOT NULL GROUP BY lower(album), lower(artist) ORDER BY MAX(ts) DESC LIMIT 9")
+            saved = rows("SELECT title, artist, album, art, ts FROM saved ORDER BY ts DESC LIMIT 4")
+            covers = rows("SELECT album, artist, MAX(art) art, MAX(year) year, COUNT(*) n FROM plays WHERE art IS NOT NULL "
+                          "AND album IS NOT NULL AND album!='' GROUP BY lower(album), lower(artist) ORDER BY MAX(ts) DESC LIMIT 120")
+        last = last[0] if last else None
+        if last:
+            recent = [r for r in recent if not (r["album"] or "").lower() == (last.get("album") or "").lower()][:8]
+        return {"last": last, "recent": recent, "saved": saved, "covers": covers, "now": time.time()}
+
     def saved_list(self):
         with self._db() as db:
             db.row_factory = sqlite3.Row
@@ -2152,6 +2168,10 @@ async def api_save(request):
             result = "error"
     return web.json_response({"saved": True, "spotify": result,
                               "where": "Liked Songs" if CFG.get("spotify_save_to") == "liked" else PLAYLIST_NAME})
+
+
+async def api_idle(request):
+    return web.json_response(request.app["state"].db.idle_data())
 
 
 async def api_saved(request):
@@ -2726,6 +2746,7 @@ def build_app(demo=False):
     app.router.add_post("/api/config", api_config)
     app.router.add_post("/api/save", api_save)
     app.router.add_get("/api/saved", api_saved)
+    app.router.add_get("/api/idle", api_idle)
     app.router.add_get("/api/spotify/status", api_spotify_status)
     app.router.add_get("/api/lastfm/status", api_lastfm_status)
     app.router.add_post("/api/lastfm/connect", api_lastfm_connect)
