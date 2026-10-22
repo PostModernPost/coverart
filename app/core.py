@@ -785,8 +785,10 @@ def show_record(app, rec, track):
 DISCOGS = "https://api.discogs.com"
 try:
     from _secrets import DISCOGS_KEY, DISCOGS_SECRET          # written by the build from GitHub secrets
-except Exception:
+    SECRETS_ERROR = None
+except Exception as _e:
     DISCOGS_KEY = DISCOGS_SECRET = ""
+    SECRETS_ERROR = repr(_e)
 
 
 def discogs_headers():
@@ -2613,7 +2615,15 @@ async def api_info(request):
     return web.json_response(info)
 
 
+def log_keys():
+    """Which built-in keys this copy has (never the keys themselves)."""
+    have = lambda *v: "yes" if all(v) else "no"
+    log(f"built-in keys: Discogs {have(DISCOGS_KEY, DISCOGS_SECRET)}, Spotify {have(_BUILTIN_SPOTIFY_ID)}, "
+        f"Last.fm {have(LASTFM_KEY, LASTFM_SECRET)}" + (f" (couldn't read them: {SECRETS_ERROR})" if SECRETS_ERROR else ""))
+
+
 async def on_startup(app):
+    log_keys()
     app["http"] = ClientSession(timeout=ClientTimeout(total=10))
     if app["demo"]:
         app["tasks"] = [asyncio.create_task(demo_loop(app))]

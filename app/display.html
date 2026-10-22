@@ -118,6 +118,11 @@
   #toolbar svg { width: 55%; height: 55%; stroke: var(--fg); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
   /* ---------- panels ---------- */
+  /* panels (settings, search, history...) always use normal-size text; the text size setting is for the main screen */
+  .panel, #toast { --ts: 1; }
+  .panel { font-size: clamp(14px, 2.6vmin, 18px); }
+  #spotifyBox, #lastfmBox { font-size: clamp(14px, 2.6vmin, 18px); }
+  #spotifyBox .muted, #lastfmBox .muted { font-size: .92em; }
   .panel { position: fixed; inset: 0; background: var(--panel); backdrop-filter: blur(12px); display: none; z-index: 8;
     overflow-y: auto; padding: 5vmin 6vmin 8vmin; user-select: text; cursor: default; }
   .panel.open { display: block; }
@@ -452,11 +457,11 @@
 <div id="settings" class="panel">
   <button class="close" aria-label="Close">&times;</button>
   <h2>Settings</h2>
-  <div class="sub">These apply to this screen only.</div>
+  <div class="sub">These apply to this screen only, except Spotify, Last.fm and the phone setting, which are for the whole app.</div>
   <div class="setting" data-key="lyricsBeside">
     <div>Lyrics beside the album art<small>The words scroll along with the song when timed lyrics exist. The screen then shows just the title, artist and album around the cover.</small></div><div class="switch"></div></div>
   <div class="setting" id="textSize" style="cursor:default">
-    <div>Text size<small>Auto makes words bigger on small screens like phones.</small></div>
+    <div>Text size<small>For the main screen. Auto makes words bigger on small screens like phones.</small></div>
     <div class="sizes">
       <button class="pill" data-ts="auto">Auto</button><button class="pill" data-ts="1">Normal</button>
       <button class="pill" data-ts="1.3">Large</button><button class="pill" data-ts="1.6">Extra large</button></div></div>
@@ -521,7 +526,7 @@ function oneYear(y) { const m = String(y || "").match(/\d{4}/); return m ? m[0] 
 function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 // ---------------------------------------------------------------- settings (per screen)
-const SETTINGS_DEFAULT = { lyricsBeside: false, textSize: "auto", showYear: true, showLabel: true, showGenre: true,
+const SETTINGS_DEFAULT = { lyricsBeside: false, textSize: "1.6", showYear: true, showLabel: true, showGenre: true,
                            showProgress: true, showBpm: false };
 let settings = { ...SETTINGS_DEFAULT };
 try { Object.assign(settings, JSON.parse(localStorage.getItem("coverart-settings") || "{}")); } catch (e) {}
