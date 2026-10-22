@@ -845,7 +845,9 @@ async def demo_loop(app):
 
 # ---------------------------------------------------------------- web server
 async def index(request):
-    return web.FileResponse(os.path.join(HERE, "display.html"))
+    # Never let a phone or browser keep an old copy of the page after an update
+    return web.FileResponse(os.path.join(HERE, "display.html"),
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 MANIFEST = {"id": "/", "scope": "/", "name": APP_NAME, "short_name": APP_NAME, "start_url": "/", "display": "fullscreen",

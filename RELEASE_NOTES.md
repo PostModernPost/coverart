@@ -1,2 +1,1 @@
-- Bigger, easier-to-read text on phones and other small screens
-- New Text size setting (Auto, Normal, Large, Extra large), separate for each screen
+- Phones and browsers always load the newest version of the screen after an update
