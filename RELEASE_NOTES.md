@@ -1,1 +1,1 @@
-- Saved song pages stay small: pages nobody has opened in two months are cleared out when Liner Notes starts, and the total is capped at about 40 MB.
+- Saved song pages are kept for good (no cleanup). Pages older than a month still refresh when you open them; if the refresh comes back empty, the saved page is shown instead.
