@@ -476,6 +476,28 @@ def parse_duration(d):
         return None
 
 
+async def discogs_find_record(http, first, second):
+    """Two songs heard back to back: find the record that has both, in that order.
+    Same artist -> probably their album. Different artists -> a compilation."""
+    same_artist = norm(first["artist"]) == norm(second["artist"])
+    base = {"type": "release", "per_page": 100}
+    if same_artist:
+        base["artist"] = first["artist"]
+    else:
+        base["format"] = "Compilation"
+    ra = await discogs_get(http, "/database/search", {**base, "track": first["title"]})
+    rb = await discogs_get(http, "/database/search", {**base, "track": second["title"]})
+    in_b = {r.get("id") for r in rb.get("results", [])}
+    both = [r for r in ra.get("results", []) if r.get("id") in in_b]
+    both.sort(key=lambda r: 0 if "Vinyl" in (r.get("format") or []) else 1)   # it's a turntable
+    for r in both[:4]:
+        rec = RecordSession(await discogs_get(http, f"/releases/{r['id']}"))
+        ia, ib = rec.find(first["title"], first["artist"]), rec.find(second["title"], second["artist"])
+        if ia is not None and ib is not None and ib > ia:
+            return rec, ib
+    return None, None
+
+
 class RecordSession:
     def __init__(self, rel):
         self.id = rel.get("id")
@@ -504,6 +526,7 @@ class RecordSession:
         self.side_done = False
         self.track_started = 0.0
         self.last_active = time.time()
+        self.auto = False          # True when Liner Notes worked out the record itself
 
     # ---- positions
     def last_on_side(self, i):
@@ -593,7 +616,7 @@ class RecordSession:
         return {"id": self.id, "title": self.title, "artist": self.artist, "year": self.year, "label": self.label,
                 "catno": self.catno, "cover": self.cover, "tracks": self.tracks, "idx": self.idx,
                 "side_done": self.side_done, "done_side": self.tracks[self.idx]["side"] if self.side_done else None,
-                "next_side": nxt}
+                "next_side": nxt, "auto": self.auto}
 
 
 # ---------------------------------------------------------------- turntable (mic + Shazam)
@@ -603,10 +626,22 @@ class RecordSession:
 # continuously (and identify songs), until the room has been quiet for
 # `idle_after_seconds`, then it goes back to standby.
 
+NOISE = {"floor": 0.0}      # how loud the room is with no music, learned from standby samples
+
+
+def music_cutoff():
+    """Loudness that counts as music: the configured minimum, or well above this room's usual noise."""
+    return max(CFG["silence_threshold"], NOISE["floor"] * 2.0)
+
+
+def learn_room_noise(level):
+    NOISE["floor"] = level if NOISE["floor"] == 0 else NOISE["floor"] * 0.8 + level * 0.2
+
+
 class AudioBuffer:
     """The last ~14 seconds of mic audio, plus loudness bookkeeping."""
 
-    BLOCK = 0.05          # seconds per loudness measurement
+    BLOCK = 0.02          # seconds per loudness measurement (short, so gaps between key clicks show)
 
     def __init__(self, sr):
         import numpy as np
@@ -617,6 +652,7 @@ class AudioBuffer:
         self.samples = 0
         self.lock = threading.Lock()
         self.recent = collections.deque(maxlen=int(8 / self.BLOCK))   # loudness over the last 8 s
+        self.short = collections.deque(maxlen=int(2 / self.BLOCK))    # loudness over the last 2 s
         self.reset()
 
     def reset(self):
@@ -624,6 +660,8 @@ class AudioBuffer:
             self.chunks.clear()
             self.samples = 0
         self.recent.clear()
+        self.short.clear()
+        self.last_music = 0.0     # last moment the sound was sustained like music (typing isn't)
         self.quiet_for = 0.0
         self.sound_for = 0.0
         self.gap_seen = False
@@ -649,9 +687,13 @@ class AudioBuffer:
 
     def _block(self, rms, dur):
         self.level = rms
-        typical = float(self.np.median(self.recent)) if len(self.recent) >= 40 else None
+        typical = float(self.np.median(self.recent)) if len(self.recent) >= 100 else None
         self.recent.append(rms)
-        thr = CFG["silence_threshold"]
+        self.short.append(rms)
+        thr = music_cutoff()
+        # Music keeps the room loud nearly all the time; typing, knocks and voices come in bursts.
+        if len(self.short) >= 25 and sorted(self.short)[len(self.short) // 5] >= thr:
+            self.last_music = time.time()
         # A gap between songs = clearly quieter than the music around it (room noise never reads zero)
         quiet = rms < thr or (typical is not None and rms < typical * CFG["gap_ratio"])
         if quiet:
@@ -699,13 +741,14 @@ def to_wav(data, sr):
 
 
 def music_level(data, sr):
-    """Typical loudness of a sample (median of short blocks, so one click or cough doesn't count)."""
+    """How loud a sample stays: the level 80% of it is above. Music stays loud; clicks, taps and
+    typing are short spikes with quiet between them, so they score low."""
     np = __import__("numpy")
-    step = max(1, int(sr * 0.05))
+    step = max(1, int(sr * 0.02))
     blocks = [data[i:i + step] for i in range(0, len(data) - step + 1, step)]
     if not blocks:
         return 0.0
-    return float(np.median([np.sqrt(np.mean(b * b)) for b in blocks]))
+    return float(np.percentile([np.sqrt(np.mean(b * b)) for b in blocks], 20))
 
 
 class PcMic:
@@ -862,6 +905,28 @@ async def _turntable_inner(app, mic, shz):
     misses = 0
     not_before = 0.0          # Shazam asked us to wait, or we're backing off after misses
     rec_gaps = 0              # gaps already used to move along the tracklist
+    active_since = 0.0
+    heard = []                # recent songs Shazam recognized on the turntable (no record loaded)
+
+    async def work_out_record(first, second):
+        """Runs in the background so listening isn't held up by Discogs."""
+        try:
+            found, idx = await discogs_find_record(app["http"], first, second)
+        except Exception as e:
+            log("record lookup failed:", repr(e))
+            return
+        if not found or app.get("record"):
+            if not found:
+                log(f"no single record has both '{first['title']}' and '{second['title']}'")
+            return
+        found.auto = True
+        app["record"] = found
+        log(f"worked out the record: {found.artist} - {found.title} (now {found.tracks[idx]['pos']})")
+        cur = st.track
+        if cur and cur.get("source") == "turntable" and norm(cur.get("title")) == norm(second["title"]):
+            st.show(found.set_index(idx))
+        else:
+            found.set_index(idx)
     set_mode(app, mic, "standby")
 
     while True:
@@ -904,14 +969,18 @@ async def _turntable_inner(app, mic, shz):
                     samples.append(mic.probes.popleft())
             for data in samples:
                 level = music_level(data, mic.sr)
-                if level >= CFG["silence_threshold"]:
+                if level < music_cutoff():
+                    learn_room_noise(level)
+                    continue
+                if level >= music_cutoff():
                     L.reset()
                     L.feed(data)
                     last_try = 0.0
                     misses = 0
                     last_level_log = now
-                    log(f"sample level {level:.4f}")
+                    log(f"sample level {level:.4f} (music cutoff {music_cutoff():.4f})")
                     set_mode(app, mic, "active")
+                    active_since = now
                     if rec and rec.tracks:
                         rec_gaps = L.gap_count
                         st.show(rec.on_music_start())
@@ -928,9 +997,9 @@ async def _turntable_inner(app, mic, shz):
             s = L.stats()
             if s:
                 log(f"mic level: quiet {s[0]:.4f}, typical {s[1]:.4f}, loud {s[2]:.4f} "
-                    f"(music cutoff {CFG['silence_threshold']})")
+                    f"(music cutoff {music_cutoff():.4f}, room {NOISE['floor']:.4f})")
 
-        if now - L.last_sound > CFG["idle_after_seconds"]:
+        if now - max(L.last_music, active_since) > CFG["idle_after_seconds"]:
             if rec:
                 rec.on_stop()
                 if rec.side_done:
@@ -983,6 +1052,9 @@ async def _turntable_inner(app, mic, shz):
             res = None
 
         on_record = rec.find(res["title"], res["artist"]) if (rec and res and res.get("title")) else None
+        if rec and rec.auto and res and res.get("title") and on_record is None:
+            log(f"'{res['title']}' isn't on {rec.title}: dropping that guess")
+            app["record"] = rec = None
         if on_record is not None:
             misses = 0
             if rec.idx != on_record:
@@ -992,6 +1064,11 @@ async def _turntable_inner(app, mic, shz):
         if res and res.get("title"):
             misses = 0
             tid = make_id(res["artist"], res["title"])
+            # Two different songs in a row with no record chosen: work out which record this is
+            if not rec and discogs_ready() and (not heard or norm(heard[-1]["title"]) != norm(res["title"])):
+                if heard and now - heard[-1]["at"] < 20 * 60:
+                    asyncio.create_task(work_out_record(heard[-1], {"title": res["title"], "artist": res["artist"]}))
+                heard = [{"title": res["title"], "artist": res["artist"], "at": now}]
             if not (t and t.get("id") == tid):
                 info = await itunes_lookup(app["http"], res["artist"], res["title"]) or {}
                 album = res["album"] or info.get("album")

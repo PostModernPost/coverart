@@ -254,6 +254,7 @@
     <div class="recHead"><img id="recCover" alt="">
       <div><h2 id="recTitle"></h2><div class="sub" id="recSub"></div>
         <div class="row"><button class="pill" id="recChange">Change record</button><button class="pill" id="recDone">Done with this record</button></div></div></div>
+    <p class="muted" id="recAuto" style="display:none">Liner Notes worked this out from the last two songs. Not the right record? Tap Change record.</p>
     <p class="muted">Tap the song that's playing if Liner Notes is on the wrong one, or to tell it which side you started on.</p>
     <div id="recTracks"></div>
   </div>
@@ -431,6 +432,7 @@ function renderRecords() {
   $("recForm").style.display = discogsReady ? "flex" : "none";
   $("scanBtn").style.display = "BarcodeDetector" in window ? "inline-block" : "none";
   if (!loaded) return;
+  $("recAuto").style.display = record.auto ? "block" : "none";
   $("recCover").src = record.cover || BLANK;
   $("recTitle").textContent = record.title;
   $("recSub").textContent = [record.artist, record.label, record.catno, record.year].filter(Boolean).join(" · ");

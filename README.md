@@ -13,7 +13,7 @@ Also:
 
 - **Details**: year, record label and genre under the album name.
 - **Lyrics beside the art** (a setting, per screen).
-- **Record mode**: tell Liner Notes which record is on the turntable (search Discogs, or scan the barcode with the phone). It follows the tracklist song by song, shows "Side A · 2 of 5", fills in songs Shazam doesn't know, and reminds you to flip the record.
+- **Record mode**: tell Liner Notes which record is on the turntable (search Discogs, or scan the barcode with the phone), or let it work the record out after it recognizes two songs in a row. It follows the tracklist song by song, shows "Side A · 2 of 5", fills in songs Shazam doesn't know, and reminds you to flip the record.
 - **Search**: when a record can't be identified (small indie releases often aren't in Shazam), tap "Search for it", type what's on the sleeve, and pick the right song.
 - **Listening history and stats**: top artists, albums and songs, records vs Spotify, songs per day, recently played. Stored on your PC in `%APPDATA%\Liner Notes\history.db`.
 
