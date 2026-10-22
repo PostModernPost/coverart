@@ -98,7 +98,7 @@ def selftest():
     failures = []
     for mod in ("aiohttp", "numpy", "sounddevice", "shazamio", "pystray", "PIL",
                 "winrt.windows.media.control", "winrt.windows.storage.streams", "core",
-                "webview", "clr", "webview.platforms.edgechromium"):
+                "webview", "clr", "webview.platforms.edgechromium", "qrcode", "qrcode.image.svg"):
         try:
             __import__(mod)
         except Exception as e:

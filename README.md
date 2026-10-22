@@ -33,9 +33,11 @@ Windows may warn that the installer is from an unknown publisher (it isn't code-
 - Webcam and headset mics often have noise cancelling that filters music out as "background noise". Turn it off for the mic you use, or use the phone's mic (below).
 - Settings and the log live in `%APPDATA%\Liner Notes`.
 
-## Using an Android phone as the screen and mic
+## Using a phone as the screen (and mic)
 
 Open Settings (gear icon) > **Use a phone as a second screen**, or right-click the tray icon > **Use a phone as a screen…**. The guide walks through it and checks each step off as it happens: getting the phone ready (USB debugging), installing Google's Android connector with one click, plugging in, opening Liner Notes on the phone, and optionally listening with the phone's microphone.
+
+iPhones connect over Wi-Fi instead (the guide's iPhone tab): turn on sharing, scan the QR code, Add to Home Screen. The iPhone is the screen only; listening stays on the PC's mic. While sharing is on, other devices on your network can view the screen and search, but can't change settings, install updates or use the phone tools.
 
 ## Discogs key (record mode)
 

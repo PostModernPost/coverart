@@ -74,6 +74,7 @@ jobs:
           --collect-all _sounddevice_data
           --collect-all webview
           --hidden-import clr
+          --collect-submodules qrcode
           app/main.py
 
       - name: Self-test (every bundled part loads)

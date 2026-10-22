@@ -1556,7 +1556,10 @@ async def api_phone_status(request):
         "install_error": app.get("tools_error"), "devices": devices,
         "page_open": time.time() - app.get("last_phone_poll", 0) < 6,
         "mic_is_phone": str(CFG.get("audio_device")).lower() == "phone",
-        "port": CFG["port"]})
+        "port": CFG["port"],
+        "wifi": bool(CFG.get("allow_other_devices")), "wifi_address": lan_address(),
+        "wifi_open": time.time() - app.get("last_wifi_poll", 0) < 6,
+        "wifi_iphone": "iPhone" in app.get("last_wifi_agent", "") or "iPad" in app.get("last_wifi_agent", "")})
 
 
 async def api_phone_install(request):
@@ -1593,6 +1596,57 @@ async def api_phone_use_mic(request):
     if fn:
         asyncio.get_running_loop().call_later(0.5, fn)
     return web.json_response({"ok": True, "restarting": bool(fn)})
+
+
+# ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
+# Requests from other devices may show the screen and use search; anything that changes this PC
+# (updates, settings, phone tools, the window) only answers requests from this PC itself.
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi")
+
+
+@web.middleware
+async def local_only_guard(request, handler):
+    if request.remote not in ("127.0.0.1", "::1") and request.path.startswith(LOCAL_ONLY):
+        return web.json_response({"error": "Only Liner Notes on this PC can do that."}, status=403)
+    if request.remote not in ("127.0.0.1", "::1") and request.path == "/api/now":
+        request.app["last_wifi_poll"] = time.time()
+        request.app["last_wifi_agent"] = request.headers.get("User-Agent", "")
+    return await handler(request)
+
+
+def save_config_value(key, value):
+    cfg = {}
+    if os.path.exists(cfg_path):
+        try:
+            with open(cfg_path, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            cfg = {}
+    cfg[key] = CFG[key] = value
+    with open(cfg_path, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+
+
+async def api_share_wifi(request):
+    """Turn Wi-Fi sharing on or off. The server has to restart to start or stop listening on the network."""
+    body = await request.json()
+    save_config_value("allow_other_devices", bool(body.get("on")))
+    fn = request.app.get("on_restart")
+    if fn:
+        asyncio.get_running_loop().call_later(0.5, fn)
+    return web.json_response({"ok": True, "restarting": bool(fn)})
+
+
+async def api_qr(request):
+    """QR code (SVG) for the Wi-Fi address, so a phone camera can open it."""
+    import qrcode
+    import qrcode.image.svg
+    ip = lan_address()
+    if not ip:
+        raise web.HTTPNotFound()
+    img = qrcode.make(f"http://{ip}:{CFG['port']}", image_factory=qrcode.image.svg.SvgPathImage, box_size=10, border=2)
+    return web.Response(text=img.to_string(encoding="unicode"), content_type="image/svg+xml",
+                        headers={"Cache-Control": "no-store"})
 
 
 def mic_info(app):
@@ -1679,7 +1733,7 @@ async def on_cleanup(app):
 
 
 def build_app(demo=False):
-    app = web.Application()
+    app = web.Application(middlewares=[local_only_guard])
     app["state"] = State()
     app["state"].db = History(os.path.join(DATA_DIR, "history.db"))
     app["demo"] = demo
@@ -1705,6 +1759,8 @@ def build_app(demo=False):
     app.router.add_get("/api/phone/status", api_phone_status)
     app.router.add_post("/api/phone/install", api_phone_install)
     app.router.add_post("/api/phone/use-mic", api_phone_use_mic)
+    app.router.add_post("/api/share-wifi", api_share_wifi)
+    app.router.add_get("/api/qr.svg", api_qr)
     app.router.add_post("/api/update", api_update)
     app.router.add_get("/icon.svg", icon)
     app.on_startup.append(on_startup)

@@ -151,6 +151,20 @@
   .status.ok { color: var(--gold); }
   .status .dotwait { width: .6em; height: .6em; border-radius: 50%; background: var(--dim); animation: pulse 1.6s ease-in-out infinite; }
 
+  .tabs { display: flex; gap: 1.2vmin; margin: 1.5em 0 .5em; }
+  #qrBox { display: none; margin-top: 1em; align-items: center; gap: 3vmin; flex-wrap: wrap; }
+  #qrBox img { width: calc(var(--ts) * clamp(140px, 30vmin, 220px)); background: #fff; border-radius: 8px; padding: 6px; }
+  #qrBox code { font-size: calc(var(--ts) * clamp(14px, 3vmin, 22px)); }
+
+  /* fullscreen button: easy to find before, nearly invisible once you're fullscreen */
+  #fsBtn { position: fixed; right: max(2vmin, env(safe-area-inset-right)); bottom: max(2vmin, env(safe-area-inset-bottom)); z-index: 6;
+    width: calc(var(--ts) * clamp(38px, 7.5vmin, 52px)); height: calc(var(--ts) * clamp(38px, 7.5vmin, 52px)); border-radius: 50%;
+    border: 1px solid rgba(255,255,255,.25); background: rgba(0,0,0,.35); display: none; place-items: center; cursor: pointer;
+    opacity: .8; transition: opacity .3s, border-color .3s, background .3s; }
+  #fsBtn svg { width: 50%; height: 50%; stroke: var(--fg); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  #fsBtn.full { opacity: .14; border-color: transparent; background: transparent; }
+  #fsBtn.full:hover, #fsBtn.full:active { opacity: .7; }
+
   /* stats */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2vmin; margin: 3vmin 0 5vmin; }
   .card { background: rgba(255,255,255,.06); border-radius: 10px; padding: 2.2vmin 2.5vmin; }
@@ -278,6 +292,8 @@
 <div id="phone" class="panel">
   <button class="close" aria-label="Close">&times;</button>
   <h2>Use an old phone as a second screen</h2>
+  <div class="tabs"><button class="pill on" data-tab="android">Android</button><button class="pill" data-tab="iphone">iPhone</button></div>
+  <div id="androidGuide">
   <div class="sub">An Android phone plugged into this PC can show the album art next to your monitor, and listen to your records with its own microphone. Each step checks itself off when it's done.</div>
 
   <div class="step" id="st1"><div class="num">1</div><div>
@@ -307,6 +323,32 @@
     <b>Listen with the phone's microphone (optional)</b>
     <p>The phone sits right by the speakers and records music without call-style noise filtering, so your webcam or headset mic can keep its noise cancelling for calls. The first time, tap the phone's screen once when it asks, and allow the microphone.</p>
     <div class="status" id="s5"></div></div></div>
+  </div>
+
+  <div id="iphoneGuide" style="display:none">
+  <div class="sub">An iPhone connects over Wi-Fi instead of a cable. It works as the screen; the listening stays on this PC's microphone, because iPhones only allow the microphone on secure web pages.</div>
+
+  <div class="step" id="i1"><div class="num">1</div><div>
+    <b>Share Liner Notes on your Wi-Fi</b>
+    <p>Lets devices on your home network open the screen. Liner Notes restarts for a moment, and Windows may ask whether to allow it on networks: tick <strong>Private networks</strong> and click <strong>Allow</strong>.</p>
+    <div class="status" id="si1"></div></div></div>
+
+  <div class="step" id="i2"><div class="num">2</div><div>
+    <b>Open it on the iPhone</b>
+    <p>The iPhone has to be on the same Wi-Fi as this PC. Point the iPhone's camera at the code and tap the link that appears, or type the address into Safari.</p>
+    <div id="qrBox"><img id="qrImg" alt="QR code"><code id="wifiUrl"></code></div>
+    <div class="status" id="si2"></div></div></div>
+
+  <div class="step" id="i3"><div class="num">3</div><div>
+    <b>Make it an app, and keep the screen on</b>
+    <p>In Safari, tap the Share button, then <strong>Add to Home Screen</strong>. Open it from that icon from now on: no Safari bars. To stop the iPhone dimming and locking, set Settings &gt; Display &amp; Brightness &gt; <strong>Auto-Lock</strong> to Never while it's on the charger.</p></div></div>
+
+  <div class="step" id="i4"><div class="num">4</div><div>
+    <b>Listening</b>
+    <p>Records are heard through this PC's microphone. If that mic is on a webcam or headset with noise cancelling, turn the noise cancelling off, or it filters the music out. A cheap USB mic just for Liner Notes is the easy fix.</p></div></div>
+
+  <div class="row" style="margin-top:3vmin"><button class="pill" id="wifiOff" style="display:none">Stop sharing on Wi-Fi</button></div>
+  </div>
 </div>
 
 <!-- search -->
@@ -357,6 +399,10 @@
   </div>
 </div>
 
+<button id="fsBtn" aria-label="Fullscreen" title="Fullscreen">
+  <svg id="fsIn" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+  <svg id="fsOut" viewBox="0 0 24 24" style="display:none"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+</button>
 <button id="updPill">Update available</button>
 <div id="micbanner"></div>
 
@@ -765,7 +811,15 @@ function waitLine(text) { return `<span class="dotwait"></span><span>${esc(text)
 function okLine(text) { return `<span>✓ ${esc(text)}</span>`; }
 async function phoneCheck() {
   let d;
-  try { d = await (await fetch("/api/phone/status", { cache: "no-store" })).json(); } catch (e) { return; }
+  try {
+    const r = await fetch("/api/phone/status", { cache: "no-store" });
+    if (r.status === 403) {        // opened on another device: setup is done from the PC
+      $("androidGuide").innerHTML = $("iphoneGuide").innerHTML = `<p class="sub">Open this guide in Liner Notes on the PC to set things up.</p>`;
+      return;
+    }
+    d = await r.json();
+  } catch (e) { return; }
+  wifiCheck(d);
   const ready = d.devices.filter(x => x.state === "device");
   const unauth = d.devices.filter(x => x.state === "unauthorized");
   $("phoneUrl").textContent = `localhost:${d.port}`;
@@ -790,7 +844,8 @@ async function phoneCheck() {
   s5.innerHTML = d.mic_is_phone ? okLine("Using the phone's microphone")
     : `<button class="pill" id="useMic">Use the phone's microphone</button><span class="muted">Liner Notes restarts for a moment.</span>`;
 }
-function openPhoneSetup() { openPanel("phone"); phoneCheck(); clearInterval(phoneTimer); phoneTimer = setInterval(() => {
+function openPhoneSetup() { openPanel("phone");
+  if (/iPhone|iPad/.test(navigator.userAgent)) document.querySelector('#phone .tabs [data-tab="iphone"]').click(); phoneCheck(); clearInterval(phoneTimer); phoneTimer = setInterval(() => {
   if (!$("phone").classList.contains("open")) { clearInterval(phoneTimer); return; } phoneCheck(); }, 2000); }
 window.onPanelOpen = name => { if (name === "phone") openPhoneSetup(); };
 document.addEventListener("click", async e => {
@@ -798,7 +853,59 @@ document.addEventListener("click", async e => {
   if (e.target.id === "useMic") { e.target.disabled = true; e.target.textContent = "Switching…"; await fetch("/api/phone/use-mic", { method: "POST" }); }
 });
 $("phoneSetupRow").addEventListener("click", openPhoneSetup);
+// iPhone (Wi-Fi) tab
+document.querySelectorAll("#phone .tabs .pill").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("#phone .tabs .pill").forEach(x => x.classList.toggle("on", x === b));
+  $("androidGuide").style.display = b.dataset.tab === "android" ? "block" : "none";
+  $("iphoneGuide").style.display = b.dataset.tab === "iphone" ? "block" : "none";
+  phoneCheck();
+}));
+let qrFor = null;
+function wifiCheck(d) {
+  const url = d.wifi_address ? `http://${d.wifi_address}:${d.port}` : null;
+  $("i1").classList.toggle("done", d.wifi);
+  const si1 = $("si1"); si1.className = "status" + (d.wifi ? " ok" : "");
+  si1.innerHTML = d.wifi ? okLine(url ? `Sharing at ${url.replace("http://", "")}` : "Sharing on Wi-Fi")
+    : `<button class="pill gold" id="wifiOn">Share on Wi-Fi</button>`;
+  $("qrBox").style.display = d.wifi && url ? "flex" : "none";
+  if (url && qrFor !== url) { qrFor = url; $("qrImg").src = "/api/qr.svg?t=" + Date.now(); $("wifiUrl").textContent = url; }
+  $("i2").classList.toggle("done", d.wifi_open);
+  const si2 = $("si2"); si2.className = "status" + (d.wifi_open ? " ok" : "");
+  si2.innerHTML = !d.wifi ? `<span class="muted">Do step 1 first.</span>`
+    : d.wifi_open ? okLine(d.wifi_iphone ? "The iPhone is showing Liner Notes" : "A device on your Wi-Fi is showing Liner Notes")
+    : waitLine("Waiting for the iPhone… If it won't load, check it's on the same Wi-Fi, and that Windows allowed Liner Notes on private networks.");
+  $("wifiOff").style.display = d.wifi ? "inline-block" : "none";
+}
+document.addEventListener("click", async e => {
+  if (e.target.id === "wifiOn" || e.target.id === "wifiOff") {
+    const on = e.target.id === "wifiOn";
+    e.target.disabled = true; e.target.textContent = on ? "Turning on…" : "Turning off…";
+    await fetch("/api/share-wifi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on }) });
+  }
+});
+
+// ---------------------------------------------------------------- fullscreen button (main screen)
+function isFull() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function updateFsBtn() {
+  const can = (document.fullscreenEnabled || document.webkitFullscreenEnabled) && !standalone;
+  $("fsBtn").style.display = can ? "grid" : "none";
+  $("fsBtn").classList.toggle("full", isFull());
+  $("fsIn").style.display = isFull() ? "none" : "block";
+  $("fsOut").style.display = isFull() ? "block" : "none";
+  $("fsBtn").title = isFull() ? "Exit fullscreen" : "Fullscreen";
+}
+$("fsBtn").addEventListener("click", async e => {
+  e.stopPropagation();
+  try {
+    if (isFull()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else await (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen).call(document.documentElement);
+  } catch (err) {}
+});
+document.addEventListener("fullscreenchange", updateFsBtn);
+document.addEventListener("webkitfullscreenchange", updateFsBtn);
+updateFsBtn();
 if (location.hash === "#phone") setTimeout(openPhoneSetup, 300);
+addEventListener("hashchange", () => { if (location.hash === "#phone") openPhoneSetup(); });
 
 // ---------------------------------------------------------------- wiring
 $("stage").addEventListener("click", e => { if (e.target.id === "findBtn") return; openInfo(); });

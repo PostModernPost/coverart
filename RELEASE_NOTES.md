@@ -1,3 +1,3 @@
-- New step-by-step guide for using an old Android phone as a second screen: Settings > Use a phone as a second screen, or the tray menu. Each step checks itself off as you go
-- Installs Google's Android USB connector with one click (no command line)
-- One button to switch listening to the phone's microphone
+- iPhone support in the phone guide: share Liner Notes on your Wi-Fi with one button and scan a QR code with the iPhone's camera. The iPhone works as the screen; listening stays on the PC
+- While sharing on Wi-Fi, other devices can view and search, but only this PC can change settings or install updates
+- Fullscreen button in the bottom-right corner of the main screen: easy to spot before, almost invisible once you're fullscreen (tap it again to exit)
