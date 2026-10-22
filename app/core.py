@@ -561,13 +561,21 @@ def pick_device(dev):
     return None
 
 
+SHAZAM_REPLY = {}
+
+
 async def shazam_identify(shz, wav_bytes):
     path = os.path.join(tempfile.gettempdir(), "coverart_clip.wav")
     with open(path, "wb") as f:
         f.write(wav_bytes)
     fn = getattr(shz, "recognize", None) or shz.recognize_song
     out = await fn(path)
-    tr = (out or {}).get("track")
+    out = out if isinstance(out, dict) else {}
+    tr = out.get("track")
+    # Remember what Shazam actually said, so "no match" can be told apart from "slow down"
+    SHAZAM_REPLY["keys"] = sorted(out.keys())
+    SHAZAM_REPLY["matches"] = len(out.get("matches") or [])
+    SHAZAM_REPLY["retryms"] = out.get("retryms")
     if not tr:
         return None
     meta = {}
@@ -635,6 +643,7 @@ async def _turntable_inner(app, mic, shz):
     last_probe = 0.0
     last_level_log = 0.0
     misses = 0
+    not_before = 0.0          # Shazam asked us to wait, or we're backing off after misses
     set_mode(app, mic, "standby")
 
     while True:
@@ -707,14 +716,19 @@ async def _turntable_inner(app, mic, shz):
             continue          # wait for a full clip of music since the start or the last gap
 
         identified = on_tt and t.get("status") == "playing"
+        # After misses, wait longer each time (15 s, 30 s, 60 s, then every 90 s) so an unknown song
+        # doesn't hammer Shazam; a gap (new song) resets this.
+        retry_wait = min(CFG["retry_seconds"] * (2 ** max(0, misses - 1)), 90)
         due = (L.gap_seen
-               or (not identified and now - last_try >= CFG["retry_seconds"])
-               or (misses > 0 and now - last_try >= CFG["retry_seconds"])
+               or (not identified and now - last_try >= retry_wait)
+               or (misses > 0 and now - last_try >= retry_wait)
                or (now - last_try >= CFG["recheck_seconds"]))
-        if not due:
+        if not due or now < not_before:
             continue
         gap = L.gap_seen
         L.gap_seen = False
+        if gap:
+            misses = 0
         last_try = now
         wav = L.clip_wav(CFG["clip_seconds"])
         if not wav:
@@ -742,7 +756,10 @@ async def _turntable_inner(app, mic, shz):
                 })
         else:
             misses += 1
-            log("no match")
+            log(f"no match (Shazam reply: {SHAZAM_REPLY})")
+            if SHAZAM_REPLY.get("retryms"):
+                not_before = now + min(float(SHAZAM_REPLY["retryms"]) / 1000.0, 600)
+                log(f"Shazam asked to wait {SHAZAM_REPLY['retryms'] / 1000:.0f} s")
             # The song changed to one Shazam doesn't know (common on Vinyl Moon). Don't keep showing
             # the previous song: right after a gap, one miss is enough; otherwise two in a row.
             # A song the user picked by search stays until the next gap.

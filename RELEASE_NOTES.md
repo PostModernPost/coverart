@@ -1,3 +1,3 @@
-- Cover Art now has its own window instead of opening in a browser
-- Closing the window keeps Cover Art running by the clock; reopen it from the record icon
-- New tray option: Open in browser (uses your default browser)
+- When a song can't be identified, Cover Art now waits longer between tries (15 s, 30 s, 60 s, then every 90 s) instead of asking Shazam every 15 seconds, and starts fresh at the next song
+- Follows Shazam's requests to slow down
+- The log records Shazam's actual reply, to tell "unknown song" apart from "too many requests"
