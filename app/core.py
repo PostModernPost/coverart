@@ -1000,6 +1000,29 @@ def show_record(app, rec, track):
     show_and_enrich(app, track)
     record_progress(app, rec)
     save_record(rec)
+    if not getattr(rec, "orig_checked", False):
+        rec.orig_checked = True
+        asyncio.create_task(original_year(app, rec))
+
+
+async def original_year(app, rec):
+    """A reissue's release year is when it was pressed (a 50th anniversary edition says 2026).
+    Show the year the album first came out, from Discogs' master release."""
+    mid = (rec.rel or {}).get("master_id")
+    if not mid or not discogs_ready():
+        return
+    try:
+        m = await discogs_get(app["http"], f"/masters/{int(mid)}")
+        y = str(m.get("year") or "")
+        if y.isdigit() and int(y) > 1800 and y != str(rec.year or ""):
+            rec.orig_year = y
+            log(f"{rec.title}: first released {y} (this pressing {rec.year})")
+            st = app["state"]
+            if st.track and st.track.get("source") == "record" and st.track.get("album") == rec.title:
+                st.track["year"] = y
+                st.version += 1
+    except Exception as e:
+        log("original year lookup failed:", repr(e))
 
 
 RECORD_FILE = os.path.join(DATA_DIR, "record.json")
@@ -1066,6 +1089,34 @@ def discogs_headers():
     elif DISCOGS_KEY and DISCOGS_SECRET:
         h["Authorization"] = f"Discogs key={DISCOGS_KEY}, secret={DISCOGS_SECRET}"
     return h
+
+
+_owned = {"at": 0.0, "ids": set()}
+
+
+def owned_release_ids():
+    """Discogs releases in your collection (synced), so the copy you own wins over other pressings."""
+    if time.time() - _owned["at"] > 60:
+        _owned["at"] = time.time()
+        try:
+            con = sqlite3.connect(os.path.join(DATA_DIR, "history.db"), timeout=2)
+            try:
+                _owned["ids"] = {r[0] for r in con.execute("SELECT release_id FROM collection") if r[0]}
+            finally:
+                con.close()
+        except Exception:
+            pass
+    return _owned["ids"]
+
+
+def order_releases(results):
+    """Search results in the order to try them: your own copy first, then the original pressing before
+    reissues (Discogs' own order often puts this year's reissue first)."""
+    owned = owned_release_ids()
+    def key(r):
+        y = str(r.get("year") or "")
+        return (0 if r.get("id") in owned else 1, int(y) if y.isdigit() else 9999)
+    return sorted(results, key=key)
 
 
 def discogs_ready():
@@ -1135,7 +1186,8 @@ async def discogs_find_record(http, first, second):
     rb = await discogs_get(http, "/database/search", {**base, "track": second["title"]})
     in_b = {r.get("id") for r in rb.get("results", [])}
     both = [r for r in ra.get("results", []) if r.get("id") in in_b]
-    both.sort(key=lambda r: 0 if "Vinyl" in (r.get("format") or []) else 1)   # it's a turntable
+    both = order_releases(both)
+    both.sort(key=lambda r: 0 if "Vinyl" in (r.get("format") or []) else 1)   # it's a turntable (stable: keeps the order above)
     for r in both[:4]:
         rec = RecordSession(await discogs_get(http, f"/releases/{r['id']}"))
         ia, ib = rec.find(first["title"], first["artist"]), rec.find(second["title"], second["artist"])
@@ -1153,7 +1205,7 @@ async def discogs_find_album_start(http, title, artist, album):
     results = (await discogs_get(http, "/database/search", {**base, "format": "Vinyl"})).get("results", [])
     if not results:
         results = (await discogs_get(http, "/database/search", base)).get("results", [])
-    for r in results[:3]:
+    for r in order_releases(results)[:3]:
         rec = RecordSession(await discogs_get(http, f"/releases/{r['id']}"))
         i = rec.find(title, artist)
         if i is not None and (i == 0 or rec.tracks[i - 1]["side"] != rec.tracks[i]["side"]):
@@ -1219,7 +1271,7 @@ async def find_album_record(http, title, artist, album, medium=None, collection_
                                          else base)).get("results", [])
             if not results:
                 results = (await discogs_get(http, "/database/search", base)).get("results", [])
-            for r in results[:3]:
+            for r in order_releases(results)[:3]:
                 rec = RecordSession(await discogs_get(http, f"/releases/{r['id']}"))
                 i = rec.find(title, artist)
                 if i is not None:
@@ -1366,7 +1418,7 @@ class RecordSession:
                 "art": self.cover, "source": "record", "medium": self.medium,
                 "app": (f"Track {n} of {count}" if self.medium == "cd" or not side.isalpha() else f"Side {side} · {n} of {count}"),
                 "status": "playing",
-                "year": self.year, "label": self.label, "genre": self.genre,
+                "year": getattr(self, "orig_year", None) or self.year, "label": self.label, "genre": self.genre,
                 "duration_ms": (t["duration"] or 0) * 1000 or None, "record_pos": t["pos"],
                 "links": search_links(artist, t["title"], self.title)}
 
