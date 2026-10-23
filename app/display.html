@@ -864,7 +864,7 @@
   <h3 class="group app-only">This phone</h3>
   <div class="setting app-pc-only" style="cursor:default">
     <div>Connected to <span id="appPc">your PC</span><small>This phone shows what Liner Notes on that PC hears and plays.</small></div>
-    <button class="pill appSwitch">Connect to a different PC</button></div>
+    <div class="row" style="justify-content:flex-end"><button class="pill appSwitch">Connect to a different PC</button><button class="pill" id="appSolo">Use this phone on its own</button></div></div>
   <div class="setting solo-only" style="cursor:default">
     <div>Working on its own<small>This phone listens with its own microphone. Connect it to Liner Notes on your PC to use the PC's microphone or line in and show what the PC plays. It also switches to a PC it knows by itself when one is on.</small></div>
     <button class="pill appSwitch">Connect to a PC</button></div>
@@ -926,6 +926,7 @@
     <div style="display:flex;align-items:center;margin:.4em 0 .8em"><img id="aboutMark" src="/logo.svg" alt=""><b style="font-size:1.25em">Liner Notes</b></div>
     <div id="verLine"></div>
     <div class="row app-only" id="appUpdRow"></div>
+    <div class="row solo-only" style="margin-top:.6em"><button class="pill" id="appLog">Send the log</button><span class="muted">If something isn't working on the phone, send this to whoever is helping you.</span></div>
     <div class="row" id="updRow"></div>
     <div id="updNotes"></div>
   </div>
@@ -2802,6 +2803,8 @@ if (IN_APP) {
   for (let n; (n = w.nextNode());) if (/this PC/.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/this PC/g, APP_SOLO ? "this phone" : "your PC");
   $("appPc").textContent = location.hostname;
   if (!APP_SOLO) fetch("/api/now").then(r => r.json()).then(d => { if (d.pc_name) $("appPc").textContent = d.pc_name; }).catch(() => {});
+  $("appSolo").addEventListener("click", () => { try { APP.solo(); } catch (e) {} });
+  $("appLog").addEventListener("click", () => { try { APP.shareLog(); } catch (e) {} });
   document.querySelectorAll(".appSwitch").forEach(b => b.addEventListener("click", () => { try { APP.switchPc(); } catch (e) {} }));
 }
 

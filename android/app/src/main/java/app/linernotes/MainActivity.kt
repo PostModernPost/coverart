@@ -95,26 +95,25 @@ class MainActivity : Activity() {
 
     // ---------------------------------------------------------------- finding and connecting to the PC
     /**
-     * At start: Liner Notes on a PC if there's one this phone knows (the PC used last time, one over USB,
-     * or one on the Wi-Fi it was connected to before). Otherwise the phone works on its own.
+     * At start: Liner Notes on a PC this phone knows (the PC used last time, or one over USB) if it's on.
+     * Otherwise the phone works on its own right away, and keeps an eye out for a PC: over USB, or on the
+     * same Wi-Fi (a PC it hasn't connected to before asks once, on the PC, whether to connect this phone).
      */
     private fun connect(auto: Boolean = true) {
-        say(JSONObject().put("view", "searching"))
+        say(JSONObject().put("view", if (auto) "starting" else "searching"))
         io.execute {
-            val saved = Link.savedUrl(this)
-            // 1. the PC used last time, 2. a PC over USB, 3. look on the Wi-Fi
-            for (u in listOfNotNull(saved, Link.USB_URL).distinct()) {
+            for (u in listOfNotNull(Link.savedUrl(this), Link.USB_URL).distinct()) {
                 if (Link.alive(this, u)) {
                     if (Link.trusted(this, u)) { main.post { open(u) }; return@execute }
-                    if (!auto || !Link.soloChosen(this)) { main.post { startPairing(u, null) }; return@execute }
+                    if (!auto) { main.post { startPairing(u, null) }; return@execute }
                 }
             }
-            main.post { search(auto) }
+            main.post { if (auto) goSolo() else search() }
         }
     }
 
-    /** auto: at start (no PC found means on its own); otherwise the person asked to connect to a PC. */
-    private fun search(auto: Boolean = false) {
+    /** The person asked to connect to a PC: list the ones on the Wi-Fi. */
+    private fun search() {
         found.clear()
         say(JSONObject().put("view", "searching"))
         finder?.stop()
@@ -122,25 +121,10 @@ class MainActivity : Activity() {
         finder = Finder(this) { name, url ->
             if (server != null || pairing != null || searchGen !== gen) return@Finder
             found[url] = name
-            if (auto) {
-                // one this phone was connected to before: straight there
-                io.execute { if (Link.token(this, url) != null && Link.trusted(this, url)) main.post { if (server == null && searchGen === gen) open(url) } }
-            } else {
-                say(JSONObject().put("view", "found").put("list", JSONArray(found.map { JSONObject().put("name", it.value).put("url", it.key) })))
-            }
+            say(JSONObject().put("view", "found").put("list", JSONArray(found.map { JSONObject().put("name", it.value).put("url", it.key) })))
         }.also { it.start() }
-        if (auto) {
-            main.postDelayed({
-                if (server != null || pairing != null || searchGen !== gen) return@postDelayed
-                if (found.isNotEmpty() && !Link.soloChosen(this))       // a PC that isn't connected yet: offer it
-                    say(JSONObject().put("view", "found").put("solo", true)
-                        .put("list", JSONArray(found.map { JSONObject().put("name", it.value).put("url", it.key) })))
-                else goSolo()
-            }, 4000)
-        } else {
-            // nothing after a while: show the help
-            main.postDelayed({ if (server == null && pairing == null && found.isEmpty() && searchGen === gen) say(JSONObject().put("view", "notfound")) }, 9000)
-        }
+        // nothing after a while: show the help
+        main.postDelayed({ if (server == null && pairing == null && found.isEmpty() && searchGen === gen) say(JSONObject().put("view", "notfound")) }, 9000)
     }
     private var searchGen: Any? = null
 
@@ -149,7 +133,6 @@ class MainActivity : Activity() {
         finder?.stop()
         searchGen = null
         pairing = null
-        Link.setSoloChosen(this, true)
         if (server == null) say(JSONObject().put("view", "starting"))
         Engine.start(this)
         io.execute {
@@ -161,21 +144,69 @@ class MainActivity : Activity() {
         }
     }
 
-    /** While on its own, look every 30 s for a PC this phone knows (Wi-Fi or USB) and switch to it. */
+    /**
+     * While on its own: every 5 s, is a PC there over USB (cheap: it's this phone's own address)?
+     * Every 2 minutes, also the PC used last time and a look around the Wi-Fi.
+     */
+    private var lookTick = 0
+    private val asked = mutableSetOf<String>()          // PCs asked this session whether to connect
+    private var bgFinder: Finder? = null
+    private var stayOwn = false
     private val lookForPc = object : Runnable {
         override fun run() {
-            if (!Engine.isLocal(server)) return
+            if (!Engine.isLocal(server) || stayOwn) return
+            val wide = lookTick++ % 24 == 0
             io.execute {
-                val saved = Link.savedUrl(this@MainActivity)
-                for (u in listOfNotNull(saved, Link.USB_URL).distinct()) {
-                    if (Link.alive(this@MainActivity, u) && Link.trusted(this@MainActivity, u)) {
+                val c = this@MainActivity
+                val urls = if (wide) listOfNotNull(Link.USB_URL, Link.savedUrl(c)).distinct() else listOf(Link.USB_URL)
+                for (u in urls) {
+                    if (Link.alive(c, u) && Link.trusted(c, u)) {
                         main.post { if (Engine.isLocal(server)) open(u) }
                         return@execute
                     }
                 }
-                main.postDelayed(this, 30_000)
+                main.post {
+                    if (wide) lookOnWifi()
+                    if (Engine.isLocal(server)) main.postDelayed(this, 5_000)
+                }
             }
         }
+    }
+
+    private fun lookOnWifi() {
+        bgFinder?.stop()
+        if (stayOwn) return
+        val f = Finder(this) { name, url ->
+            if (!Engine.isLocal(server)) return@Finder
+            io.execute {
+                val c = this@MainActivity
+                if (!Link.alive(c, url)) return@execute
+                if (Link.token(c, url) != null && Link.trusted(c, url)) { main.post { if (Engine.isLocal(server)) open(url) }; return@execute }
+                // A PC on the Wi-Fi this phone hasn't connected to: ask it once (the PC shows Connect / Not now)
+                val host = Link.host(url)
+                if (host in asked || Link.declined(c, host)) return@execute
+                asked.add(host)
+                val p = Pairing.start(c, url) ?: return@execute
+                main.post { toastJs("Liner Notes on $name found. Click Connect on the PC to use it with this phone.") }
+                val end = System.currentTimeMillis() + 5 * 60_000
+                while (System.currentTimeMillis() < end && Engine.isLocal(server)) {
+                    when (Pairing.check(c, url, p.id)) {
+                        "approved" -> { main.post { if (Engine.isLocal(server)) open(url) }; return@execute }
+                        "denied" -> { Link.setDeclined(c, host); return@execute }
+                        "expired" -> return@execute
+                    }
+                    Thread.sleep(2000)
+                }
+            }
+        }
+        bgFinder = f
+        f.start()
+        main.postDelayed({ f.stop() }, 15_000)
+    }
+
+    /** A short message on the page (the page shows it like its own). */
+    private fun toastJs(msg: String) {
+        web.evaluateJavascript("window.toast && toast(${JSONObject.quote(msg)})", null)
     }
 
     /** The PC stopped answering: after a minute, carry on without it. */
@@ -227,8 +258,9 @@ class MainActivity : Activity() {
         searchGen = null
         server = url
         main.removeCallbacks(lookForPc); main.removeCallbacks(pcGone)
-        if (Engine.isLocal(url)) main.postDelayed(lookForPc, 30_000)
-        else Link.saveUrl(this, url)
+        if (Engine.isLocal(url)) { lookTick = 1; main.postDelayed(lookForPc, 5_000); main.postDelayed({ lookOnWifi() }, 3_000) }
+        else bgFinder?.stop()
+        if (!Engine.isLocal(url)) { Link.saveUrl(this, url); stayOwn = false }
         Link.token(this, url)?.let { t ->
             CookieManager.getInstance().setCookie(url, "ln_device=$t; Max-Age=315360000; Path=/")
             CookieManager.getInstance().flush()
@@ -364,6 +396,23 @@ class MainActivity : Activity() {
         showSetup(); search()
     }
 
+    /** The engine's log, to send when something goes wrong on the phone on its own. */
+    private fun shareLogFile() {
+        try {
+            val src = File(File(filesDir, "Liner Notes"), "linernotes.log")
+            if (!src.exists()) { main.post { toastJs("There's no log yet.") }; return }
+            val dir = File(cacheDir, "shared").apply { mkdirs() }
+            val f = File(dir, "liner-notes-phone-log.txt")
+            // the last 400 KB is plenty
+            val bytes = src.readBytes()
+            f.writeBytes(if (bytes.size > 400_000) bytes.copyOfRange(bytes.size - 400_000, bytes.size) else bytes)
+            val uri = FileProvider.getUriForFile(this, "$packageName.files", f)
+            val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_STREAM, uri)
+                .putExtra(Intent.EXTRA_SUBJECT, "Liner Notes phone log").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            main.post { startActivity(Intent.createChooser(i, "Send the log").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        } catch (e: Exception) { main.post { toastJs("Couldn't share the log.") } }
+    }
+
     private fun shareText(title: String, text: String, url: String) {
         val i = Intent(Intent.ACTION_SEND).setType("text/plain")
             .putExtra(Intent.EXTRA_SUBJECT, title)
@@ -396,8 +445,10 @@ class MainActivity : Activity() {
         @JavascriptInterface fun share(title: String?, text: String?, url: String?) = main.post { shareText(title ?: "", text ?: "", url ?: "") }.let { }
         @JavascriptInterface fun shareImage(url: String, name: String) = this@MainActivity.shareImage(url, name)
         @JavascriptInterface fun openUrl(url: String) = main.post { if (url.startsWith("https://")) openExternal(Uri.parse(url)) }.let { }
+        @JavascriptInterface fun shareLog() = io.execute { shareLogFile() }
         @JavascriptInterface fun mode(): String = if (Engine.isLocal(server)) "solo" else "pc"
-        @JavascriptInterface fun solo() = main.post { goSolo() }.let { }
+        // the person chose the phone on its own: don't switch to a PC by itself until the app is opened again
+        @JavascriptInterface fun solo() = main.post { stayOwn = true; LinkService.stop(this@MainActivity); goSolo() }.let { }
         @JavascriptInterface fun switchPc() = main.post { this@MainActivity.switchPc() }.let { }
         // updates for the copy installed from GitHub
         @JavascriptInterface fun appUpdate(): String = Updater.json(this@MainActivity)

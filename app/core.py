@@ -4321,6 +4321,26 @@ def adb_connect_phones():
             adb_run("-s", d["serial"], "reverse", f"tcp:{CFG['port']}", f"tcp:{CFG['port']}")
 
 
+async def usb_phone_loop(app):
+    """A phone plugged in over USB (with USB debugging on): point its localhost at this PC right away,
+    so the Liner Notes app on it switches to the PC by itself. Only when the Android tools are installed."""
+    done = set()
+    loop = asyncio.get_running_loop()
+    while True:
+        await asyncio.sleep(5)
+        try:
+            if not adb_path():
+                continue
+            ready = {d["serial"] for d in await loop.run_in_executor(None, adb_devices) if d["state"] == "device"}
+            for serial in ready - done:
+                await loop.run_in_executor(None, lambda s=serial: adb_run("-s", s, "reverse", f"tcp:{CFG['port']}", f"tcp:{CFG['port']}"))
+                log("phone plugged in over USB: connected it")
+            done = ready
+        except Exception as e:
+            log("usb phone check failed:", repr(e))
+            await asyncio.sleep(60)
+
+
 async def install_platform_tools(http):
     """Download Google's Android platform tools (about 7 MB) into Liner Notes' folder."""
     import zipfile
@@ -4789,6 +4809,7 @@ async def on_startup(app):
                         asyncio.create_task(update_loop(app)),
                         asyncio.create_task(lastfm_loop(app)),
                         asyncio.create_task(phone_off_loop(app)),
+                        asyncio.create_task(usb_phone_loop(app)),
                         asyncio.create_task(collection_loop(app))]
         await asyncio.to_thread(advertise_start)      # so the phone app finds this PC on the Wi-Fi
 

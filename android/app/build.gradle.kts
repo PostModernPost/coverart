@@ -75,6 +75,7 @@ chaquopy {
     defaultConfig {
         version = "3.11"   // 3.12+ has no 32-bit build, and many old phones are 32-bit
         System.getenv("CHAQUOPY_BUILD_PYTHON")?.let { buildPython(it) }
+        extractPackages("certifi")      // its certificate file has to be a real file for SSL
         pip {
             if (wheelDir.isDirectory) {
                 options("--find-links", wheelDir.absolutePath)

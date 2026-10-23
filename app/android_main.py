@@ -13,6 +13,12 @@ def start(data_dir, here, port, version):
     os.environ["APPDATA"] = data_dir                # settings, history and the log live here
     os.environ["LINERNOTES_HERE"] = here            # display.html and the fonts, copied out of the app
     os.environ["LINERNOTES_ENGINE"] = "android"
+    # Python's SSL here has no certificate list of its own: use certifi's, or every https call fails
+    try:
+        import certifi
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+    except Exception:
+        pass
     # The log goes to a file (as on the PC) as well as Android's log
     try:
         d = os.path.join(data_dir, "Liner Notes")

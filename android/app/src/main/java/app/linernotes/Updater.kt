@@ -16,7 +16,8 @@ import java.net.URL
  * Play updates it. Looks at the latest GitHub release, downloads the app's APK and hands it to Android's installer.
  */
 object Updater {
-    private const val LATEST = "https://api.github.com/repos/PostModernPost/linernotes/releases/latest"
+    // The app has its own release ("android"), named "Liner Notes for Android <version>"
+    private const val LATEST = "https://api.github.com/repos/PostModernPost/linernotes/releases/tags/android"
     private const val ASSET = "LinerNotes-Android.apk"
 
     val enabled get() = BuildConfig.SELF_UPDATE
@@ -49,7 +50,7 @@ object Updater {
             conn.connectTimeout = 8000; conn.readTimeout = 8000
             conn.setRequestProperty("Accept", "application/vnd.github+json")
             val j = JSONObject(conn.inputStream.bufferedReader().readText())
-            val tag = j.optString("tag_name").removePrefix("v")
+            val tag = Regex("(\\d+\\.\\d+\\.\\d+)").find(j.optString("name"))?.value ?: ""
             val assets = j.optJSONArray("assets") ?: return
             var url: String? = null
             for (i in 0 until assets.length()) {

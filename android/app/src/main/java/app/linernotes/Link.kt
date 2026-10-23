@@ -25,8 +25,9 @@ object Link {
     fun saveUrl(c: Context, url: String) = prefs(c).edit().putString("url", url).apply()
     fun forget(c: Context) = prefs(c).edit().remove("url").apply()
     /** The person chose to use the phone on its own (or it started that way): don't keep offering new PCs. */
-    fun soloChosen(c: Context) = prefs(c).getBoolean("solo", false)
-    fun setSoloChosen(c: Context, on: Boolean) = prefs(c).edit().putBoolean("solo", on).apply()
+    /** A PC that said "Not now" when this phone asked to connect: don't ask it again by itself. */
+    fun declined(c: Context, host: String) = prefs(c).getBoolean("declined:$host", false)
+    fun setDeclined(c: Context, host: String) = prefs(c).edit().putBoolean("declined:$host", true).apply()
 
     fun token(c: Context, url: String): String? = prefs(c).getString("token:" + host(url), null)
     fun saveToken(c: Context, url: String, token: String) = prefs(c).edit().putString("token:" + host(url), token).apply()

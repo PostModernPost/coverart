@@ -1,9 +1,8 @@
 name: Build Android app
 
+# Android builds take a while, so they run when asked (Actions > Build Android app > Run workflow,
+# or the API), not on every push like the Windows app.
 on:
-  push:
-    branches: [main]
-    paths: ["android/**", "app/**", "VERSION", ".github/workflows/android.yml"]
   workflow_dispatch:
 
 permissions:
@@ -40,7 +39,7 @@ jobs:
           echo "CHAQUOPY_BUILD_PYTHON=${{ steps.py.outputs.python-path }}" >> "$GITHUB_ENV"
           # aiohttp and its helpers as plain-Python wheels (their compiled parts aren't built for Android)
           AIOHTTP_NO_EXTENSIONS=1 MULTIDICT_NO_EXTENSIONS=1 YARL_NO_EXTENSIONS=1 FROZENLIST_NO_EXTENSIONS=1 PROPCACHE_NO_EXTENSIONS=1 \
-            python -m pip wheel --no-binary aiohttp,multidict,yarl,frozenlist,propcache aiohttp -w android/wheels
+            python -m pip wheel --no-binary aiohttp,multidict,yarl,frozenlist,propcache aiohttp certifi -w android/wheels
           ls android/wheels
           for w in android/wheels/*.whl; do case "$w" in *-none-any.whl) ;; *) echo "::error::not a plain-Python wheel: $w"; exit 1;; esac; done
 
@@ -76,21 +75,27 @@ jobs:
             android/app/build/outputs/apk/**/*.apk
             android/app/build/outputs/bundle/**/*.aab
 
-      - name: Attach to the release
+      - name: Publish
         if: env.HAS_KEY == 'true' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           v=$(cat VERSION | tr -d '[:space:]')
-          # the Windows build publishes the release; wait for it (up to 15 minutes)
-          for i in $(seq 1 90); do
-            if gh release view "v$v" >/dev/null 2>&1; then break; fi
-            sleep 10
+          apk=android/app/build/outputs/apk/direct/release/app-direct-release.apk
+          aab=android/app/build/outputs/bundle/playRelease/app-play-release.aab
+          cp "$apk" LinerNotes-Android.apk
+          cp "$aab" "LinerNotes-Android-$v.aab"
+          # The app's own release, separate from the Windows ones (the app checks this one for updates)
+          if ! gh release view android >/dev/null 2>&1; then
+            gh release create android --prerelease --title "Liner Notes for Android $v" \
+              --notes "The Android app. The newest version is always at https://github.com/${{ github.repository }}/releases/download/android/LinerNotes-Android.apk"
+          fi
+          gh release edit android --title "Liner Notes for Android $v"
+          for old in $(gh release view android --json assets --jq '.assets[].name' | grep '\.aab$' || true); do
+            gh release delete-asset android "$old" -y || true
           done
-          if ! gh release view "v$v" >/dev/null 2>&1; then echo "::warning::No release v$v to attach the app to"; exit 0; fi
-          # the GitHub copy (updates itself) under two names: one per version, and one that's always the latest
-          cp android/app/build/outputs/apk/direct/release/app-direct-release.apk "LinerNotes-Android-$v.apk"
-          cp android/app/build/outputs/apk/direct/release/app-direct-release.apk "LinerNotes-Android.apk"
-          # the Play Store copy
-          cp android/app/build/outputs/bundle/playRelease/app-play-release.aab "LinerNotes-Android-$v.aab"
-          gh release upload "v$v" "LinerNotes-Android-$v.apk" "LinerNotes-Android.apk" "LinerNotes-Android-$v.aab" --clobber
+          gh release upload android LinerNotes-Android.apk "LinerNotes-Android-$v.aab" --clobber
+          # older copies of the app look for it on the Windows release of the same version
+          if gh release view "v$v" >/dev/null 2>&1; then
+            gh release upload "v$v" LinerNotes-Android.apk --clobber
+          fi
