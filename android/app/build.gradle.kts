@@ -22,6 +22,15 @@ android {
         versionName = appVersion
     }
 
+    buildFeatures { buildConfig = true }
+
+    // direct: the APK on GitHub, which updates itself. play: the Google Play copy, which Play updates.
+    flavorDimensions += "store"
+    productFlavors {
+        create("direct") { dimension = "store"; buildConfigField("boolean", "SELF_UPDATE", "true") }
+        create("play") { dimension = "store"; buildConfigField("boolean", "SELF_UPDATE", "false") }
+    }
+
     signingConfigs {
         create("release") {
             val ks = System.getenv("ANDROID_KEYSTORE_FILE")

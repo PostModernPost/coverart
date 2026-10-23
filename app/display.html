@@ -921,6 +921,7 @@
     <h3>About</h3>
     <div style="display:flex;align-items:center;margin:.4em 0 .8em"><img id="aboutMark" src="/logo.svg" alt=""><b style="font-size:1.25em">Liner Notes</b></div>
     <div id="verLine"></div>
+    <div class="row app-only" id="appUpdRow"></div>
     <div class="row" id="updRow"></div>
     <div id="updNotes"></div>
   </div>
@@ -2066,8 +2067,7 @@ function showUpdate(u) {
   upd = u;
   const avail = u.available;
   $("updDot").style.display = avail ? "block" : "none";
-  $("updPill").style.display = avail && !IS_PHONE ? "block" : "none";
-  $("updPill").textContent = avail ? `Update to ${avail.version}` : "";
+  pillShow();
   $("verLine").textContent = u.current === "dev" ? "Liner Notes (running from source)" : `Liner Notes ${u.current}`;
   if (IN_APP) { let av = ""; try { av = APP.version(); } catch (e) {}
     $("verLine").innerHTML = `This app: ${esc(av)}<br>Liner Notes on your PC: ${esc(u.current)}`; }
@@ -2100,6 +2100,33 @@ document.addEventListener("click", async e => {
     } catch (err) { /* the app closes itself to update, so a dropped connection is expected */ }
   }
 });
+// the pill: an update for Liner Notes on the PC (shown on the PC), or for the phone app (shown in the app)
+var appUpd = null, appUpdHtml = "";
+function pillShow() {
+  const avail = upd && upd.available && !IS_PHONE ? upd.available : null;
+  const appAvail = appUpd && appUpd.available && appUpd.state !== "downloading" ? appUpd.available : null;
+  $("updPill").style.display = avail || appAvail ? "block" : "none";
+  $("updPill").textContent = avail ? `Update to ${avail.version}` : appAvail ? "Update the app" : "";
+}
+function appUpdTick() {
+  if (!IN_APP || !APP.appUpdate) return;
+  try { appUpd = JSON.parse(APP.appUpdate()); } catch (e) { return; }
+  let h = "";
+  if (appUpd.enabled) {
+    if (appUpd.state === "downloading") h = `<span class="muted">Downloading the update…</span>`;
+    else if (appUpd.available) h = `<button class="pill gold" id="appUpdGo">Update the app to ${esc(appUpd.available)}</button>`;
+    else h = `<span class="muted">The app is up to date.</span> <button class="pill" id="appUpdCheck">Check now</button>`;
+  }
+  if (h !== appUpdHtml) { appUpdHtml = h; $("appUpdRow").innerHTML = h; }
+  pillShow();
+}
+if (IN_APP) {
+  setInterval(appUpdTick, 3000); setTimeout(appUpdTick, 500);
+  $("appUpdRow").addEventListener("click", e => {
+    if (e.target.id === "appUpdGo") { try { APP.installAppUpdate(); } catch (err) {} setTimeout(appUpdTick, 300); }
+    if (e.target.id === "appUpdCheck") { e.target.textContent = "Checking…"; try { APP.checkAppUpdate(); } catch (err) {} setTimeout(appUpdTick, 2500); }
+  });
+}
 $("updPill").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
 
 // ---------------------------------------------------------------- phone setup guide

@@ -90,6 +90,7 @@ class MainActivity : Activity() {
         LinkService.onState = { j -> main.post { onPcState(j) } }
         showSetup()
         connect()
+        io.execute { Updater.check(this) }
     }
 
     // ---------------------------------------------------------------- finding and connecting to the PC
@@ -242,6 +243,7 @@ class MainActivity : Activity() {
         super.onResume()
         fullScreen()
         if (dark && !LinkService.screenOffWanted) keepOn(true)
+        io.execute { Updater.check(this) }
     }
 
     @Suppress("DEPRECATION")
@@ -323,6 +325,10 @@ class MainActivity : Activity() {
         @JavascriptInterface fun share(title: String?, text: String?, url: String?) = main.post { shareText(title ?: "", text ?: "", url ?: "") }.let { }
         @JavascriptInterface fun shareImage(url: String, name: String) = this@MainActivity.shareImage(url, name)
         @JavascriptInterface fun switchPc() = main.post { this@MainActivity.switchPc() }.let { }
+        // updates for the copy installed from GitHub
+        @JavascriptInterface fun appUpdate(): String = Updater.json(this@MainActivity)
+        @JavascriptInterface fun checkAppUpdate() = io.execute { Updater.check(this@MainActivity, force = true) }
+        @JavascriptInterface fun installAppUpdate() { Thread { Updater.install(this@MainActivity) { r -> main.post(r) } }.start() }
         @JavascriptInterface fun version(): String = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
         // setup page
         @JavascriptInterface fun ready() = main.post { lastSay?.let { say(it) } }.let { }

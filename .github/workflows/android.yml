@@ -37,8 +37,8 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -o pipefail
-          tasks="assembleDebug"
-          if [ "$HAS_KEY" = "true" ]; then tasks="assembleDebug assembleRelease bundleRelease"; fi
+          tasks="assembleDirectDebug"
+          if [ "$HAS_KEY" = "true" ]; then tasks="assembleDirectRelease bundlePlayRelease"; fi
           if ! gradle -p android $tasks --no-daemon --stacktrace 2>&1 | tee build.log; then
             # Compile errors as annotations, so they're readable without the full log
             grep -E "^e: |error:|What went wrong|Could not |Failed to |> " build.log | head -40 | while read -r line; do
@@ -66,6 +66,9 @@ jobs:
             sleep 10
           done
           if ! gh release view "v$v" >/dev/null 2>&1; then echo "::warning::No release v$v to attach the app to"; exit 0; fi
-          cp android/app/build/outputs/apk/release/app-release.apk "LinerNotes-Android-$v.apk"
-          cp android/app/build/outputs/bundle/release/app-release.aab "LinerNotes-Android-$v.aab"
-          gh release upload "v$v" "LinerNotes-Android-$v.apk" "LinerNotes-Android-$v.aab" --clobber
+          # the GitHub copy (updates itself) under two names: one per version, and one that's always the latest
+          cp android/app/build/outputs/apk/direct/release/app-direct-release.apk "LinerNotes-Android-$v.apk"
+          cp android/app/build/outputs/apk/direct/release/app-direct-release.apk "LinerNotes-Android.apk"
+          # the Play Store copy
+          cp android/app/build/outputs/bundle/playRelease/app-play-release.aab "LinerNotes-Android-$v.aab"
+          gh release upload "v$v" "LinerNotes-Android-$v.apk" "LinerNotes-Android.apk" "LinerNotes-Android-$v.aab" --clobber
