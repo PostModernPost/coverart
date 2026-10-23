@@ -52,6 +52,9 @@ Kotlin. It's a WebView that shows either the PC's page or the engine running on 
   Bump `ANDROID_VERSION` before each Android build, or phones won't see the update. The engine inside the app keeps
   the Windows number (Settings > About on the phone shows both). An Android-only change doesn't need a `VERSION` bump.
   Permanent link: https://github.com/PostModernPost/linernotes/releases/download/android/LinerNotes-Android.apk
+- Version numbers: the last number goes up with each release. Suggest to Adam (don't just do it) when a
+  bigger step is due: the middle number for a noticeable new feature or a batch of them (0.8 -> 0.9), on
+  either app. The PC app stays below 1.0.0 until Adam says it's ready to advertise; Android is already 1.x.
 - Commit message style: what changed for the user, with `(0.7.xx)` at the end, or `(Android 1.0.x)` for Android-only changes.
 
 ## Secrets (never put them in code, commits or replies)

@@ -39,11 +39,11 @@ object Updater {
         return false
     }
 
-    /** Check at most every 6 hours (call from a background thread). */
+    /** Check at most once an hour (call from a background thread). */
     fun check(c: Context, force: Boolean = false) {
         if (!enabled) return
         val now = System.currentTimeMillis()
-        if (!force && now - lastCheck < 6 * 3600_000L) return
+        if (!force && now - lastCheck < 3600_000L) return
         lastCheck = now
         try {
             val conn = URL(LATEST).openConnection() as HttpURLConnection

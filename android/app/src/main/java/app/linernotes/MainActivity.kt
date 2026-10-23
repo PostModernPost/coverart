@@ -90,7 +90,15 @@ class MainActivity : Activity() {
         LinkService.onState = { j -> main.post { onPcState(j) } }
         showSetup()
         connect()
-        io.execute { Updater.check(this) }
+        main.post(updateCheck)
+    }
+
+    /** Look for a new version of the app every hour while it's open (the page asks whether to install it). */
+    private val updateCheck = object : Runnable {
+        override fun run() {
+            io.execute { Updater.check(this@MainActivity) }
+            main.postDelayed(this, 3600_000L)
+        }
     }
 
     // ---------------------------------------------------------------- finding and connecting to the PC

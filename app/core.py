@@ -2867,7 +2867,7 @@ async def update_loop(app):
     await asyncio.sleep(10)
     while True:
         await check_for_update(app)
-        await asyncio.sleep(6 * 3600)
+        await asyncio.sleep(3600)          # hourly, so a new version is offered soon after it's out
 
 
 async def install_update(app):
