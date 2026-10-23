@@ -14,7 +14,8 @@ jobs:
     runs-on: windows-latest
     env:
       # Code signing turns on automatically once these secrets exist (see SIGNING.md)
-      HAS_SIGNING: ${{ secrets.AZURE_CLIENT_SECRET != '' }}
+      # (all of them, so adding some early doesn't break releases)
+      HAS_SIGNING: ${{ secrets.AZURE_CLIENT_SECRET != '' && secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_SIGNING_ENDPOINT != '' && secrets.AZURE_SIGNING_ACCOUNT != '' && secrets.AZURE_SIGNING_PROFILE != '' }}
     steps:
       - uses: actions/checkout@v4
 
