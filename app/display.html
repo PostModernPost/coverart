@@ -2225,11 +2225,11 @@ $("oaStop").addEventListener("click", async () => {
 // ---------------------------------------------------------------- your shelf
 const SHELF_MEDIA = { vinyl: ["Vinyl", "record", "records"], cd: ["CD", "CD", "CDs"], cassette: ["Cassette", "tape", "tapes"], other: ["Other", "other", "other"] };
 const KIND_NAME = { single: "Single", ep: "EP", compilation: "Compilation", hits: "Best of" };
-let shelf = [], shelfMedium = "", shelfSort = "recent", shelfOpen = null;
+let shelf = [], shelfMedium = "", shelfSort = "recent", shelfOpen = null, shelfDiscogs = {};
 const shortDate = ts => new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: new Date(ts * 1000).getFullYear() === new Date().getFullYear() ? undefined : "numeric" });
 async function loadShelf() {
   $("shelf").classList.remove("detail");
-  try { shelf = (await (await fetch("/api/shelf")).json()).albums || []; } catch (e) { shelf = []; }
+  try { const d = await (await fetch("/api/shelf")).json(); shelf = d.albums || []; shelfDiscogs = d.discogs || {}; } catch (e) { shelf = []; }
   const counts = {};
   shelf.forEach(a => counts[a.medium] = (counts[a.medium] || 0) + 1);
   const kinds = Object.keys(SHELF_MEDIA).filter(m => counts[m]);
@@ -2238,14 +2238,15 @@ async function loadShelf() {
     ? kinds.map(m => `${counts[m]} ${counts[m] === 1 ? SHELF_MEDIA[m][1] : SHELF_MEDIA[m][2]}`).join(" · ") +
       (owned ? `. ${owned} from your Discogs collection${unplayed ? `, ${unplayed} not played yet` : ""}.` : ", added as you play them.")
     : "Every record, CD and tape you play shows up here. Connect Discogs in Settings to add your whole collection.";
-  if (shelfMedium && !(shelfMedium === "unplayed" ? unplayed : counts[shelfMedium])) shelfMedium = "";
-  const pills = [["", "All"], ...(kinds.length > 1 ? kinds.map(m => [m, SHELF_MEDIA[m][0]]) : []), ...(unplayed && unplayed < shelf.length ? [["unplayed", "Not played yet"]] : [])];
+  if (shelfMedium && !(shelfMedium === "unplayed" ? unplayed : shelfMedium === "notowned" ? shelfDiscogs.user && owned < shelf.length : counts[shelfMedium])) shelfMedium = "";
+  const pills = [["", "All"], ...(kinds.length > 1 ? kinds.map(m => [m, SHELF_MEDIA[m][0]]) : []), ...(unplayed && unplayed < shelf.length ? [["unplayed", "Not played yet"]] : []),
+    ...(shelfDiscogs.user && owned < shelf.length ? [["notowned", "Not on Discogs"]] : [])];
   $("shelfMedia").innerHTML = pills.length > 1 ? pills.map(([m, t]) => `<button class="pill${m === shelfMedium ? " on" : ""}" data-m="${m}">${t}</button>`).join("") : "";
   drawShelf();
 }
 function drawShelf() {
   const q = $("shelfFind").value.trim().toLowerCase();
-  let list = shelf.filter(a => (!shelfMedium || (shelfMedium === "unplayed" ? !a.plays : a.medium === shelfMedium)) &&
+  let list = shelf.filter(a => (!shelfMedium || (shelfMedium === "unplayed" ? !a.plays : shelfMedium === "notowned" ? !a.owned : a.medium === shelfMedium)) &&
     (!q || (a.album + " " + a.artist + " " + (a.label || "")).toLowerCase().includes(q)));
   const by = { recent: (a, b) => b.last - a.last, most: (a, b) => b.plays - a.plays || b.last - a.last,
                artist: (a, b) => (a.artist || "").localeCompare(b.artist || "", undefined, { sensitivity: "base" }) || (a.year || "").localeCompare(b.year || ""),
@@ -2256,7 +2257,7 @@ function drawShelf() {
     : !list.length ? `<p class="muted">Nothing on your shelf matches that.</p>`
     : list.map(a => `<button class="shelfItem" data-key="${esc(a.key)}">
         <div class="cv">${a.art ? `<img src="${esc(a.art)}" alt="" loading="lazy">` : `<div class="ph">${esc((a.album || "?")[0])}</div>`}
-          ${shelfMedium && shelfMedium !== "unplayed" && !(a.kind === "single" && a.medium === "vinyl") ? "" : `<i class="md">${a.kind === "single" && a.medium === "vinyl" ? "45" : SHELF_MEDIA[a.medium][0]}</i>`}</div>
+          ${shelfMedium && !["unplayed", "notowned"].includes(shelfMedium) && !(a.kind === "single" && a.medium === "vinyl") ? "" : `<i class="md">${a.kind === "single" && a.medium === "vinyl" ? "45" : SHELF_MEDIA[a.medium][0]}</i>`}</div>
         <b title="${esc(a.album)}">${esc(a.album)}</b><span title="${esc(a.artist)}">${esc(a.artist)}</span>
         <small>${KIND_NAME[a.kind] ? KIND_NAME[a.kind] + " · " : ""}${!a.plays ? "Not played yet" : (a.plays === 1 ? "Played once" : a.plays + " plays") + " · " + shortDate(a.last)}</small>
         ${a.worn ? `<small class="worn">Skips often</small>` : ""}</button>`).join("");
@@ -2272,6 +2273,8 @@ async function openShelfItem(key) {
     <p class="muted" style="margin:.2em 0">${!a.plays ? "Not played with Liner Notes yet" : `${a.plays === 1 ? "Played once" : `Played ${a.plays} times`}, ${shortDate(a.first) === shortDate(a.last) ? "on " + shortDate(a.last) : `first on ${shortDate(a.first)}, last on ${shortDate(a.last)}`}`}</p>
     ${a.owned ? `<p class="muted" style="margin:.2em 0">In your Discogs collection${a.added ? " since " + new Date(a.added + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""}${a.formats ? " · " + esc(a.formats) : ""}${a.catno && a.catno !== "none" ? " · " + esc(a.catno) : ""}</p>` : ""}
     ${a.release_id ? `<p class="muted" id="sdMarket" style="margin:.2em 0"></p>` : ""}
+    ${!a.owned && shelfDiscogs.user ? `<div id="sdAdd" style="margin-top:1em"><span class="muted">Not in your Discogs collection.</span>
+      <button class="pill" id="sdAddBtn" style="margin-left:.6em">Add to Discogs</button><div id="sdPress"></div></div>` : ""}
     ${a.skips ? `<p class="${a.worn ? "worn" : "muted"}" style="margin:.8em 0 .2em">${a.worn ? "Skips often: may need replacing." : a.skips === 1 ? "Skipped once." : `Skipped ${a.skips} times.`}
       <span class="muted">${a.skip_songs.length ? "In " + a.skip_songs.map(x => "“" + esc(x) + "”").join(", ") + ". " : ""}${a.worn ? "Try cleaning it and checking the stylus first; if the same spots keep skipping, it's worn or scratched." : "One skip is usually dust or a bump."}</span></p>` : ""}
     <div class="row" style="margin-top:1.4em">${a.release_id ? `<button class="pill" id="sdPlay">I'm playing this</button>` : ""}<button class="pill" id="sdRemove">Remove from shelf</button>
@@ -2297,7 +2300,33 @@ async function shelfHide(key, hide) {
     return r.ok;
   } catch (e) { return false; }
 }
+async function showPressings() {
+  const a = shelfOpen;
+  if (!shelfDiscogs.token) { toast("Adding to Discogs needs your personal Discogs token: Settings > Accounts > Discogs > My collection is private."); return; }
+  $("sdPress").innerHTML = `<p class="muted">Finding pressings on Discogs…</p>`;
+  let d = {};
+  try { d = await (await fetch("/api/discogs/pressings?key=" + encodeURIComponent(a.key))).json(); } catch (e) {}
+  if (shelfOpen !== a) return;
+  const ps = d.pressings || [];
+  $("sdPress").innerHTML = !ps.length ? `<p class="muted">${esc(d.error || "Discogs didn't find this one. Search for it with Find a song or record.")}</p>`
+    : `<p class="muted" style="margin:.9em 0 .4em">Which one is yours?</p>` + ps.map(p => `
+      <div class="result" data-press="${p.id}"><img src="${esc(p.thumb || BLANK)}" alt="" loading="lazy">
+        <div><b>${esc(p.title)}</b><span>${[p.format, p.label, p.catno, p.country, p.year].filter(Boolean).map(esc).join(" · ")}</span>
+        ${p.followed ? `<span style="color:var(--gold)">The pressing Liner Notes followed</span>` : ""}</div></div>`).join("");
+}
+async function addToDiscogs(rid) {
+  const a = shelfOpen;
+  try {
+    const d = await (await fetch("/api/discogs/add", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ release_id: rid, key: a.key }) })).json();
+    if (!d.ok) { toast(d.error || "Couldn't add it."); return; }
+    toast(`Added ${a.album} to your Discogs collection.`);
+    await loadShelf(); openShelfItem(a.key);
+  } catch (e) { toast("Couldn't reach Liner Notes."); }
+}
 $("shelfDetail").addEventListener("click", async e => {
+  if (e.target.id === "sdAddBtn") { showPressings(); return; }
+  const pr = e.target.closest("[data-press]");
+  if (pr) { addToDiscogs(+pr.dataset.press); return; }
   if (e.target.id === "sdPlay" && shelfOpen) {
     // Load this release's tracklist and follow it, like picking it in record search
     try {

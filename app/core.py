@@ -1317,7 +1317,7 @@ class RecordSession:
         side, n, count = self.side_info(self.idx)
         artist = t["artist"] if (self.various or t["artist"]) else self.artist
         return {"id": make_id(artist, t["title"]), "title": t["title"], "artist": artist, "album": self.title,
-                "album_artist": self.artist,
+                "album_artist": self.artist, "release_id": self.id,
                 "art": self.cover, "source": "record", "medium": self.medium,
                 "app": (f"Track {n} of {count}" if self.medium == "cd" or not side.isalpha() else f"Side {side} · {n} of {count}"),
                 "status": "playing",
@@ -2167,10 +2167,14 @@ class History:
             db.execute("""CREATE TABLE IF NOT EXISTS collection (release_id INTEGER, instance_id INTEGER PRIMARY KEY,
                 title TEXT, artist TEXT, year TEXT, label TEXT, catno TEXT, formats TEXT, medium TEXT, thumb TEXT,
                 cover TEXT, added TEXT, rating INTEGER)""")
+            db.execute("CREATE TABLE IF NOT EXISTS shelf_links (release_id INTEGER PRIMARY KEY, key TEXT)")  # your copy -> the album you played
             db.execute("""CREATE TABLE IF NOT EXISTS skips (ts REAL NOT NULL, title TEXT, artist TEXT, album TEXT,
                 album_artist TEXT, medium TEXT, pos REAL)""")
-            if "album_artist" not in {r[1] for r in db.execute("PRAGMA table_info(plays)")}:
+            cols = {r[1] for r in db.execute("PRAGMA table_info(plays)")}
+            if "album_artist" not in cols:
                 db.execute("ALTER TABLE plays ADD COLUMN album_artist TEXT")   # the record's artist (Various Artists on a compilation)
+            if "release_id" not in cols:
+                db.execute("ALTER TABLE plays ADD COLUMN release_id INTEGER")  # the Discogs pressing, when its tracklist was followed
         self.saved_ids = self._saved_ids()
 
     def _saved_ids(self):
@@ -2284,7 +2288,7 @@ class History:
         with self._db() as db:
             db.row_factory = sqlite3.Row
             rows = [dict(r) for r in db.execute(
-                f"SELECT ts, title, artist, album, album_artist, source, art, year, label FROM plays "
+                f"SELECT ts, title, artist, album, album_artist, source, art, year, label, release_id FROM plays "
                 f"WHERE source IN ({','.join('?' * len(self.SHELF_MEDIA))}) AND album IS NOT NULL AND trim(album)!='' "
                 f"ORDER BY ts", self.SHELF_MEDIA)]
             hidden = {r[0] for r in db.execute("SELECT key FROM shelf_hidden")}
@@ -2300,6 +2304,15 @@ class History:
                            "medium,thumb,cover,added,rating) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                            [(i["release_id"], i["instance_id"], i["title"], i["artist"], i["year"], i["label"], i["catno"],
                              i["formats"], i["medium"], i["thumb"], i["cover"], i["added"], i["rating"]) for i in items])
+
+    def collection_add(self, i, shelf_key=None):
+        with self._db() as db:
+            if shelf_key:
+                db.execute("INSERT OR REPLACE INTO shelf_links (release_id, key) VALUES (?, ?)", (i["release_id"], shelf_key))
+            db.execute("INSERT OR REPLACE INTO collection (release_id,instance_id,title,artist,year,label,catno,formats,"
+                       "medium,thumb,cover,added,rating) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       (i["release_id"], i["instance_id"], i["title"], i["artist"], i["year"], i["label"], i["catno"],
+                        i["formats"], i["medium"], i["thumb"], i["cover"], i["added"], i["rating"]))
 
     def collection_rows(self):
         with self._db() as db:
@@ -2326,12 +2339,15 @@ class History:
                 a["album"] = r["album"]                   # 'Rumours' over 'Rumours (2004 Remaster)'
             for k in ("art", "year", "label"):
                 a[k] = r[k] or a[k]                       # the most recent known value
+            a["release_id"] = r["release_id"] or a.get("release_id")
         # Records in your Discogs collection: matched to what you've played, or on the shelf unplayed
+        with self._db() as db:
+            links = dict(db.execute("SELECT release_id, key FROM shelf_links").fetchall())
         for c in self.collection_rows():
             medium = c["medium"] or "other"
             if medium not in self.SHELF_MEDIA:
                 continue
-            k = self.shelf_key(medium, c["title"], c["artist"])
+            k = links.get(c["release_id"]) or self.shelf_key(medium, c["title"], c["artist"])
             if k in hidden:
                 continue
             a = out.get(k)
@@ -2339,7 +2355,7 @@ class History:
                 a = out[k] = {"key": k, "medium": medium, "album": c["title"], "artist": c["artist"], "plays": 0,
                               "first": None, "last": 0, "art": None, "year": None, "label": None, "_songs": set()}
             a["owned"] = True
-            a["release_id"] = a.get("release_id") or c["release_id"]
+            a["release_id"] = c["release_id"]             # the copy you own
             a["art"] = a["art"] or c["cover"] or c["thumb"]
             a["year"] = a["year"] or c["year"]
             a["label"] = a["label"] or c["label"]
@@ -2429,11 +2445,11 @@ class History:
         if art and art.startswith("/api/art/"):
             art = None                  # Windows thumbnails aren't kept, so don't store a dead link
         with self._db() as db:
-            db.execute("INSERT INTO plays (ts,title,artist,album,year,label,genre,source,art,duration_ms,album_artist) "
-                       "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO plays (ts,title,artist,album,year,label,genre,source,art,duration_ms,album_artist,release_id) "
+                       "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                        (time.time(), t.get("title"), t.get("artist"), t.get("album"), t.get("year"),
                         t.get("label"), t.get("genre"), (t.get("medium") or "room") if t.get("source") in ROOM_SOURCES
-                        else (t.get("app") or "PC"), art, t.get("duration_ms"), t.get("album_artist")))
+                        else (t.get("app") or "PC"), art, t.get("duration_ms"), t.get("album_artist"), t.get("release_id")))
 
     def stats(self, days):
         since = time.time() - days * 86400 if days else 0
@@ -3274,6 +3290,88 @@ async def api_collection(request):
     return web.json_response({**res, **collection_status()})
 
 
+async def discogs_post(http, path):
+    async with http.post(DISCOGS + path, headers=discogs_headers()) as r:
+        if r.status in (401, 403):
+            raise PermissionError("Discogs didn't accept the token")
+        if r.status == 429:
+            raise RuntimeError("Discogs is busy, try again in a minute")
+        r.raise_for_status()
+        return await r.json(content_type=None)
+
+
+def release_row(b, instance_id=None, added=None):
+    """A collection row from a Discogs release (full release or a collection item's basic_information)."""
+    fm = b.get("formats") or []
+    labels = b.get("labels") or [{}]
+    return {"release_id": b.get("id"), "instance_id": instance_id, "title": b.get("title") or "",
+            "artist": join_artists(b.get("artists")) or "", "year": str(b.get("year") or "") or None,
+            "label": clean_artist(labels[0].get("name")) or None, "catno": labels[0].get("catno"),
+            "formats": ", ".join(" ".join([f.get("name") or ""] + (f.get("descriptions") or [])) for f in fm),
+            "medium": discogs_medium({"formats": fm}) or "other",
+            "thumb": b.get("thumb") or None,
+            "cover": b.get("cover_image") or next((i.get("uri") for i in b.get("images") or [] if i.get("uri")), None),
+            "added": added or time.strftime("%Y-%m-%d"), "rating": 0}
+
+
+async def api_discogs_pressings(request):
+    """Which pressing to add to your collection: the one Liner Notes followed first, then Discogs' search."""
+    http = request.app["http"]
+    key = request.query.get("key") or ""
+    a = next((x for x in await asyncio.to_thread(request.app["state"].db.shelf) if x["key"] == key), None)
+    if not a:
+        return web.json_response({"pressings": []})
+    out, seen = [], set()
+    try:
+        if a.get("release_id"):
+            r = await discogs_get(http, f"/releases/{int(a['release_id'])}")
+            out.append({"id": r.get("id"), "title": f"{join_artists(r.get('artists'))} - {r.get('title')}",
+                        "year": r.get("year"), "format": release_row(r)["formats"], "label": release_row(r)["label"],
+                        "catno": release_row(r)["catno"], "country": r.get("country"),
+                        "thumb": release_row(r)["cover"], "followed": True})
+            seen.add(r.get("id"))
+        fmt = {"vinyl": "Vinyl", "cd": "CD", "cassette": "Cassette"}.get(a["medium"])
+        params = {"type": "release", "artist": main_artist(a["artist"]) if a["artist"].lower() not in ("various", "various artists") else "",
+                  "release_title": bare_album(a["album"]), "per_page": 12}
+        res = (await discogs_get(http, "/database/search", {**params, **({"format": fmt} if fmt else {})})).get("results", [])
+        if not res and fmt:
+            res = (await discogs_get(http, "/database/search", params)).get("results", [])
+        for r in res:
+            if r.get("id") in seen:
+                continue
+            seen.add(r.get("id"))
+            out.append({"id": r.get("id"), "title": r.get("title"), "year": r.get("year"),
+                        "format": ", ".join(r.get("format") or []), "label": ", ".join((r.get("label") or [])[:2]),
+                        "catno": r.get("catno"), "country": r.get("country"), "thumb": r.get("thumb") or r.get("cover_image")})
+    except Exception as e:
+        log("Discogs pressings lookup failed:", repr(e))
+        return web.json_response({"pressings": out, "error": "Couldn't reach Discogs."})
+    return web.json_response({"pressings": out[:8]})
+
+
+async def api_discogs_add(request):
+    """Add a pressing to your Discogs collection (the Uncategorized folder), then to the shelf here."""
+    app = request.app
+    if not (CFG.get("discogs_token") or "").strip() or not discogs_user():
+        return web.json_response({"ok": False, "need_token": True,
+                                  "error": "Adding to Discogs needs your personal Discogs token: Settings > Accounts > Discogs."})
+    body = await request.json()
+    try:
+        rid = int(body.get("release_id"))
+        res = await discogs_post(app["http"], f"/users/{urllib.parse.quote(discogs_user())}/collection/folders/1/releases/{rid}")
+        rel = await discogs_get(app["http"], f"/releases/{rid}")
+    except PermissionError:
+        return web.json_response({"ok": False, "need_token": True, "error": "Discogs didn't accept the token. Paste it again in Settings."})
+    except Exception as e:
+        log("adding to the Discogs collection failed:", repr(e))
+        return web.json_response({"ok": False, "error": "Couldn't add it. Try again in a minute."})
+    row = release_row(rel, res.get("instance_id"))
+    await asyncio.to_thread(app["state"].db.collection_add, row, body.get("key"))
+    save_cfg(discogs_count=(CFG.get("discogs_count") or 0) + 1)
+    log(f"added to the Discogs collection: {row['artist']} - {row['title']} ({rid})")
+    return web.json_response({"ok": True, "title": row["title"]})
+
+
 async def api_market(request):
     """What a release goes for on the Discogs marketplace (lowest price listed, how many for sale)."""
     try:
@@ -3290,7 +3388,7 @@ async def api_shelf(request):
     db = request.app["state"].db
     if request.query.get("key"):
         return web.json_response({"songs": await asyncio.to_thread(db.shelf_songs, request.query["key"])})
-    return web.json_response({"albums": await asyncio.to_thread(db.shelf)})
+    return web.json_response({"albums": await asyncio.to_thread(db.shelf), "discogs": collection_status()})
 
 
 async def api_shelf_hide(request):
@@ -4065,7 +4163,7 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/", "/api/stylus", "/api/shelf/hide", "/api/collection")
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/", "/api/stylus", "/api/shelf/hide", "/api/collection", "/api/discogs/")
 
 
 @web.middleware
@@ -4330,6 +4428,8 @@ def build_app(demo=False):
     app.router.add_get("/api/collection", api_collection)
     app.router.add_post("/api/collection", api_collection)
     app.router.add_get("/api/market", api_market)
+    app.router.add_get("/api/discogs/pressings", api_discogs_pressings)
+    app.router.add_post("/api/discogs/add", api_discogs_add)
     app.router.add_post("/api/album/name", api_album_name)
     app.router.add_post("/api/album/ask", api_album_ask)
     app.router.add_post("/api/shelf/hide", api_shelf_hide)
