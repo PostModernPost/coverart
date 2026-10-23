@@ -35,7 +35,10 @@ import recap
 
 APP_NAME = "Liner Notes"
 # Bundled files (display.html) live next to this file, or in PyInstaller's unpack folder when installed.
-HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+HERE = os.environ.get("LINERNOTES_HERE") or getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+# Running inside the Android app (the phone works on its own, without a PC): no Windows media, no tray,
+# no installer updates; the app records with the phone's mic and uploads to /api/audio.
+ANDROID = os.environ.get("LINERNOTES_ENGINE") == "android"
 # Settings and the log live in the user's AppData, since Program Files is read-only.
 DATA_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), APP_NAME)
 
@@ -1713,6 +1716,17 @@ def mic_choices():
 SHAZAM_REPLY = {}
 
 
+def shazam_client():
+    """shazamio where it installs (Windows); otherwise the plain-Python copy of its recognizer (Android)."""
+    try:
+        if ANDROID:
+            raise ImportError("no compiled shazamio core on Android")
+        from shazamio import Shazam
+    except ImportError:
+        from shazam_lite import Shazam
+    return Shazam()
+
+
 async def shazam_identify(shz, wav_bytes):
     path = os.path.join(tempfile.gettempdir(), "linernotes_clip.wav")
     with open(path, "wb") as f:
@@ -1749,7 +1763,7 @@ UNKNOWN = {"id": "unknown", "title": "Couldn't identify this one", "artist": "",
 async def turntable_loop(app):
     app["listen_mode"] = "off"
     try:
-        if str(CFG["audio_device"]).lower() == "phone":
+        if ANDROID or str(CFG["audio_device"]).lower() == "phone":
             mic = PhoneMic()
         else:
             mic = PcMic(pick_device(CFG["audio_device"]))
@@ -1759,8 +1773,7 @@ async def turntable_loop(app):
     app["mic"] = mic
     log(f"Microphone: {mic.name}. Standby: {CFG['probe_seconds']}s sample every {CFG['probe_every_seconds']}s.")
     try:
-        from shazamio import Shazam
-        shz = Shazam()
+        shz = shazam_client()
     except Exception as e:
         log("Song recognition unavailable (shazamio failed to load):", repr(e))
         return
@@ -2748,6 +2761,8 @@ async def install_update(app):
 
 
 def update_info(app):
+    if ANDROID:            # the app updates itself (or Play does)
+        return {"current": VERSION, "available": None, "updating": False}
     return {"current": VERSION, "available": app.get("update"), "updating": bool(app.get("updating"))}
 
 
@@ -3537,7 +3552,8 @@ async def api_spotify_connect(request):
     url = "https://accounts.spotify.com/authorize?" + urllib.parse.urlencode({
         "client_id": cid, "response_type": "code", "redirect_uri": spotify_redirect(), "state": state,
         "scope": SPOTIFY_SCOPES, "code_challenge_method": "S256", "code_challenge": challenge})
-    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+    if not ANDROID:
+        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
     return web.json_response({"ok": True, "url": url})
 
 
@@ -3656,8 +3672,9 @@ async def api_lastfm_connect(request):
         return web.json_response({"error": "This build doesn't include a Last.fm key."}, status=400)
     cb = f"http://127.0.0.1:{CFG['port']}/api/lastfm/callback"
     url = "https://www.last.fm/api/auth/?" + urllib.parse.urlencode({"api_key": LASTFM_KEY, "cb": cb})
-    threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
-    return web.json_response({"ok": True})
+    if not ANDROID:            # on the phone, the page opens it in the phone's browser
+        threading.Thread(target=webbrowser.open, args=(url,), daemon=True).start()
+    return web.json_response({"ok": True, "url": url})
 
 
 async def api_lastfm_callback(request):
@@ -4227,6 +4244,8 @@ async def api_phone_install(request):
 
 async def api_mic_list(request):
     """The microphones Settings offers, and which one is listening now."""
+    if ANDROID:            # the phone app always listens with the phone's mic: Settings hides the choice
+        return web.json_response({"error": "phone"}, status=404)
     cur = CFG.get("audio_device")
     names = await asyncio.to_thread(mic_choices)
     mic = request.app.get("mic")
@@ -4489,6 +4508,7 @@ async def api_now(request):
                               "phone_off_minutes": CFG.get("phone_off_minutes") or 0,
                               "phone_screen": "off" if request.app.get("phone_idle_off") else "on",
                               "pc_name": __import__("socket").gethostname()[:40],
+                              "engine": "android" if ANDROID else "pc",
                               # a phone asking to pair: only Liner Notes on the PC itself is asked
                               "pair_requests": pair_requests() if request.remote in ("127.0.0.1", "::1")
                               and "Android" not in request.headers.get("User-Agent", "") else [],
@@ -4551,8 +4571,7 @@ async def shazam_page(artist, title):
         return _shazam_pages[key]
     url = None
     try:
-        from shazamio import Shazam
-        res = await asyncio.wait_for(Shazam().search_track(f"{main_artist(artist)} {clean_title(title)}", limit=5), 8)
+        res = await asyncio.wait_for(shazam_client().search_track(f"{main_artist(artist)} {clean_title(title)}", limit=5), 8)
         hits = ((res or {}).get("tracks") or {}).get("hits") or (res or {}).get("hits") or []
         for h in hits:
             tr = h.get("track") or h
@@ -4631,6 +4650,11 @@ async def on_startup(app):
     if app["demo"]:
         app["tasks"] = [asyncio.create_task(demo_loop(app))]
     else:
+        if ANDROID:
+            app["tasks"] = [asyncio.create_task(turntable_loop(app)),
+                            asyncio.create_task(lastfm_loop(app)),
+                            asyncio.create_task(collection_loop(app))]
+            return
         app["tasks"] = [asyncio.create_task(pc_media_loop(app)),
                         asyncio.create_task(turntable_loop(app)),
                         asyncio.create_task(update_loop(app)),

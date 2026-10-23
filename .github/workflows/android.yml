@@ -3,7 +3,7 @@ name: Build Android app
 on:
   push:
     branches: [main]
-    paths: ["android/**", "VERSION", ".github/workflows/android.yml"]
+    paths: ["android/**", "app/**", "VERSION", ".github/workflows/android.yml"]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +21,28 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      # The phone runs the same Python engine as the Windows app (Chaquopy builds it with this Python)
+      - uses: actions/setup-python@v5
+        id: py
+        with:
+          python-version: "3.12"
+
+      - name: Engine files
+        env:
+          DISCOGS_KEY: ${{ secrets.DISCOGS_KEY }}
+          DISCOGS_SECRET: ${{ secrets.DISCOGS_SECRET }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          LASTFM_KEY: ${{ secrets.LASTFM_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+        run: |
+          python packaging/write_secrets.py
+          echo "CHAQUOPY_BUILD_PYTHON=${{ steps.py.outputs.python-path }}" >> "$GITHUB_ENV"
+          # aiohttp and its helpers as plain-Python wheels (their compiled parts aren't built for Android)
+          AIOHTTP_NO_EXTENSIONS=1 MULTIDICT_NO_EXTENSIONS=1 YARL_NO_EXTENSIONS=1 FROZENLIST_NO_EXTENSIONS=1 PROPCACHE_NO_EXTENSIONS=1 \
+            python -m pip wheel --no-binary aiohttp,multidict,yarl,frozenlist,propcache aiohttp -w android/wheels
+          ls android/wheels
+          for w in android/wheels/*.whl; do case "$w" in *-none-any.whl) ;; *) echo "::error::not a plain-Python wheel: $w"; exit 1;; esac; done
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -55,7 +77,7 @@ jobs:
             android/app/build/outputs/bundle/**/*.aab
 
       - name: Attach to the release
-        if: env.HAS_KEY == 'true'
+        if: env.HAS_KEY == 'true' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

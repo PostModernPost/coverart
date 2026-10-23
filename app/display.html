@@ -533,6 +533,7 @@
     padding: .7em 1.3em; font-size: calc(var(--ts) * clamp(13px, 2.8vmin, 20px)); white-space: nowrap; }
   html.in-app .pc-only { display: none !important; }
   html:not(.in-app) .app-only { display: none !important; }
+  html.app-solo .not-solo, html.app-pc .not-app-pc, html:not(.app-pc) .app-pc-only, html:not(.app-solo) .solo-only { display: none !important; }
 </style>
 </head>
 <body>
@@ -820,8 +821,8 @@
       <button class="pill" data-rm="cassette">Cassette</button><button class="pill" data-rm="radio">Radio</button><button class="pill" data-rm="other">Other</button></div></div>
   <div class="setting" id="followAlbumRow">
     <div>Follow the album<small>When a song on a record, CD or tape is recognized, Liner Notes assumes the album is playing and shows the next songs in order, switching when each one's length is up, even if Shazam can't match them. Turn off for mixtapes and compilations, or load the compilation with Manual search.</small></div><div class="switch"></div></div>
-  <h3 style="margin-top:3vmin;margin-bottom:0">On this PC</h3>
-  <div class="setting" id="pcMediaRow" style="cursor:default">
+  <h3 class="not-solo" style="margin-top:3vmin;margin-bottom:0">On this PC</h3>
+  <div class="setting not-solo" id="pcMediaRow" style="cursor:default">
     <div>Apps on this PC<small>What Liner Notes shows from this PC. Music apps only: Spotify, Apple Music, Tidal and other music players, plus music sites in a browser (Spotify, YouTube Music, Bandcamp). Everything: anything Windows says is playing, YouTube and Reddit videos included.</small></div>
     <div class="sizes"><button class="pill" data-pm="music">Music apps only</button><button class="pill" data-pm="all">Everything</button></div></div>
   <h3 style="margin-top:3vmin;margin-bottom:0">Microphone</h3>
@@ -861,9 +862,12 @@
     </details>
   </div>
   <h3 class="group app-only">This phone</h3>
-  <div class="setting app-only" style="cursor:default">
+  <div class="setting app-pc-only" style="cursor:default">
     <div>Connected to <span id="appPc">your PC</span><small>This phone shows what Liner Notes on that PC hears and plays.</small></div>
-    <button class="pill" id="appSwitch">Connect to a different PC</button></div>
+    <button class="pill appSwitch">Connect to a different PC</button></div>
+  <div class="setting solo-only" style="cursor:default">
+    <div>Working on its own<small>This phone listens with its own microphone. Connect it to Liner Notes on your PC to use the PC's microphone or line in and show what the PC plays. It also switches to a PC it knows by itself when one is on.</small></div>
+    <button class="pill appSwitch">Connect to a PC</button></div>
   <div class="pc-only">
   <h3 class="group">Phone screen</h3>
   <div class="setting" id="phoneSetupRow" style="cursor:pointer">
@@ -881,8 +885,8 @@
     <div>Phone screen sleeps and wakes with this PC<small>A phone plugged in over USB turns its screen off when the PC sleeps or hibernates, and back on when it wakes.</small></div><div class="switch"></div></div>
   </div>
   <h3 class="group">Accounts</h3>
-  <p class="muted app-only">Spotify, Discogs and Last.fm are connected in Liner Notes on your PC.</p>
-  <div class="pc-only">
+  <p class="muted app-pc-only">Spotify, Discogs and Last.fm are connected in Liner Notes on your PC.</p>
+  <div class="not-app-pc">
   <h3 style="margin-top:3vmin;margin-bottom:0">Spotify</h3>
   <div id="spotifyBox">
     <div class="muted" id="spStatus">Checking…</div>
@@ -913,7 +917,7 @@
   <div id="lastfmBox" style="margin-top:1em">
     <div class="muted" id="lfStatus">Checking…</div>
     <div class="row" id="lfButtons" style="align-items:center;margin-top:1em"></div>
-    <div class="setting" id="lfPc" style="display:none">
+    <div class="setting not-solo" id="lfPc" style="display:none">
       <div>Also scrobble Spotify and other apps on this PC<small>Leave this off if Spotify is already connected to Last.fm (Spotify's settings), or songs will count twice.</small></div><div class="switch"></div></div>
   </div>
   </div>
@@ -941,7 +945,8 @@
 const $ = id => document.getElementById(id);
 // The Liner Notes phone app shows this page and handles the mic, screen and sharing itself
 const APP = window.LinerNotesApp || null, IN_APP = !!APP;
-if (IN_APP) document.documentElement.classList.add("in-app");
+const APP_SOLO = IN_APP && (() => { try { return APP.mode() === "solo"; } catch (e) { return false; } })();   // the phone on its own
+if (IN_APP) document.documentElement.classList.add("in-app", APP_SOLO ? "app-solo" : "app-pc");
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 let version = -1, current = null, infoFor = null, donateUrl = "", coffeeShown = false;
 const infoCache = {};
@@ -1938,8 +1943,9 @@ async function loadSpotify() {
 $("spotifyBox").addEventListener("click", async e => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.id === "spOn") {
-    await fetch("/api/spotify/connect", { method: "POST" });
-    $("spStatus").textContent = "Finish logging in in the browser on your PC, then come back here.";
+    const cr = await fetch("/api/spotify/connect", { method: "POST" });
+    if (APP_SOLO) { try { const j = await cr.json(); if (j.url) APP.openUrl(j.url); } catch (e) {} }
+    $("spStatus").textContent = `Finish logging in in the browser on ${APP_SOLO ? "this phone" : "your PC"}, then come back here.`;
     clearInterval(spPoll);
     let n = 0;
     spPoll = setInterval(async () => {
@@ -1993,8 +1999,9 @@ $("lastfmBox").addEventListener("click", async e => {
   }
   const b = e.target.closest("button"); if (!b) return;
   if (b.id === "lfOn") {
-    await fetch("/api/lastfm/connect", { method: "POST" });
-    $("lfStatus").textContent = "Click Yes, allow access in the browser on your PC, then come back here.";
+    const cr = await fetch("/api/lastfm/connect", { method: "POST" });
+    if (APP_SOLO) { try { const j = await cr.json(); if (j.url) APP.openUrl(j.url); } catch (e) {} }
+    $("lfStatus").textContent = `Click Yes, allow access in the browser on ${APP_SOLO ? "this phone" : "your PC"}, then come back here.`;
     clearInterval(lfPoll); let n = 0;
     lfPoll = setInterval(async () => {
       const lf = await (await fetch("/api/lastfm/status")).json().catch(() => null);
@@ -2070,7 +2077,8 @@ function showUpdate(u) {
   pillShow();
   $("verLine").textContent = u.current === "dev" ? "Liner Notes (running from source)" : `Liner Notes ${u.current}`;
   if (IN_APP) { let av = ""; try { av = APP.version(); } catch (e) {}
-    $("verLine").innerHTML = `This app: ${esc(av)}<br>Liner Notes on your PC: ${esc(u.current)}`; }
+    $("verLine").innerHTML = APP_SOLO ? `Liner Notes for Android ${esc(av)}` : `This app: ${esc(av)}<br>Liner Notes on your PC: ${esc(u.current)}`; }
+  if (APP_SOLO) { $("updRow").innerHTML = ""; $("updNotes").textContent = ""; return; }     // the app updates itself
   if (updBusy || u.updating) {
     $("updRow").innerHTML = `<span class="muted">Downloading the update. Liner Notes will close and reopen in a minute.</span>`;
     $("updNotes").textContent = ""; return;
@@ -2791,10 +2799,10 @@ stayAwake();
 // In the phone app, Settings talks about the PC from the phone's side
 if (IN_APP) {
   const w = document.createTreeWalker($("settings"), NodeFilter.SHOW_TEXT);
-  for (let n; (n = w.nextNode());) if (/this PC/.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/this PC/g, "your PC");
+  for (let n; (n = w.nextNode());) if (/this PC/.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/this PC/g, APP_SOLO ? "this phone" : "your PC");
   $("appPc").textContent = location.hostname;
-  fetch("/api/now").then(r => r.json()).then(d => { if (d.pc_name) $("appPc").textContent = d.pc_name; }).catch(() => {});
-  $("appSwitch").addEventListener("click", () => { try { APP.switchPc(); } catch (e) {} });
+  if (!APP_SOLO) fetch("/api/now").then(r => r.json()).then(d => { if (d.pc_name) $("appPc").textContent = d.pc_name; }).catch(() => {});
+  document.querySelectorAll(".appSwitch").forEach(b => b.addEventListener("click", () => { try { APP.switchPc(); } catch (e) {} }));
 }
 
 applySettings();

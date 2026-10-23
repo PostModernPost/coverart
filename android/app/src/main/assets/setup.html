@@ -53,17 +53,23 @@ const HELP = `<ol>
   <li>Make sure this phone and the PC are on the <b>same Wi-Fi</b>.</li>
   <li>On the PC, turn on Wi-Fi sharing: <b>Settings &gt; Phone screen &gt; Use a phone as a second screen</b>, then the <b>Wi-Fi / iPhone</b> tab, and turn on sharing.</li>
 </ol><p>Or plug this phone into the PC with a USB cable (the PC's phone setup walks you through it).</p>`;
+const SOLO = `<button class="ghost" data-act="solo">Use this phone on its own</button>
+  <p style="margin-top:12px;font-size:15px">On its own, the phone listens with its microphone. You can connect to a PC later in Settings.</p>`;
 window.ln = {
   show(json) {
     const s = typeof json === "string" ? JSON.parse(json) : json;
     let h = "";
     if (s.view === "searching") h = `<h1><span class="spin"></span>Looking for your PC…</h1><p>Liner Notes on your PC needs to be open, on the same Wi-Fi as this phone.</p>`;
-    else if (s.view === "found") h = `<h1>Pick your PC</h1>` + s.list.map(p => `<button class="pc" data-url="${esc(p.url)}" data-name="${esc(p.name)}"><span><b>${esc(p.name)}</b><br><span>${esc(p.url.replace(/^http:\/\//, ""))}</span></span><span>›</span></button>`).join("");
-    else if (s.view === "notfound") h = `<h1>Can't find Liner Notes</h1>${HELP}<button class="main" data-act="retry">Look again</button>`;
+    else if (s.view === "found") h = `<h1>${s.solo ? "Liner Notes is on your PC" : "Pick your PC"}</h1>` +
+      (s.solo ? `<p>Connect to it to use its microphone or line in, and see what it plays. Or use this phone on its own.</p>` : "") +
+      s.list.map(p => `<button class="pc" data-url="${esc(p.url)}" data-name="${esc(p.name)}"><span><b>${esc(p.name)}</b><br><span>${esc(p.url.replace(/^http:\/\//, ""))}</span></span><span>›</span></button>`).join("") + SOLO;
+    else if (s.view === "starting") h = `<h1><span class="spin"></span>Getting Liner Notes ready…</h1><p>The first start takes a few seconds.</p>`;
+    else if (s.view === "notfound") h = `<h1>Can't find Liner Notes on a PC</h1>${HELP}<button class="main" data-act="retry">Look again</button><br>${SOLO}`;
     else if (s.view === "pair") h = `<h1>Connect to ${esc(s.name)}</h1><p>On your PC, Liner Notes is asking whether to connect this phone. Check it shows this code, then click <b style="color:var(--fg)">Connect</b> there.</p><div class="code">${esc(s.code)}</div><p><span class="spin"></span>Waiting for the PC…</p>`;
     else if (s.view === "denied") h = `<h1>Not connected</h1><p>The PC said no. If that was a mistake, try again and click Connect on the PC.</p><button class="main" data-act="retry">Try again</button>`;
-    else if (s.view === "error") h = `<h1>Something went wrong</h1><p class="err">${esc(s.msg)}</p>${HELP}<button class="main" data-act="retry">Try again</button>`;
+    else if (s.view === "error") h = `<h1>Something went wrong</h1><p class="err">${esc(s.msg)}</p>${HELP}<button class="main" data-act="retry">Try again</button><br>${SOLO}`;
     $("view").innerHTML = h;
+    $("manualBox").style.display = s.view === "starting" ? "none" : "";
   }
 };
 $("view").addEventListener("click", e => {
@@ -71,6 +77,7 @@ $("view").addEventListener("click", e => {
   if (pc) { app.connectTo(pc.dataset.url, pc.dataset.name); return; }
   const b = e.target.closest("[data-act]");
   if (b && b.dataset.act === "retry") app.retry();
+  if (b && b.dataset.act === "solo") app.solo();
 });
 $("manualForm").addEventListener("submit", e => { e.preventDefault(); app.manual($("addr").value); });
 ln.show({ view: "searching" });

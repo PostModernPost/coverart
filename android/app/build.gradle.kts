@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.chaquo.python")      // Liner Notes' engine (the same Python code as the Windows app) runs inside the app
 }
 
 // The app's version follows the PC app's VERSION file (0.7.58 -> versionName 0.7.58, versionCode 7058)
@@ -20,7 +21,11 @@ android {
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersion
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
+
+    // display.html and the fonts, which the engine serves; copied out of the app at first start
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("engineAssets"))
 
     buildFeatures { buildConfig = true }
 
@@ -54,6 +59,35 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+val engineAssets = tasks.register<Copy>("engineAssets") {
+    from(rootProject.file("../app")) { include("display.html", "fonts/**") }
+    into(layout.buildDirectory.dir("engineAssets/engine"))
+}
+tasks.named("preBuild") { dependsOn(engineAssets) }
+
+// Pure-Python wheels of aiohttp and its helpers, built by the workflow (their compiled versions aren't made for Android)
+val wheelDir = rootProject.file("wheels")
+
+chaquopy {
+    defaultConfig {
+        version = "3.12"
+        System.getenv("CHAQUOPY_BUILD_PYTHON")?.let { buildPython(it) }
+        pip {
+            if (wheelDir.isDirectory) {
+                options("--find-links", wheelDir.absolutePath)
+                wheelDir.listFiles { f -> f.name.endsWith(".whl") }?.sortedBy { it.name }?.forEach { install(it.absolutePath) }
+            } else {
+                install("aiohttp")
+            }
+            install("numpy")
+            install("pillow")
+        }
+    }
+    sourceSets {
+        getByName("main") { srcDir(rootProject.file("../app")) }
     }
 }
 

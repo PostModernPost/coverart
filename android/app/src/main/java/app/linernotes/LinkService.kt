@@ -35,6 +35,8 @@ class LinkService : Service() {
         @Volatile var serverUrl: String? = null
         /** The screen should stay dark (nothing playing for a while, or the PC is asleep). MainActivity reads this. */
         @Volatile var screenOffWanted = false
+        /** Liner Notes (on the PC, or on this phone) answered the last poll. */
+        @Volatile var reachable = true
         var onState: ((JSONObject?) -> Unit)? = null      // MainActivity listens for the PC's state
 
         fun start(c: Context, url: String) {
@@ -87,7 +89,7 @@ class LinkService : Service() {
         val n: Notification = (if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else @Suppress("DEPRECATION") Notification.Builder(this))
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle("Liner Notes")
-            .setContentText(if (micMode != "off") "Listening for records with this phone" else "Following Liner Notes on your PC")
+            .setContentText(if (micMode != "off") "Listening for records with this phone" else if (Engine.isLocal(serverUrl)) "Liner Notes is running" else "Following Liner Notes on your PC")
             .setContentIntent(open)
             .setOngoing(true)
             .build()
@@ -108,6 +110,7 @@ class LinkService : Service() {
             if (url == null) { Thread.sleep(1000); continue }
             val r = Link.call(this, url, "/api/now", timeoutMs = 2500)
             val now = System.currentTimeMillis()
+            reachable = r != null && r.first == 200
             if (r == null || r.first != 200) {
                 // The PC is off, asleep or out of reach. After 20 s, let the screen go dark (it comes back with the PC).
                 if (failSince == 0L) failSince = now

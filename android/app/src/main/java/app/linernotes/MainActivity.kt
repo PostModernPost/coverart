@@ -94,7 +94,11 @@ class MainActivity : Activity() {
     }
 
     // ---------------------------------------------------------------- finding and connecting to the PC
-    private fun connect() {
+    /**
+     * At start: Liner Notes on a PC if there's one this phone knows (the PC used last time, one over USB,
+     * or one on the Wi-Fi it was connected to before). Otherwise the phone works on its own.
+     */
+    private fun connect(auto: Boolean = true) {
         say(JSONObject().put("view", "searching"))
         io.execute {
             val saved = Link.savedUrl(this)
@@ -102,24 +106,82 @@ class MainActivity : Activity() {
             for (u in listOfNotNull(saved, Link.USB_URL).distinct()) {
                 if (Link.alive(this, u)) {
                     if (Link.trusted(this, u)) { main.post { open(u) }; return@execute }
-                    main.post { startPairing(u, null) }; return@execute
+                    if (!auto || !Link.soloChosen(this)) { main.post { startPairing(u, null) }; return@execute }
                 }
             }
-            main.post { search() }
+            main.post { search(auto) }
         }
     }
 
-    private fun search() {
+    /** auto: at start (no PC found means on its own); otherwise the person asked to connect to a PC. */
+    private fun search(auto: Boolean = false) {
         found.clear()
         say(JSONObject().put("view", "searching"))
         finder?.stop()
+        val gen = Any(); searchGen = gen
         finder = Finder(this) { name, url ->
-            if (server != null || pairing != null) return@Finder
+            if (server != null || pairing != null || searchGen !== gen) return@Finder
             found[url] = name
-            say(JSONObject().put("view", "found").put("list", JSONArray(found.map { JSONObject().put("name", it.value).put("url", it.key) })))
+            if (auto) {
+                // one this phone was connected to before: straight there
+                io.execute { if (Link.token(this, url) != null && Link.trusted(this, url)) main.post { if (server == null && searchGen === gen) open(url) } }
+            } else {
+                say(JSONObject().put("view", "found").put("list", JSONArray(found.map { JSONObject().put("name", it.value).put("url", it.key) })))
+            }
         }.also { it.start() }
-        // nothing after a while: show the help
-        main.postDelayed({ if (server == null && pairing == null && found.isEmpty()) say(JSONObject().put("view", "notfound")) }, 9000)
+        if (auto) {
+            main.postDelayed({
+                if (server != null || pairing != null || searchGen !== gen) return@postDelayed
+                if (found.isNotEmpty() && !Link.soloChosen(this))       // a PC that isn't connected yet: offer it
+                    say(JSONObject().put("view", "found").put("solo", true)
+                        .put("list", JSONArray(found.map { JSONObject().put("name", it.value).put("url", it.key) })))
+                else goSolo()
+            }, 4000)
+        } else {
+            // nothing after a while: show the help
+            main.postDelayed({ if (server == null && pairing == null && found.isEmpty() && searchGen === gen) say(JSONObject().put("view", "notfound")) }, 9000)
+        }
+    }
+    private var searchGen: Any? = null
+
+    // ---------------------------------------------------------------- on its own: the engine on this phone
+    private fun goSolo() {
+        finder?.stop()
+        searchGen = null
+        pairing = null
+        Link.setSoloChosen(this, true)
+        if (server == null) say(JSONObject().put("view", "starting"))
+        Engine.start(this)
+        io.execute {
+            val ok = Engine.waitReady(this)
+            main.post {
+                if (!ok) { say(JSONObject().put("view", "error").put("msg", "Liner Notes couldn't start on this phone.")); return@post }
+                open(Engine.URL)
+            }
+        }
+    }
+
+    /** While on its own, look every 30 s for a PC this phone knows (Wi-Fi or USB) and switch to it. */
+    private val lookForPc = object : Runnable {
+        override fun run() {
+            if (!Engine.isLocal(server)) return
+            io.execute {
+                val saved = Link.savedUrl(this@MainActivity)
+                for (u in listOfNotNull(saved, Link.USB_URL).distinct()) {
+                    if (Link.alive(this@MainActivity, u) && Link.trusted(this@MainActivity, u)) {
+                        main.post { if (Engine.isLocal(server)) open(u) }
+                        return@execute
+                    }
+                }
+                main.postDelayed(this, 30_000)
+            }
+        }
+    }
+
+    /** The PC stopped answering: after a minute, carry on without it. */
+    private val pcGone = Runnable {
+        val s = server
+        if (s != null && !Engine.isLocal(s) && !LinkService.reachable) goSolo()
     }
 
     private fun pick(url: String, name: String?) {
@@ -162,8 +224,11 @@ class MainActivity : Activity() {
 
     private fun open(url: String) {
         finder?.stop()
+        searchGen = null
         server = url
-        Link.saveUrl(this, url)
+        main.removeCallbacks(lookForPc); main.removeCallbacks(pcGone)
+        if (Engine.isLocal(url)) main.postDelayed(lookForPc, 30_000)
+        else Link.saveUrl(this, url)
         Link.token(this, url)?.let { t ->
             CookieManager.getInstance().setCookie(url, "ln_device=$t; Max-Age=315360000; Path=/")
             CookieManager.getInstance().flush()
@@ -188,6 +253,7 @@ class MainActivity : Activity() {
     // ---------------------------------------------------------------- the PC's state, from LinkService
     private fun onPcState(j: JSONObject?) {
         if (server == null) return
+        if (j == null && !Engine.isLocal(server)) { main.removeCallbacks(pcGone); main.postDelayed(pcGone, 40_000) }
         if (j != null) {
             val micOn = j.optJSONObject("mic")?.optString("mode", "off") != "off"
             if (micOn && !askedMic && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -282,7 +348,7 @@ class MainActivity : Activity() {
             if (r == "1") return@evaluateJavascript
             AlertDialog.Builder(this)
                 .setTitle("Liner Notes")
-                .setItems(arrayOf("Keep showing it", "Connect to a different PC", "Close the app")) { _, which ->
+                .setItems(arrayOf("Keep showing it", if (Engine.isLocal(server)) "Connect to a PC" else "Connect to a different PC", "Close the app")) { _, which ->
                     when (which) {
                         1 -> switchPc()
                         2 -> { LinkService.stop(this); finish() }
@@ -291,7 +357,12 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun switchPc() { LinkService.stop(this); Link.forget(this); showSetup(); search() }
+    private fun switchPc() {
+        LinkService.stop(this)
+        main.removeCallbacks(lookForPc); main.removeCallbacks(pcGone)
+        if (!Engine.isLocal(server)) Link.forget(this)
+        showSetup(); search()
+    }
 
     private fun shareText(title: String, text: String, url: String) {
         val i = Intent(Intent.ACTION_SEND).setType("text/plain")
@@ -324,6 +395,9 @@ class MainActivity : Activity() {
         @JavascriptInterface fun screenOff() = main.post { goDark() }.let { }
         @JavascriptInterface fun share(title: String?, text: String?, url: String?) = main.post { shareText(title ?: "", text ?: "", url ?: "") }.let { }
         @JavascriptInterface fun shareImage(url: String, name: String) = this@MainActivity.shareImage(url, name)
+        @JavascriptInterface fun openUrl(url: String) = main.post { if (url.startsWith("https://")) openExternal(Uri.parse(url)) }.let { }
+        @JavascriptInterface fun mode(): String = if (Engine.isLocal(server)) "solo" else "pc"
+        @JavascriptInterface fun solo() = main.post { goSolo() }.let { }
         @JavascriptInterface fun switchPc() = main.post { this@MainActivity.switchPc() }.let { }
         // updates for the copy installed from GitHub
         @JavascriptInterface fun appUpdate(): String = Updater.json(this@MainActivity)
@@ -332,7 +406,7 @@ class MainActivity : Activity() {
         @JavascriptInterface fun version(): String = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
         // setup page
         @JavascriptInterface fun ready() = main.post { lastSay?.let { say(it) } }.let { }
-        @JavascriptInterface fun retry() = main.post { pairing = null; connect() }.let { }
+        @JavascriptInterface fun retry() = main.post { pairing = null; connect(auto = false) }.let { }
         @JavascriptInterface fun connectTo(url: String, name: String?) = main.post { pick(url, name) }.let { }
         @JavascriptInterface fun manual(address: String) = main.post {
             var a = address.trim()
