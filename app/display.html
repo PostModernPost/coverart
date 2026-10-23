@@ -838,6 +838,19 @@
       <div class="row"><input id="spId" class="field" placeholder="Client ID" autocomplete="off" style="flex:1"><button class="pill" id="spIdSave">Save</button></div>
     </details>
   </div>
+  <h3 style="margin-top:3vmin;margin-bottom:0">Discogs</h3>
+  <div id="discogsBox" style="margin-top:1em">
+    <div class="muted" id="dcStatus">Add your Discogs collection to your shelf, including records you haven't played yet.</div>
+    <form class="row" id="dcForm" style="margin-top:.9em"><input id="dcUser" class="field" placeholder="Your Discogs username" autocomplete="off" style="flex:1;font-size:.95em;padding:.5em 1em">
+      <button class="pill" type="submit" id="dcSync">Add my collection</button></form>
+    <div class="row" id="dcButtons" style="display:none;margin-top:.9em"><button class="pill" id="dcNow">Sync now</button><button class="pill" id="dcOff">Disconnect</button></div>
+    <details id="dcPrivate" style="margin-top:1.2em"><summary class="muted" style="cursor:pointer">My collection is private</summary>
+      <p class="muted" style="margin:.8em 0">Paste a personal access token from
+        <a href="https://www.discogs.com/settings/developers" target="_blank" rel="noopener" style="color:var(--gold)">discogs.com/settings/developers</a>
+        (sign in, then "Generate new token"). Liner Notes only reads with it.</p>
+      <form class="row" id="dcTokForm"><input id="dcTok" class="field" placeholder="Personal access token" autocomplete="off" style="flex:1;font-size:.95em;padding:.5em 1em"><button class="pill" type="submit">Save and sync</button></form>
+    </details>
+  </div>
   <h3 style="margin-top:3vmin;margin-bottom:0">Last.fm</h3>
   <div id="lastfmBox" style="margin-top:1em">
     <div class="muted" id="lfStatus">Checking…</div>
@@ -2218,17 +2231,19 @@ async function loadShelf() {
   const counts = {};
   shelf.forEach(a => counts[a.medium] = (counts[a.medium] || 0) + 1);
   const kinds = Object.keys(SHELF_MEDIA).filter(m => counts[m]);
+  const owned = shelf.filter(a => a.owned).length, unplayed = shelf.filter(a => !a.plays).length;
   $("shelfSub").textContent = shelf.length
-    ? kinds.map(m => `${counts[m]} ${counts[m] === 1 ? SHELF_MEDIA[m][1] : SHELF_MEDIA[m][2]}`).join(" · ") + ", added as you play them."
-    : "Every record, CD and tape you play shows up here.";
-  if (shelfMedium && !counts[shelfMedium]) shelfMedium = "";
-  $("shelfMedia").innerHTML = kinds.length > 1 ? [["", "All"], ...kinds.map(m => [m, SHELF_MEDIA[m][0]])]
-    .map(([m, t]) => `<button class="pill${m === shelfMedium ? " on" : ""}" data-m="${m}">${t}</button>`).join("") : "";
+    ? kinds.map(m => `${counts[m]} ${counts[m] === 1 ? SHELF_MEDIA[m][1] : SHELF_MEDIA[m][2]}`).join(" · ") +
+      (owned ? `. ${owned} from your Discogs collection${unplayed ? `, ${unplayed} not played yet` : ""}.` : ", added as you play them.")
+    : "Every record, CD and tape you play shows up here. Connect Discogs in Settings to add your whole collection.";
+  if (shelfMedium && !(shelfMedium === "unplayed" ? unplayed : counts[shelfMedium])) shelfMedium = "";
+  const pills = [["", "All"], ...(kinds.length > 1 ? kinds.map(m => [m, SHELF_MEDIA[m][0]]) : []), ...(unplayed && unplayed < shelf.length ? [["unplayed", "Not played yet"]] : [])];
+  $("shelfMedia").innerHTML = pills.length > 1 ? pills.map(([m, t]) => `<button class="pill${m === shelfMedium ? " on" : ""}" data-m="${m}">${t}</button>`).join("") : "";
   drawShelf();
 }
 function drawShelf() {
   const q = $("shelfFind").value.trim().toLowerCase();
-  let list = shelf.filter(a => (!shelfMedium || a.medium === shelfMedium) &&
+  let list = shelf.filter(a => (!shelfMedium || (shelfMedium === "unplayed" ? !a.plays : a.medium === shelfMedium)) &&
     (!q || (a.album + " " + a.artist + " " + (a.label || "")).toLowerCase().includes(q)));
   const by = { recent: (a, b) => b.last - a.last, most: (a, b) => b.plays - a.plays || b.last - a.last,
                artist: (a, b) => (a.artist || "").localeCompare(b.artist || "", undefined, { sensitivity: "base" }) || (a.year || "").localeCompare(b.year || ""),
@@ -2239,9 +2254,9 @@ function drawShelf() {
     : !list.length ? `<p class="muted">Nothing on your shelf matches that.</p>`
     : list.map(a => `<button class="shelfItem" data-key="${esc(a.key)}">
         <div class="cv">${a.art ? `<img src="${esc(a.art)}" alt="" loading="lazy">` : `<div class="ph">${esc((a.album || "?")[0])}</div>`}
-          ${shelfMedium && !(a.kind === "single" && a.medium === "vinyl") ? "" : `<i class="md">${a.kind === "single" && a.medium === "vinyl" ? "45" : SHELF_MEDIA[a.medium][0]}</i>`}</div>
+          ${shelfMedium && shelfMedium !== "unplayed" && !(a.kind === "single" && a.medium === "vinyl") ? "" : `<i class="md">${a.kind === "single" && a.medium === "vinyl" ? "45" : SHELF_MEDIA[a.medium][0]}</i>`}</div>
         <b title="${esc(a.album)}">${esc(a.album)}</b><span title="${esc(a.artist)}">${esc(a.artist)}</span>
-        <small>${KIND_NAME[a.kind] ? KIND_NAME[a.kind] + " · " : ""}${a.plays === 1 ? "Played once" : a.plays + " plays"} · ${shortDate(a.last)}</small>
+        <small>${KIND_NAME[a.kind] ? KIND_NAME[a.kind] + " · " : ""}${!a.plays ? "Not played yet" : (a.plays === 1 ? "Played once" : a.plays + " plays") + " · " + shortDate(a.last)}</small>
         ${a.worn ? `<small class="worn">Skips often</small>` : ""}</button>`).join("");
 }
 async function openShelfItem(key) {
@@ -2252,12 +2267,21 @@ async function openShelfItem(key) {
   $("sdArt").style.visibility = a.art ? "visible" : "hidden";
   $("sdInfo").innerHTML = `<h3>${esc(a.album)}</h3><p style="font-size:1.15em;margin:.3em 0 1em">${esc(a.artist)}</p>
     <p class="muted" style="margin:.2em 0">${[a.kind === "single" && a.medium === "vinyl" ? "45" : SHELF_MEDIA[a.medium][0], KIND_NAME[a.kind], a.year, a.label].filter(Boolean).map(esc).join(" · ")}</p>
-    <p class="muted" style="margin:.2em 0">${a.plays === 1 ? "Played once" : `Played ${a.plays} times`}, ${shortDate(a.first) === shortDate(a.last) ? "on " + shortDate(a.last) : `first on ${shortDate(a.first)}, last on ${shortDate(a.last)}`}</p>
+    <p class="muted" style="margin:.2em 0">${!a.plays ? "Not played with Liner Notes yet" : `${a.plays === 1 ? "Played once" : `Played ${a.plays} times`}, ${shortDate(a.first) === shortDate(a.last) ? "on " + shortDate(a.last) : `first on ${shortDate(a.first)}, last on ${shortDate(a.last)}`}`}</p>
+    ${a.owned ? `<p class="muted" style="margin:.2em 0">In your Discogs collection${a.added ? " since " + new Date(a.added + "T12:00").toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""}${a.formats ? " · " + esc(a.formats) : ""}${a.catno && a.catno !== "none" ? " · " + esc(a.catno) : ""}</p>` : ""}
+    ${a.release_id ? `<p class="muted" id="sdMarket" style="margin:.2em 0"></p>` : ""}
     ${a.skips ? `<p class="${a.worn ? "worn" : "muted"}" style="margin:.8em 0 .2em">${a.worn ? "Skips often: may need replacing." : a.skips === 1 ? "Skipped once." : `Skipped ${a.skips} times.`}
       <span class="muted">${a.skip_songs.length ? "In " + a.skip_songs.map(x => "“" + esc(x) + "”").join(", ") + ". " : ""}${a.worn ? "Try cleaning it and checking the stylus first; if the same spots keep skipping, it's worn or scratched." : "One skip is usually dust or a bump."}</span></p>` : ""}
-    <div class="row" style="margin-top:1.4em"><button class="pill" id="sdRemove">Remove from shelf</button></div>
+    <div class="row" style="margin-top:1.4em">${a.release_id ? `<button class="pill" id="sdPlay">I'm playing this</button>` : ""}<button class="pill" id="sdRemove">Remove from shelf</button>
+      ${a.release_id ? `<a class="pill" href="https://www.discogs.com/release/${a.release_id}" target="_blank" rel="noopener" style="text-decoration:none">Discogs page</a>` : ""}</div>
     <p class="muted" style="font-size:.85em;margin-top:.8em">Remove anything you don't own, or a wrong match. It stays in your listening history.</p>`;
   $("sdSongs").innerHTML = `<p class="muted">Loading…</p>`;
+  if (a.release_id) fetch("/api/market?id=" + a.release_id).then(r => r.json()).then(m => {
+    if (shelfOpen !== a || !$("sdMarket")) return;
+    $("sdMarket").innerHTML = m.lowest ? `On Discogs: ${m.for_sale} for sale, from ${esc(new Intl.NumberFormat(undefined, { style: "currency", currency: m.currency || "USD" }).format(m.lowest))} · <a href="${esc(m.url)}" target="_blank" rel="noopener" style="color:var(--gold)">see listings</a>`
+      : m.for_sale === 0 ? "None for sale on Discogs right now." : "";
+  }).catch(() => {});
+  if (!a.plays) { $("sdSongs").innerHTML = `<p class="muted">Put it on and the songs you hear will show up here.</p>`; return; }
   try {
     const songs = (await (await fetch("/api/shelf?key=" + encodeURIComponent(key))).json()).songs || [];
     $("sdSongs").innerHTML = `<p class="kicker" style="margin:0 0 .4em">Songs you've heard from it</p>` + songs.map((s, i) =>
@@ -2272,6 +2296,15 @@ async function shelfHide(key, hide) {
   } catch (e) { return false; }
 }
 $("shelfDetail").addEventListener("click", async e => {
+  if (e.target.id === "sdPlay" && shelfOpen) {
+    // Load this release's tracklist and follow it, like picking it in record search
+    try {
+      const d = await (await fetch("/api/records/load", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: shelfOpen.release_id }) })).json();
+      if (!d.ok) { toast(d.error || "Couldn't load that record."); return; }
+      toast(`Following ${shelfOpen.album}. Put the needle down.`); closePanel("shelf"); poll();
+    } catch (err) { toast("Couldn't reach Liner Notes."); }
+    return;
+  }
   if (e.target.id !== "sdRemove" || !shelfOpen) return;
   const a = shelfOpen;
   if (!(await shelfHide(a.key, true))) { toast("Only Liner Notes on the PC can change your shelf."); return; }
@@ -2285,6 +2318,41 @@ $("shelfMedia").addEventListener("click", e => { const b = e.target.closest("[da
 $("shelfSort").addEventListener("click", e => { const b = e.target.closest("[data-sort]"); if (!b) return; shelfSort = b.dataset.sort;
   document.querySelectorAll("#shelfSort .pill").forEach(x => x.classList.toggle("on", x === b)); drawShelf(); });
 $("shelfFind").addEventListener("input", drawShelf);
+// ---------------------------------------------------------------- Discogs collection (Settings)
+function syncedText(ts) {
+  const m = Math.round((Date.now() / 1000 - ts) / 60);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  if (m < 24 * 60) return `${Math.round(m / 60)} hr ago`;
+  return "on " + new Date(ts * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function showCollection(d) {
+  const on = !!d.user;
+  $("dcForm").style.display = on ? "none" : "flex";
+  $("dcButtons").style.display = on ? "flex" : "none";
+  $("dcStatus").textContent = d.busy ? `Reading ${d.user}'s collection from Discogs…`
+    : on ? (d.count != null ? `${d.count.toLocaleString()} releases from ${d.user}'s collection are on your shelf` +
+            (d.synced ? `, synced ${syncedText(d.synced)}.` : ".") + " It syncs once a day."
+          : `Connected to ${d.user}.`)
+    : "Add your Discogs collection to your shelf, including records you haven't played yet.";
+}
+async function collectionCall(body) {
+  $("dcStatus").textContent = "Reading your collection from Discogs… this takes a few seconds per hundred records.";
+  try {
+    const r = await fetch("/api/collection", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const d = await r.json();
+    showCollection(d);
+    if (!r.ok) { toast("Only Liner Notes on the PC can connect Discogs."); return; }
+    if (d.ok === false && d.error) toast(d.error);
+    else if (d.count != null && body.action !== "disconnect") toast(`${d.count.toLocaleString()} releases added to your shelf.`);
+  } catch (e) { toast("Couldn't reach Liner Notes."); }
+}
+async function loadCollection() { try { const r = await fetch("/api/collection"); if (r.ok) showCollection(await r.json()); else $("discogsBox").style.display = "none"; } catch (e) {} }
+$("dcForm").addEventListener("submit", e => { e.preventDefault(); const u = $("dcUser").value.trim(); if (!u) { $("dcUser").focus(); return; } collectionCall({ user: u }); });
+$("dcTokForm").addEventListener("submit", e => { e.preventDefault(); const t = $("dcTok").value.trim(); if (!t) return; collectionCall({ token: t, user: $("dcUser").value.trim() }); $("dcTok").value = ""; });
+$("dcNow").addEventListener("click", () => collectionCall({}));
+$("dcOff").addEventListener("click", () => collectionCall({ action: "disconnect" }));
+$("tb-settings").addEventListener("click", loadCollection);
 $("tb-shelf").addEventListener("click", e => { e.stopPropagation(); openPanel("shelf"); loadShelf(); });
 $("tb-settings").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
 

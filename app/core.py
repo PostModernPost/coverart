@@ -2164,6 +2164,9 @@ class History:
                 label TEXT, genre TEXT, art TEXT, source TEXT, spotify_uri TEXT)""")
             db.execute("CREATE TABLE IF NOT EXISTS song_cache (key TEXT PRIMARY KEY, ts REAL NOT NULL, data TEXT)")
             db.execute("CREATE TABLE IF NOT EXISTS shelf_hidden (key TEXT PRIMARY KEY, ts REAL NOT NULL)")
+            db.execute("""CREATE TABLE IF NOT EXISTS collection (release_id INTEGER, instance_id INTEGER PRIMARY KEY,
+                title TEXT, artist TEXT, year TEXT, label TEXT, catno TEXT, formats TEXT, medium TEXT, thumb TEXT,
+                cover TEXT, added TEXT, rating INTEGER)""")
             db.execute("""CREATE TABLE IF NOT EXISTS skips (ts REAL NOT NULL, title TEXT, artist TEXT, album TEXT,
                 album_artist TEXT, medium TEXT, pos REAL)""")
             if "album_artist" not in {r[1] for r in db.execute("PRAGMA table_info(plays)")}:
@@ -2289,6 +2292,20 @@ class History:
             r["key"] = self.shelf_key(r["source"], r["album"], r["album_artist"] or r["artist"])
         return rows, hidden
 
+    # ---- your Discogs collection
+    def collection_replace(self, items):
+        with self._db() as db:
+            db.execute("DELETE FROM collection")
+            db.executemany("INSERT OR REPLACE INTO collection (release_id,instance_id,title,artist,year,label,catno,formats,"
+                           "medium,thumb,cover,added,rating) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                           [(i["release_id"], i["instance_id"], i["title"], i["artist"], i["year"], i["label"], i["catno"],
+                             i["formats"], i["medium"], i["thumb"], i["cover"], i["added"], i["rating"]) for i in items])
+
+    def collection_rows(self):
+        with self._db() as db:
+            db.row_factory = sqlite3.Row
+            return [dict(r) for r in db.execute("SELECT * FROM collection")]
+
     def shelf(self):
         rows, hidden = self._shelf_rows()
         out = {}
@@ -2309,6 +2326,24 @@ class History:
                 a["album"] = r["album"]                   # 'Rumours' over 'Rumours (2004 Remaster)'
             for k in ("art", "year", "label"):
                 a[k] = r[k] or a[k]                       # the most recent known value
+        # Records in your Discogs collection: matched to what you've played, or on the shelf unplayed
+        for c in self.collection_rows():
+            medium = c["medium"] or "other"
+            if medium not in self.SHELF_MEDIA:
+                continue
+            k = self.shelf_key(medium, c["title"], c["artist"])
+            if k in hidden:
+                continue
+            a = out.get(k)
+            if not a:
+                a = out[k] = {"key": k, "medium": medium, "album": c["title"], "artist": c["artist"], "plays": 0,
+                              "first": None, "last": 0, "art": None, "year": None, "label": None, "_songs": set()}
+            a["owned"] = True
+            a["release_id"] = a.get("release_id") or c["release_id"]
+            a["art"] = a["art"] or c["cover"] or c["thumb"]
+            a["year"] = a["year"] or c["year"]
+            a["label"] = a["label"] or c["label"]
+            a["catno"], a["formats"], a["added"] = c["catno"], c["formats"], c["added"]
         albums = sorted(out.values(), key=lambda a: -a["last"])
         skips = self._skips_by_album()
         for a in albums:
@@ -3134,6 +3169,123 @@ async def api_stylus(request):
     return web.json_response(await asyncio.to_thread(stylus_status, db))
 
 
+# ---------------------------------------------------------------- Discogs collection
+# Your records on Discogs join the shelf, played or not. A public collection only needs your Discogs
+# username; a private one needs your personal Discogs token (Settings > Accounts > Discogs).
+COLLECTION = {"busy": False}
+
+
+def discogs_user():
+    return (CFG.get("discogs_user") or "").strip()
+
+
+async def discogs_identity(http):
+    """With a personal token: whose it is."""
+    return (await discogs_get(http, "/oauth/identity")).get("username")
+
+
+async def sync_collection(app):
+    """Read every release in the collection (100 a page, gently, inside Discogs' rate limit)."""
+    if COLLECTION["busy"]:
+        return {"ok": False, "error": "Already syncing."}
+    user = discogs_user()
+    if not user:
+        return {"ok": False, "error": "Add your Discogs username first."}
+    COLLECTION["busy"] = True
+    http = app["http"]
+    items, page, pages = [], 1, 1
+    try:
+        while page <= pages and page <= 200:
+            data = await discogs_get(http, f"/users/{urllib.parse.quote(user)}/collection/folders/0/releases",
+                                     {"per_page": 100, "page": page, "sort": "added", "sort_order": "desc"})
+            pages = int((data.get("pagination") or {}).get("pages") or 1)
+            for r in data.get("releases") or []:
+                b = r.get("basic_information") or {}
+                fm = b.get("formats") or []
+                names = " ".join((f.get("name") or "") for f in fm).lower()
+                if not discogs_medium({"formats": fm}) and re.search(r"vhs|dvd|blu-ray|laserdisc|file|betamax|umd", names):
+                    continue                      # films and downloads aren't for the turntable shelf
+                labels = b.get("labels") or [{}]
+                items.append({"release_id": b.get("id") or r.get("id"), "instance_id": r.get("instance_id"),
+                              "title": b.get("title") or "", "artist": join_artists(b.get("artists")) or "",
+                              "year": str(b.get("year") or "") or None, "label": clean_artist(labels[0].get("name")) or None,
+                              "catno": labels[0].get("catno"),
+                              "formats": ", ".join(" ".join([f.get("name") or ""] + (f.get("descriptions") or [])) for f in fm),
+                              "medium": discogs_medium({"formats": fm}) or "other",
+                              "thumb": b.get("thumb") or None, "cover": b.get("cover_image") or None,
+                              "added": (r.get("date_added") or "")[:10], "rating": r.get("rating")})
+            page += 1
+            if page <= pages:
+                await asyncio.sleep(1.1)
+        await asyncio.to_thread(app["state"].db.collection_replace, items)
+        save_cfg(discogs_synced=time.time(), discogs_count=len(items))
+        log(f"Discogs collection: {len(items)} releases for {user}")
+        return {"ok": True, "count": len(items)}
+    except PermissionError:
+        return {"ok": False, "error": "Discogs didn't accept the token. Paste it again in Settings."}
+    except Exception as e:
+        log("Discogs collection sync failed:", repr(e))
+        msg = str(e)
+        if "403" in msg or "404" in msg:
+            return {"ok": False, "error": "Discogs won't share that collection. Check the username, or add your token if the collection is private."}
+        return {"ok": False, "error": "Couldn't reach Discogs. Try again in a minute."}
+    finally:
+        COLLECTION["busy"] = False
+
+
+async def collection_loop(app):
+    """Keep the collection fresh: once a day while Liner Notes runs."""
+    await asyncio.sleep(60)
+    while True:
+        if discogs_user() and time.time() - float(CFG.get("discogs_synced") or 0) > 24 * 3600:
+            await sync_collection(app)
+        await asyncio.sleep(3600)
+
+
+def collection_status():
+    return {"user": discogs_user(), "token": bool((CFG.get("discogs_token") or "").strip()),
+            "count": CFG.get("discogs_count"), "synced": CFG.get("discogs_synced"), "busy": COLLECTION["busy"]}
+
+
+async def api_collection(request):
+    app = request.app
+    if request.method == "GET":
+        return web.json_response(collection_status())
+    body = await request.json()
+    action = body.get("action")
+    if action == "disconnect":
+        save_cfg(discogs_user="", discogs_synced=0, discogs_count=None)
+        await asyncio.to_thread(app["state"].db.collection_replace, [])
+        return web.json_response({"ok": True, **collection_status()})
+    if "token" in body:                           # optional: a personal token, for a private collection
+        save_cfg(discogs_token=(body.get("token") or "").strip())
+    user = (body.get("user") or "").strip().lstrip("@")
+    m = re.search(r"discogs\.com/(?:user/)?([^/?#]+)", user)
+    if m:
+        user = m.group(1)                         # a profile link pasted instead of the name
+    if not user and (CFG.get("discogs_token") or "").strip():
+        try:
+            user = await discogs_identity(app["http"])
+        except Exception:
+            return web.json_response({"ok": False, "error": "Discogs didn't accept that token.", **collection_status()})
+    if user:
+        save_cfg(discogs_user=user)
+    res = await sync_collection(app)
+    return web.json_response({**res, **collection_status()})
+
+
+async def api_market(request):
+    """What a release goes for on the Discogs marketplace (lowest price listed, how many for sale)."""
+    try:
+        rid = int(request.query.get("id"))
+        d = await discogs_get(request.app["http"], f"/marketplace/stats/{rid}", {"curr_abbr": "USD"})
+    except Exception:
+        return web.json_response({})
+    low = d.get("lowest_price") or {}
+    return web.json_response({"lowest": low.get("value"), "currency": low.get("currency"),
+                              "for_sale": d.get("num_for_sale"), "url": f"https://www.discogs.com/sell/release/{rid}"})
+
+
 async def api_shelf(request):
     db = request.app["state"].db
     if request.query.get("key"):
@@ -3913,7 +4065,7 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/", "/api/stylus", "/api/shelf/hide")
+LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/", "/api/stylus", "/api/shelf/hide", "/api/collection")
 
 
 @web.middleware
@@ -4124,7 +4276,8 @@ async def on_startup(app):
                         asyncio.create_task(turntable_loop(app)),
                         asyncio.create_task(update_loop(app)),
                         asyncio.create_task(lastfm_loop(app)),
-                        asyncio.create_task(phone_off_loop(app))]
+                        asyncio.create_task(phone_off_loop(app)),
+                        asyncio.create_task(collection_loop(app))]
 
 
 async def on_cleanup(app):
@@ -4174,6 +4327,9 @@ def build_app(demo=False):
     app.router.add_post("/api/medium", api_medium)
     app.router.add_get("/api/stylus", api_stylus)
     app.router.add_get("/api/shelf", api_shelf)
+    app.router.add_get("/api/collection", api_collection)
+    app.router.add_post("/api/collection", api_collection)
+    app.router.add_get("/api/market", api_market)
     app.router.add_post("/api/album/name", api_album_name)
     app.router.add_post("/api/album/ask", api_album_ask)
     app.router.add_post("/api/shelf/hide", api_shelf_hide)

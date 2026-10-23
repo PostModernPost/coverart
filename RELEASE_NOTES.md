@@ -1,2 +1,4 @@
-- Settings > Phone screen > Turn the phone screen off: after 5, 15, 30 or 60 minutes with nothing playing and no music heard (or with listening turned off), a phone plugged in over USB turns its screen off. It comes back on with the next song, or when you turn listening back on. Set it from the PC; it doesn't need to be set on the phone.
-- If the phone's own microphone is doing the listening, its screen only turns off while listening is turned off, since a phone with its screen off can't hear the next record.
+- Discogs collection: Settings > Accounts > Discogs. Type your Discogs username and your whole collection joins your shelf, including records you haven't played yet. A private collection works with a personal Discogs token. It syncs once a day, or tap Sync now.
+- Your shelf marks what's not played yet, with a "Not played yet" filter. "Not played lately" puts never-played records first.
+- A record from your collection shows when you added it, its format and catalog number, what copies sell for on the Discogs marketplace right now, and a link to its Discogs page.
+- "I'm playing this" on a collection record loads its exact tracklist, so Liner Notes follows that pressing from the first song, sides and all.
