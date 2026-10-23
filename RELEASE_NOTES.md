@@ -1,4 +1,3 @@
-- Settings are reorganized into clear sections, with every option kept:
-  - This screen: text size, lyrics beside the art, fullscreen, what the main screen shows, what shows between records, and the song page.
-  - Listening: records, CDs and tapes (what's playing them, following the album), apps on this PC, and the microphone.
-  - Stylus, Phone screen, Accounts (Spotify and Last.fm), and About.
+- Turn listening off: a microphone button at the top of the main screen turns listening off until you turn it back on, even after a restart. While it's off the button shows a crossed-out mic, and the screen between records says "Listening is off" with a button to turn it back on. Spotify and other apps on the PC still show.
+- The same switch is in Settings > Microphone > Listen for music.
+- Settings no longer has the "This screen" heading or the note under the title.

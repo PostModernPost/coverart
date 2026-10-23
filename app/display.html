@@ -189,6 +189,10 @@
   #toolbar button { background: rgba(0,0,0,.25); border: 0; border-radius: 50%; width: clamp(34px, 7vmin, 48px);
     height: clamp(34px, 7vmin, 48px); display: grid; place-items: center; cursor: pointer; opacity: .55; }
   #toolbar button:hover { opacity: 1; background: rgba(255,255,255,.1); }
+  #tb-listen .slash { display: none; }
+  #tb-listen.off { opacity: 1; background: rgba(227,154,122,.22); box-shadow: inset 0 0 0 1.5px rgba(227,154,122,.8); }
+  #tb-listen.off svg { stroke: #e39a7a; } #tb-listen.off .slash { display: inline; }
+  #micInd .turnOn { display: none; } #micInd.paused .turnOn { display: inline-block; }
   #toolbar svg { width: 55%; height: 55%; stroke: var(--fg); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
   /* ---------- panels ---------- */
@@ -524,11 +528,13 @@
     <div id="slides" class="off"><div class="bgl"></div><div class="bgl hide"></div><div class="sl hide"></div><div class="sl hide"></div></div>
   </div>
   <div id="idleStatus"></div>
-  <div id="micInd"><i></i><span></span><button class="listenBtn" id="listenBtn2">Listen now</button></div>
+  <div id="micInd"><i></i><span></span><button class="listenBtn" id="listenBtn2">Listen now</button><button class="listenBtn turnOn" id="listenOnBtn">Turn listening on</button></div>
   <div id="stylusNote"><span id="stylusMsg"></span><button class="pill" id="stylusLater">Later</button><button class="pill" id="stylusNew">Replaced it</button></div>
 </div>
 
 <div id="toolbar">
+  <button id="tb-listen" title="Turn listening off" aria-label="Listening is on. Turn it off" aria-pressed="true">
+    <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/><path class="slash" d="M4 4l16 16"/></svg></button>
   <button id="lyricsBtn" title="Lyrics" aria-label="Lyrics">
     <svg viewBox="0 0 24 24"><path d="M4 6h16M4 10h16M4 14h10M4 18h7"/><path d="M18 14v6"/><circle cx="16.5" cy="20" r="1.5"/></svg></button>
   <button id="tb-search" title="Find a song or record" aria-label="Find a song or record">
@@ -730,8 +736,6 @@
 <div id="settings" class="panel">
   <button class="close" aria-label="Close">&times;</button>
   <h2>Settings</h2>
-  <div class="sub">Settings under This screen are for the screen you're looking at (the PC window or the phone). Everything else is for the whole app.</div>
-  <h3 class="group">This screen</h3>
   <div class="setting" id="textSize" style="cursor:default">
     <div>Text size<small>For the main screen. Auto makes words bigger on small screens like phones.</small></div>
     <div class="sizes">
@@ -774,6 +778,8 @@
     <div>Apps on this PC<small>What Liner Notes shows from this PC. Music apps only: Spotify, Apple Music, Tidal and other music players, plus music sites in a browser (Spotify, YouTube Music, Bandcamp). Everything: anything Windows says is playing, YouTube and Reddit videos included.</small></div>
     <div class="sizes"><button class="pill" data-pm="music">Music apps only</button><button class="pill" data-pm="all">Everything</button></div></div>
   <h3 style="margin-top:3vmin;margin-bottom:0">Microphone</h3>
+  <div class="setting" id="listenRow">
+    <div>Listen for music<small>Off: the microphone stays closed until you turn it back on, here or with the microphone button at the top of the main screen. Spotify and other apps on this PC still show.</small></div><div class="switch"></div></div>
   <div class="setting" id="micRow" style="cursor:default">
     <div>Listen with<small id="micHint">The microphone Liner Notes uses to hear records. Changing it restarts Liner Notes.</small></div>
     <select id="micSel" class="field" aria-label="Microphone"><option>Loading…</option></select></div>
@@ -1177,6 +1183,28 @@ function drawProgress() {
 setInterval(drawProgress, 500);
 
 // ---------------------------------------------------------------- "still looking" indicator
+let listeningPaused = false, listenSwitchBusy = 0;
+function showListenSwitch(paused) {
+  if (Date.now() < listenSwitchBusy) return;          // just clicked: don't flicker back before the server catches up
+  listeningPaused = paused;
+  const b = $("tb-listen");
+  b.classList.toggle("off", paused);
+  b.setAttribute("aria-pressed", String(!paused));
+  b.title = paused ? "Listening is off. Turn it back on" : "Turn listening off";
+  b.ariaLabel = paused ? "Listening is off. Turn it on" : "Listening is on. Turn it off";
+  $("listenRow").classList.toggle("on", !paused);
+}
+async function setListening(on) {
+  listenSwitchBusy = 0; showListenSwitch(!on); listenSwitchBusy = Date.now() + 2500;
+  try {
+    const r = await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ listening_paused: !on }) });
+    if (!r.ok) { listenSwitchBusy = 0; showListenSwitch(!on ? false : true); toast("Only Liner Notes on the PC can turn listening on or off."); return; }
+    toast(on ? "Listening for music again." : "Listening is off until you turn it back on.");
+  } catch (e) { toast("Couldn't reach Liner Notes."); }
+}
+$("tb-listen").addEventListener("click", e => { e.stopPropagation(); setListening(listeningPaused); });
+$("listenOnBtn").addEventListener("click", e => { e.stopPropagation(); setListening(true); });
+$("listenRow").addEventListener("click", () => setListening(!$("listenRow").classList.contains("on")));
 function showListening(l) {
   const active = l.mode === "active";
   const unknown = current && current.status !== "playing";
@@ -1191,7 +1219,9 @@ function showListening(l) {
   updateIdleText();
   const ind = $("micInd");
   let txt = "Listening for music", cls = "";
-  if (!l.has_mic) { txt = "Not listening: no microphone"; cls = "off"; }
+  showListenSwitch(!!l.paused);
+  if (l.paused) { txt = "Listening is off"; cls = "off paused"; }
+  else if (!l.has_mic) { txt = "Not listening: no microphone"; cls = "off"; }
   else if (!l.mic_live) { txt = "Not listening: open Liner Notes on the phone to use its mic"; cls = "off"; }
   else if (active) { txt = "Hearing music…"; cls = "hearing"; }
   else if (l.mode === "off") { txt = "Not listening while music plays on this PC"; cls = "off"; }

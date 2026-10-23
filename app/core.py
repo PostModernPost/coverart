@@ -75,6 +75,7 @@ CFG = {
     "room_medium": None,
     "mic_sensitivity": "normal",
     "hold_seconds": 60,
+    "listening_paused": False,     # the listener turned listening off (main screen or Settings) until turned back on
     "follow_album": True,          # after a song is recognized on physical media, follow its album's tracklist
     "stylus_since": None,          # when the current stylus went on (unix time); None = since the first record in Liner Notes
     "stylus_start_hours": 0,       # hours the stylus already had when tracking started
@@ -1854,6 +1855,17 @@ async def _turntable_inner(app, mic, shz):
         on_tt = bool(t and t.get("source") in ("turntable", "manual", "record"))
         picked = bool(t and t.get("source") == "manual")
 
+        # Listening turned off by the listener: the mic stays closed until it's turned back on
+        if CFG.get("listening_paused"):
+            if app["listen_mode"] != "off":
+                set_mode(app, mic, "off")
+                if on_tt:
+                    st.idle()
+                log("listening turned off")
+            for k in ("listen_now_at", "listen_now_started"):
+                app.pop(k, None)
+            continue
+
         # Spotify etc. on the PC wins; no need for the mic at all
         if app.get("pc_playing"):
             set_mode(app, mic, "off")
@@ -2770,6 +2782,8 @@ async def api_config(request):
         cfg["phone_follows_pc"] = CFG["phone_follows_pc"] = bool(body.get("phone_follows_pc"))
     if body.get("pc_media") in ("music", "all"):
         cfg["pc_media"] = CFG["pc_media"] = body["pc_media"]
+    if "listening_paused" in body:
+        cfg["listening_paused"] = CFG["listening_paused"] = bool(body.get("listening_paused"))
     if "follow_album" in body:
         cfg["follow_album"] = CFG["follow_album"] = bool(body.get("follow_album"))
     if body.get("mic_sensitivity") in SENSITIVITY:
@@ -3002,6 +3016,8 @@ async def api_listen_now(request):
     app = request.app
     if app.get("mic") is None:
         return web.json_response({"ok": False, "error": "No microphone to listen with."})
+    if CFG.get("listening_paused"):
+        return web.json_response({"ok": False, "error": "Listening is off. Turn it on with the microphone button first."})
     if app.get("pc_playing"):
         return web.json_response({"ok": False, "error": "Something is playing on this PC, so that's what's shown."})
     app["listen_now_at"] = time.time()
@@ -3941,6 +3957,7 @@ async def api_now(request):
                               "album_ask": request.app.get("album_ask"),
                               "album_name": request.app.get("album_name"),
                               "listen": {"mode": request.app.get("listen_mode", "off"),
+                                         "paused": bool(CFG.get("listening_paused")),
                                          "has_mic": request.app.get("mic") is not None,
                                          "mic_live": mic_live(request.app),
                                          "now_state": request.app.get("listen_now_state") if (
