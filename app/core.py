@@ -16,6 +16,7 @@ Other options:
 import argparse
 import asyncio
 import collections
+import itertools
 import hashlib
 import io
 import json
@@ -1140,13 +1141,92 @@ async def discogs_search(http, q="", barcode=""):
     else:
         params["q"] = q
     data = await discogs_get(http, "/database/search", params)
-    out = []
-    for r in data.get("results", []):
-        out.append({"id": r.get("id"), "title": r.get("title"), "year": r.get("year"),
-                    "format": ", ".join(r.get("format") or []), "label": ", ".join((r.get("label") or [])[:2]),
-                    "catno": r.get("catno"), "thumb": r.get("thumb") or r.get("cover_image"),
-                    "country": r.get("country")})
-    return out
+    return [search_row(r) for r in data.get("results", [])]
+
+
+def search_row(r):
+    """A Discogs search result, as the search screen lists it."""
+    return {"id": r.get("id"), "title": r.get("title"), "year": r.get("year"),
+            "format": ", ".join(r.get("format") or []), "label": ", ".join((r.get("label") or [])[:2]),
+            "catno": r.get("catno"), "thumb": r.get("thumb") or r.get("cover_image"), "country": r.get("country")}
+
+
+def lead_artist(artist):
+    """'Earth, Wind & Fire feat. The Emotions' -> 'Earth, Wind & Fire' (main_artist would cut it at the comma)."""
+    return re.split(r"\s+(?:feat\.?|ft\.|featuring)\s+", artist or "", maxsplit=1, flags=re.I)[0].strip()
+
+
+def medium_format(medium):
+    return {"vinyl": "Vinyl", "cd": "CD", "cassette": "Cassette"}.get(medium or "vinyl", "Vinyl")
+
+
+async def compilation_guesses(http, songs, medium=None):
+    """Compilations on Discogs with the songs just heard: the ones with the most of them first (checked
+    against each tracklist, since Discogs' search also matches common words), then on this medium
+    (vinyl, CD, tape), your own copy, the original pressing."""
+    found, hits, per_song = {}, collections.Counter(), []
+    for x in songs[:4]:
+        res = await discogs_get(http, "/database/search", {"type": "release", "format": "Compilation", "per_page": 50,
+                                                           "q": f"{lead_artist(x['artist'])} {clean_title(x['title'])}"})
+        per_song.append(res.get("results", []))
+        for r in per_song[-1]:
+            found.setdefault(r["id"], r)
+            hits[r["id"]] += 1
+    fmt, owned = medium_format(medium), owned_release_ids()
+    def key(r):
+        y = str(r.get("year") or "")
+        various = (r.get("title") or "").lower().startswith("various")
+        return (-hits[r["id"]], 0 if various else 1, 0 if fmt in (r.get("format") or []) else 1,
+                0 if r["id"] in owned else 1, int(y) if y.isdigit() else 9999)
+    # take turns between the songs' searches, so each song's compilations get looked at
+    lists = [sorted((found[r["id"]] for r in rs), key=key) for rs in per_song]
+    order = [r for tier in itertools.zip_longest(*lists) for r in tier if r]
+    order.sort(key=lambda r: -hits[r["id"]])      # stable: the ones both searches found go first
+    checked, seen = [], set()
+    for r in order:
+        if norm(r.get("title")) in seen:          # one pressing of each
+            continue
+        seen.add(norm(r.get("title")))
+        try:
+            rec = RecordSession(await discogs_get(http, f"/releases/{r['id']}"))
+        except Exception:
+            continue
+        on = sum(rec.find(x["title"], x["artist"]) is not None for x in songs[:4])
+        if on:
+            checked.append((on, r))
+        if len(seen) >= 10:
+            break
+    checked.sort(key=lambda c: -c[0])             # stable: keeps the order above within the same count
+    return [search_row(r) for _, r in checked]
+
+
+async def studio_album_guesses(http, artist, medium=None):
+    """The artist's studio albums on Discogs, oldest first: one pressing each (your own copy, or the earliest
+    on this medium), leaving out best-ofs, live albums and compilations."""
+    results = []
+    for page in (1, 2):                   # bands with many pressings fill the first page with a few albums
+        res = await discogs_get(http, "/database/search", {"type": "release", "artist": lead_artist(artist),
+                                                           "format": "Album", "per_page": 100, "page": page})
+        results += res.get("results", [])
+        if (res.get("pagination") or {}).get("pages", 1) <= page:
+            break
+    fmt, owned, want = medium_format(medium), owned_release_ids(), norm(lead_artist(artist))
+    best = {}
+    for r in results:
+        who, _, name = (r.get("title") or "").partition(" - ")
+        if not name or "Compilation" in (r.get("format") or []) or album_kind(name) != "album":
+            continue
+        if want and norm(clean_artist(who).rstrip("*")) != want:      # Discogs marks name variations with *
+            continue
+        y = str(r.get("year") or "")
+        rank = (0 if r["id"] in owned else 1, 0 if fmt in (r.get("format") or []) else 1, int(y) if y.isdigit() else 9999)
+        k = norm(name)
+        if k not in best or rank < best[k][0]:
+            best[k] = (rank, r)
+    def year(r):
+        y = str(r.get("year") or "")
+        return int(y) if y.isdigit() else 9999
+    return [search_row(r) for _, r in sorted(best.values(), key=lambda x: year(x[1]))[:15]]
 
 
 def clean_artist(name):
@@ -1282,6 +1362,29 @@ async def discogs_version(http, rec, title, artist, medium):
             log("album sides lookup (Discogs) failed:", repr(e))
             return None
     return None
+
+
+async def add_sides(app):
+    """The record being followed came from Apple Music's tracklist (no sides): swap in the Discogs one
+    with sides, at the same song, keeping where in the song it is."""
+    rec = app.get("record")
+    if not rec or rec.id or rec.idx is None:
+        return
+    rec.from_itunes = True
+    t = rec.tracks[rec.idx]
+    found = await discogs_version(app["http"], rec, t["title"], t["artist"] or rec.artist, room_medium(app))
+    if not found or app.get("record") is not rec:
+        return
+    d, i = found
+    d.auto, d.medium, d.tentative = rec.auto, d.medium or rec.medium, getattr(rec, "tentative", False)
+    d.set_index(i)
+    d.track_started, d.exact_start, d.side_done = rec.track_started, getattr(rec, "exact_start", False), rec.side_done
+    app["record"] = d
+    save_record(d)
+    log(f"found the sides of {d.title} on Discogs: now {d.tracks[i]['pos']}")
+    cur = app["state"].track
+    if cur and cur.get("source") == "record":
+        show_record(app, d, d.track())
 
 
 async def find_album_record(http, title, artist, album, medium=None, collection_id=None):
@@ -1905,6 +2008,8 @@ async def turntable_loop(app):
         return
     if not app.get("record"):
         app["record"] = restore_record()       # Liner Notes restarted mid-side
+    if app.get("record") and not app["record"].id:
+        asyncio.create_task(add_sides(app))   # followed from Apple Music's tracklist before sides were looked up
     try:
         await _turntable_inner(app, mic, shz)
     except Exception:
@@ -2173,6 +2278,7 @@ async def _turntable_inner(app, mic, shz):
                     set_mode(app, mic, "active")
                     active_since = now
                     needle_drop = True
+                    heard = []                # a new record (or side): the songs before it don't pair with this one
                     if rec and rec.tracks:
                         rec_gaps = L.gap_count
                         show_record(app, rec, rec.on_music_start())
@@ -3027,6 +3133,24 @@ async def api_records_search(request):
         return web.json_response({"results": [], "need_key": True, "error": str(e)})
     except Exception as e:
         log("discogs search failed:", repr(e))
+        return web.json_response({"results": [], "error": "Discogs isn't reachable right now."})
+
+
+async def api_records_guess(request):
+    """The search screen's first suggestions, from the compilation question: compilations with the songs
+    just heard, or the artist's studio albums."""
+    app = request.app
+    if not discogs_ready():
+        return web.json_response({"results": [], "need_key": True})
+    medium = room_medium(app)
+    try:
+        if request.query.get("kind") == "compilation":
+            songs = (app.get("album_ask") or {}).get("songs") or []
+            return web.json_response({"results": await compilation_guesses(app["http"], songs, medium) if songs else []})
+        artist = (request.query.get("artist") or "").strip()
+        return web.json_response({"results": await studio_album_guesses(app["http"], artist, medium) if artist else []})
+    except Exception as e:
+        log("record suggestions failed:", repr(e))
         return web.json_response({"results": [], "error": "Discogs isn't reachable right now."})
 
 
@@ -4909,6 +5033,7 @@ def build_app(demo=False):
     app.router.add_post("/api/window/fullscreen", api_window_fullscreen)
     app.router.add_post("/api/screen/idle", api_screen_idle)
     app.router.add_get("/api/records/search", api_records_search)
+    app.router.add_get("/api/records/guess", api_records_guess)
     app.router.add_post("/api/records/load", api_records_load)
     app.router.add_post("/api/records/position", api_records_position)
     app.router.add_post("/api/records/clear", api_records_clear)

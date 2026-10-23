@@ -382,6 +382,9 @@
   #albumAsk { display: none; margin-top: 1.4em; padding: .9em 1.1em; border: 1px solid rgba(201,160,74,.45); border-radius: 14px;
     background: rgba(0,0,0,.35); max-width: 26em; font-size: clamp(13px, 2.1vmin, 17px); }
   #albumAsk.on { display: block; }
+  #albumAsk { position: relative; padding-right: 2.6em; }
+  #aaX { position: absolute; top: .35em; right: .45em; background: none; border: 0; color: var(--dim); font-size: 1.5em; line-height: 1; cursor: pointer; padding: .1em .3em; }
+  #aaX:hover { color: var(--fg); }
   #albumAsk > span { display: block; color: var(--fg); font-weight: 600; }
   #albumAsk small { display: block; color: var(--dim); margin: .3em 0 .7em; }
   #albumAsk .row { gap: .5em; }
@@ -566,8 +569,8 @@
     <div id="mediumAsk"><span id="mediumAskTitle">What's playing it?</span>
       <div class="row"><button class="pill" data-m="vinyl">Vinyl</button><button class="pill" data-m="cd">CD</button><button class="pill" data-m="cassette">Cassette</button><button class="pill" data-m="radio">Radio</button><button class="pill" data-m="other">Other</button></div>
       <label><input type="checkbox" id="mediumDefault"> Always use this</label></div>
-    <div id="albumAsk"><span>Songs by different artists. A compilation?</span><small id="aaSongs"></small>
-      <div class="row"><button class="pill" id="aaFind">Find it</button><button class="pill" id="aaNameBtn">Name it</button><button class="pill" id="aaNo">Not a compilation</button></div>
+    <div id="albumAsk"><button id="aaX" aria-label="Don't ask now" title="Don't ask now">×</button><span id="aaQ"></span><small id="aaSongs"></small>
+      <div class="row" id="aaBtns"></div>
       <form id="aaName"><input class="field" id="aaTitle" placeholder="Album name" autocomplete="off" aria-label="Album name">
         <input class="field" id="aaArtist" placeholder="Various Artists" autocomplete="off" aria-label="Album artist"><button class="pill" type="submit">Save</button></form></div>
     <div class="looking" id="looking"><i></i><span id="lookingText">Still listening</span></div>
@@ -1144,6 +1147,11 @@ function renderRecords() {
 }
 function openRecords() { recView = record ? "list" : "pick"; renderRecords(); openPanel("records"); if (!record && discogsReady) setTimeout(() => $("rq").focus(), 50); }
 
+function recRows(recs, heading) {
+  return `<h3 class="resHead">${esc(heading)}</h3>` + recs.map(r => `
+      <div class="result" data-kind="record" data-id="${r.id}"><img src="${esc(r.thumb || BLANK)}" alt="" loading="lazy">
+        <div><b>${esc(r.title)}</b><span>${esc([oneYear(r.year), r.label, r.catno, r.format, r.country].filter(Boolean).join(" · "))}</span></div></div>`).join("");
+}
 async function recSearch(params) {
   const isBarcode = !!params.barcode;
   $("recResults").innerHTML = `<p class="muted">Searching…</p>`; $("songResults").innerHTML = "";
@@ -1154,10 +1162,7 @@ async function recSearch(params) {
   // records
   if (rd.need_key) { discogsReady = false; renderRecords(); $("recKeyMsg").textContent = rd.error || ""; }
   const recs = (rd.results || []).slice(0, isBarcode ? 20 : 6);
-  $("recResults").innerHTML = recs.length ? `<h3 class="resHead">Records</h3>` + recs.map(r => `
-      <div class="result" data-kind="record" data-id="${r.id}"><img src="${esc(r.thumb || BLANK)}" alt="" loading="lazy">
-        <div><b>${esc(r.title)}</b><span>${esc([oneYear(r.year), r.label, r.catno, r.format, r.country].filter(Boolean).join(" · "))}</span></div></div>`).join("")
-    : (rd.error && !rd.need_key ? `<p class="muted">${esc(rd.error)}</p>` : "");
+  $("recResults").innerHTML = recs.length ? recRows(recs, "Records") : (rd.error && !rd.need_key ? `<p class="muted">${esc(rd.error)}</p>` : "");
   // songs
   const songs = (sd.results || []).slice(0, 8);
   $("songResults").innerHTML = songs.length ? `<h3 class="resHead">Songs</h3>` + songs.map(r => `
@@ -2363,18 +2368,64 @@ $("tb-stats").addEventListener("click", e => { e.stopPropagation(); openPanel("s
 
 // ---------------------------------------------------------------- compilations: which album is this?
 let albumAsk = null, albumName = null;
+// The compilation question, in steps: "Is this a compilation?", then (if not) "Is it <album>?".
+// Each answer can open the search with Liner Notes' best guesses.
+let aaStep = "comp", aaFor = null;
 function showAlbumAsk(ask, named) {
   albumAsk = ask || null; albumName = named || null;
   const el = $("albumAsk"), on = !!ask && !named;
-  if (!on) { el.classList.remove("on", "naming"); }
+  if (!on) { el.classList.remove("on", "naming"); aaFor = null; }
   else {
+    if (aaFor !== ask.since) { aaFor = ask.since; aaStep = "comp"; el.classList.remove("naming"); }
     el.classList.add("on");
     $("aaSongs").textContent = ask.songs.map(x => `${x.title} (${x.artist})`).join(" · ");
+    drawAlbumAsk();
   }
   $("oaStop").style.display = named ? "inline-block" : "none";
   $("oaHint").textContent = named ? `Using "${named.title}" for the songs playing now.`
     : "Name the album that's playing yourself. Songs Liner Notes recognizes go under that name, on your shelf too, until the music stops for a while.";
 }
+function drawAlbumAsk() {
+  const album = current && current.album;
+  const q = aaStep === "album" ? `Is it ${album}?` : aaStep === "picking" ? "Pick it in the search, or name it yourself." : "Is this a compilation?";
+  const btns = aaStep === "picking" ? [["name", "Name it"]] : [["yes", "Yes"], ["no", "No"]];
+  const html = btns.map(([a, t]) => `<button class="pill" data-aa="${a}">${esc(t)}</button>`).join("");
+  if ($("aaQ").textContent !== q) $("aaQ").textContent = q;
+  if ($("aaBtns").innerHTML !== html) $("aaBtns").innerHTML = html;
+  $("aaSongs").style.display = aaStep === "album" ? "none" : "";
+}
+async function albumAskDone() {          // stop asking for a few hours
+  $("albumAsk").classList.remove("on", "naming"); albumAsk = null;
+  try { await fetch("/api/album/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); } catch (err) {}
+}
+// The search screen, opened with Liner Notes' suggestions: compilations with the songs heard, or the artist's studio albums
+async function openGuesses(kind, artist) {
+  recView = "pick"; renderRecords(); openPanel("records");
+  $("rq").value = ""; $("songResults").innerHTML = "";
+  $("recResults").innerHTML = `<p class="muted">Looking for ${kind === "compilation" ? "compilations with these songs" : `${esc(artist)}'s albums`}…</p>`;
+  let d = {};
+  try { d = await (await fetch("/api/records/guess?" + new URLSearchParams({ kind, artist: artist || "" }))).json(); } catch (e) {}
+  if (d.need_key) { discogsReady = false; renderRecords(); return; }
+  const recs = d.results || [];
+  $("recResults").innerHTML = recs.length
+    ? recRows(recs, kind === "compilation" ? "Compilations with these songs" : `${artist}'s albums`)
+    : `<p class="muted">${esc(d.error || (kind === "compilation" ? "No compilation with these songs turned up. Search for it below, or name it yourself."
+                                                                : "Couldn't find their albums. Search for it below."))}</p>`;
+}
+$("albumAsk").addEventListener("click", e => {
+  e.stopPropagation();
+  if (e.target.closest("#aaX")) { albumAskDone(); return; }
+  const b = e.target.closest("[data-aa]"); if (!b) return;
+  const a = b.dataset.aa, artist = (current && current.artist) || (albumAsk && albumAsk.songs.slice(-1)[0].artist) || "";
+  if (aaStep === "comp" && a === "yes") { aaStep = "picking"; drawAlbumAsk(); if (discogsReady) openGuesses("compilation"); else openSearch(); }
+  else if (aaStep === "comp" && a === "no") {
+    if (current && current.album) { aaStep = "album"; drawAlbumAsk(); }
+    else { albumAskDone(); openGuesses("studio", artist); }
+  }
+  else if (aaStep === "album" && a === "yes") { albumAskDone(); toast("Great, it'll stay on this album."); }
+  else if (aaStep === "album" && a === "no") { albumAskDone(); openGuesses("studio", artist); }
+  else if (a === "name") { $("albumAsk").classList.add("naming"); setTimeout(() => $("aaTitle").focus(), 30); }
+});
 async function nameAlbum(title, artist) {
   try {
     const r = await fetch("/api/album/name", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, artist }) });
@@ -2383,17 +2434,6 @@ async function nameAlbum(title, artist) {
     toast(`Songs now go under "${title}".`); poll(); return true;
   } catch (e) { toast("Couldn't reach Liner Notes."); return false; }
 }
-$("aaFind").addEventListener("click", e => {
-  e.stopPropagation(); openSearch();
-  const s = albumAsk && albumAsk.songs[0];
-  if (s && discogsReady) { $("rq").value = `${s.artist} ${s.title}`; recSearch({ q: $("rq").value }); }
-});
-$("aaNameBtn").addEventListener("click", e => { e.stopPropagation(); $("albumAsk").classList.add("naming"); setTimeout(() => $("aaTitle").focus(), 30); });
-$("aaNo").addEventListener("click", async e => {
-  e.stopPropagation(); $("albumAsk").classList.remove("on");
-  try { await fetch("/api/album/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); } catch (err) {}
-});
-$("albumAsk").addEventListener("click", e => e.stopPropagation());
 $("aaName").addEventListener("submit", async e => {
   e.preventDefault();
   const t = $("aaTitle").value.trim(); if (!t) { $("aaTitle").focus(); return; }
