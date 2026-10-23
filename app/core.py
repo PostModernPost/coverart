@@ -409,7 +409,7 @@ async def resolve_pair(http, first, second, medium=None):
             if best is None or score < best[0]:
                 best = (score, rec, ib)
         if best:
-            return best[1], best[2]
+            return await discogs_version(http, best[1], second["title"], second["artist"], medium) or (best[1], best[2])
     except Exception as e:
         log("record lookup (Apple Music) failed:", repr(e))
     if discogs_ready():
@@ -1257,6 +1257,33 @@ async def fill_duration(http, rec, i):
         log("song length lookup failed:", repr(e))
 
 
+async def discogs_version(http, rec, title, artist, medium):
+    """An Apple Music tracklist has no sides. On a record or a tape, find the same album on Discogs, which
+    has them (Side A, Side B). Apple and Discogs often spell the album differently ("The" or not), so look
+    for it by name, then by the song. Returns (record, index of this song) or None."""
+    if not getattr(rec, "from_itunes", False) or medium not in ("vinyl", "cassette") or not discogs_ready():
+        return None
+    fmt = {"vinyl": "Vinyl", "cassette": "Cassette"}[medium]
+    bare = lambda n: norm(re.sub(r"^the\s+", "", bare_album(n or ""), flags=re.I))
+    want = bare(rec.title)
+    if not want:
+        return None
+    for how in ({"release_title": bare_album(rec.title)}, {"track": clean_title(title)}):
+        try:
+            results = (await discogs_get(http, "/database/search", {"type": "release", "artist": main_artist(artist),
+                                                                     "format": fmt, "per_page": 15, **how})).get("results", [])
+            same = [r for r in results if bare((r.get("title") or "").split(" - ", 1)[-1]) == want]   # "Artist - Album"
+            for r in order_releases(same)[:3]:
+                d = RecordSession(await discogs_get(http, f"/releases/{r['id']}"))
+                i = d.find(title, artist)
+                if i is not None:
+                    return d, i
+        except Exception as e:
+            log("album sides lookup (Discogs) failed:", repr(e))
+            return None
+    return None
+
+
 async def find_album_record(http, title, artist, album, medium=None, collection_id=None):
     """A song was recognized on a record, CD or tape: find its album's tracklist (Discogs, then Apple Music)
     so the next songs can follow in order. Returns (record, index of this song) or (None, None)."""
@@ -1285,7 +1312,7 @@ async def find_album_record(http, title, artist, album, medium=None, collection_
         if rec:
             i = rec.find(title, artist)
             if i is not None:
-                return rec, i
+                return await discogs_version(http, rec, title, artist, medium) or (rec, i)
     except Exception as e:
         log("album lookup (Apple Music) failed:", repr(e))
     return None, None
