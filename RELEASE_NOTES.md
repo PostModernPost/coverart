@@ -1,1 +1,4 @@
-- Liner Notes is now code-signed: Windows shows a verified publisher (Adam Waitt) instead of "Unknown publisher" when you install it.
+- Getting ready for the Liner Notes Android app: phones on your Wi-Fi can connect to Liner Notes on this PC. When one asks, the PC shows its name and a code to check, with Connect and Don't connect. Connected phones are listed in Settings > Phone screen, where you can disconnect them.
+- With Wi-Fi sharing on, Liner Notes announces itself on your network, so the app finds this PC by itself.
+- The phone setup's iPhone tab is now "Wi-Fi / iPhone".
+- The website has a privacy page.

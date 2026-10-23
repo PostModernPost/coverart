@@ -660,7 +660,7 @@
 <div id="phone" class="panel">
   <button class="close" aria-label="Close">&times;</button>
   <h2>Use an old phone as a second screen</h2>
-  <div class="tabs"><button class="pill on" data-tab="android">Android</button><button class="pill" data-tab="iphone">iPhone</button></div>
+  <div class="tabs"><button class="pill on" data-tab="android">Android</button><button class="pill" data-tab="iphone">Wi-Fi / iPhone</button></div>
   <div id="androidGuide">
   <div class="sub">An Android phone plugged into this PC can show the album art next to your monitor, and listen to your records with its own microphone. Each step checks itself off when it's done.</div>
 
@@ -2204,7 +2204,7 @@ const IN_WINDOW = new URLSearchParams(location.search).has("window");
 let windowFull = false;
 function isFull() { return IN_WINDOW ? windowFull : !!(document.fullscreenElement || document.webkitFullscreenElement); }
 function updateFsBtn() {
-  const can = IN_WINDOW || ((document.fullscreenEnabled || document.webkitFullscreenEnabled) && !standalone);
+  const can = !IN_APP && (IN_WINDOW || ((document.fullscreenEnabled || document.webkitFullscreenEnabled) && !standalone));   // the phone app is always full screen
   $("fsBtn").style.display = can ? "grid" : "none";
   $("fsBtn").classList.toggle("full", isFull());
   $("fsIn").style.display = isFull() ? "none" : "block";

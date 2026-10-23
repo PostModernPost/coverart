@@ -40,7 +40,7 @@
   <div id="view"></div>
   <details id="manualBox">
     <summary>Type the PC's address</summary>
-    <p style="margin-top:10px">It's shown on the PC in Settings &gt; Phone screen &gt; Use a phone as a second screen, on the Wi-Fi tab.</p>
+    <p style="margin-top:10px">It's shown on the PC in Settings &gt; Phone screen &gt; Use a phone as a second screen, on the Wi-Fi / iPhone tab.</p>
     <form class="row" id="manualForm"><input id="addr" placeholder="192.168.1.20" inputmode="url" autocomplete="off" autocapitalize="off"><button class="ghost" style="margin:0">Connect</button></form>
   </details>
 </main>
@@ -51,7 +51,7 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "
 const HELP = `<ol>
   <li>Open <b>Liner Notes on your PC</b>.</li>
   <li>Make sure this phone and the PC are on the <b>same Wi-Fi</b>.</li>
-  <li>On the PC, turn on Wi-Fi sharing: <b>Settings &gt; Phone screen &gt; Use a phone as a second screen</b>, then the <b>Wi-Fi</b> tab.</li>
+  <li>On the PC, turn on Wi-Fi sharing: <b>Settings &gt; Phone screen &gt; Use a phone as a second screen</b>, then the <b>Wi-Fi / iPhone</b> tab, and turn on sharing.</li>
 </ol><p>Or plug this phone into the PC with a USB cable (the PC's phone setup walks you through it).</p>`;
 window.ln = {
   show(json) {
