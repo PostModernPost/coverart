@@ -79,6 +79,7 @@ jobs:
           --hidden-import _secrets
           --hidden-import pystray._win32
           --collect-all shazamio
+          --collect-all zeroconf
           --collect-all shazamio_core
           --collect-all winrt
           --collect-all _sounddevice_data

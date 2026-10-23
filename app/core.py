@@ -4155,12 +4155,14 @@ async def phone_off_loop(app):
                 continue
             # The phone's own mic stops when its screen is off, so it couldn't hear the next record:
             # with the phone listening, its screen only turns off while listening is turned off.
-            phone_listens = str(CFG.get("audio_device")).lower() == "phone" and not CFG.get("listening_paused")
+            phone_listens = (str(CFG.get("audio_device")).lower() == "phone" and not CFG.get("listening_paused")
+                             and now - app.get("last_app_poll", 0) > 60)     # the app keeps listening with its screen off
             if (phone_listens or app.get("phone_idle_off") or now - last_busy < mins * 60
-                    or now - app.get("last_phone_poll", 0) > 60 or not adb_path()):
+                    or now - app.get("last_phone_poll", 0) > 60):
                 continue
-            await asyncio.get_running_loop().run_in_executor(None, adb_phone_screens, False)
-            app["phone_idle_off"] = True
+            if adb_path():                 # a phone over USB: press its power button
+                await asyncio.get_running_loop().run_in_executor(None, adb_phone_screens, False)
+            app["phone_idle_off"] = True   # the phone app turns its own screen off when it sees this
             log(f"phone screen off: nothing playing for {mins:g} min")
         except Exception as e:
             log("phone screen timer:", repr(e))
@@ -4274,12 +4276,150 @@ async def api_phone_use_mic(request):
 # ---------------------------------------------------------------- sharing on Wi-Fi (iPhones, other devices)
 # Requests from other devices may show the screen and use search; anything that changes this PC
 # (updates, settings, phone tools, the window) only answers requests from this PC itself.
-LOCAL_ONLY = ("/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/", "/api/stylus", "/api/shelf/hide", "/api/collection", "/api/discogs/")
+LOCAL_ONLY = ("/api/pair/answer", "/api/devices", "/api/update", "/api/config", "/api/phone/", "/api/window", "/api/share-wifi", "/api/spotify/", "/api/lastfm/", "/api/recap/save", "/api/screen/", "/api/mic/", "/api/stylus", "/api/shelf/hide", "/api/collection", "/api/discogs/")
+
+
+# ---------------------------------------------------------------- the phone app: pairing over Wi-Fi
+# The Liner Notes phone app on the same Wi-Fi asks to pair; you allow it on the PC; it gets a token
+# (kept as a cookie in the app) that lets it do what Liner Notes on this PC can do: change settings,
+# turn listening on and off, and so on. Over USB the app reaches the PC as localhost and needs no token.
+DEVICES_FILE = os.path.join(DATA_DIR, "devices.json")
+PAIRING = {}               # request id -> {"code", "name", "at", "state", "token"}
+
+
+def _devices():
+    try:
+        with open(DEVICES_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def _save_devices(devs):
+    with open(DEVICES_FILE, "w", encoding="utf-8") as f:
+        json.dump(devs, f, indent=2)
+
+
+def _token_hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def paired_device(request):
+    """The paired phone making this request, or None."""
+    token = request.cookies.get("ln_device") or request.headers.get("X-LinerNotes-Device") or ""
+    if not token:
+        return None
+    h = _token_hash(token)
+    return next((d for d in _devices() if d.get("hash") == h), None)
+
+
+def is_local(request):
+    """Liner Notes on this PC itself, a phone over USB (it arrives as localhost), or a paired phone."""
+    return request.remote in ("127.0.0.1", "::1") or paired_device(request) is not None
+
+
+async def api_pair_start(request):
+    """The phone app asks to pair. Returns a request id (secret) and a short code shown on both screens."""
+    import secrets as _s
+    body = await request.json() if request.can_read_body else {}
+    now = time.time()
+    for k in [k for k, v in PAIRING.items() if now - v["at"] > 300]:
+        PAIRING.pop(k, None)               # requests expire after 5 minutes
+    if sum(1 for v in PAIRING.values() if v["state"] == "pending") >= 3:
+        return web.json_response({"error": "Too many pairing requests. Try again in a few minutes."}, status=429)
+    rid = _s.token_urlsafe(18)
+    name = re.sub(r"[^\w .\-]", "", str(body.get("name") or "A phone"))[:40] or "A phone"
+    PAIRING[rid] = {"code": f"{_s.randbelow(10000):04d}", "name": name, "at": now, "state": "pending", "token": None,
+                    "from": request.remote}
+    log(f"pairing request from {name} ({request.remote})")
+    return web.json_response({"id": rid, "code": PAIRING[rid]["code"]})
+
+
+async def api_pair_status(request):
+    """The phone app checks whether the PC allowed it. The token is handed over once."""
+    p = PAIRING.get(request.query.get("id", ""))
+    if not p:
+        return web.json_response({"state": "expired"})
+    if p["state"] == "approved" and p["token"]:
+        token, p["token"] = p["token"], None
+        PAIRING.pop(request.query["id"], None)
+        resp = web.json_response({"state": "approved", "token": token})
+        resp.set_cookie("ln_device", token, max_age=10 * 365 * 86400, httponly=True, samesite="Strict")
+        return resp
+    return web.json_response({"state": p["state"]})
+
+
+def pair_requests():
+    return [{"id": k, "code": v["code"], "name": v["name"]} for k, v in PAIRING.items()
+            if v["state"] == "pending" and time.time() - v["at"] < 300]
+
+
+async def api_pair_answer(request):
+    """On the PC: allow or refuse a phone."""
+    import secrets as _s
+    body = await request.json()
+    p = PAIRING.get(body.get("id", ""))
+    if not p or p["state"] != "pending":
+        return web.json_response({"ok": False, "error": "That request has expired."})
+    if body.get("allow"):
+        token = _s.token_urlsafe(32)
+        devs = _devices()
+        devs.append({"hash": _token_hash(token), "name": p["name"], "added": time.time(), "id": _s.token_hex(6)})
+        _save_devices(devs)
+        p["state"], p["token"] = "approved", token
+        log(f"paired: {p['name']}")
+    else:
+        p["state"] = "denied"
+    return web.json_response({"ok": True})
+
+
+async def api_devices(request):
+    """Settings: the phones paired with this PC, and removing one."""
+    if request.method == "POST":
+        body = await request.json()
+        _save_devices([d for d in _devices() if d.get("id") != body.get("remove")])
+    return web.json_response({"devices": [{"id": d.get("id"), "name": d.get("name"), "added": d.get("added")}
+                                          for d in _devices()]})
+
+
+# Bonjour / mDNS: with Wi-Fi sharing on, the phone app finds this PC by itself
+_ZC = {}
+
+
+def advertise_start():
+    if not CFG.get("allow_other_devices") or _ZC.get("zc"):
+        return
+    try:
+        import socket
+        from zeroconf import ServiceInfo, Zeroconf
+        ip = lan_address()
+        if not ip:
+            return
+        host = socket.gethostname()
+        info = ServiceInfo("_linernotes._tcp.local.", f"Liner Notes on {host[:40]}._linernotes._tcp.local.",
+                           addresses=[socket.inet_aton(ip)], port=CFG["port"],
+                           properties={"name": host, "v": "1"}, server=f"{re.sub(r'[^A-Za-z0-9-]', '', host) or 'pc'}.local.")
+        zc = Zeroconf()
+        zc.register_service(info)
+        _ZC.update(zc=zc, info=info)
+        log(f"advertising on the Wi-Fi as {host} ({ip})")
+    except Exception as e:
+        log("couldn't advertise on the Wi-Fi:", repr(e))
+
+
+def advertise_stop():
+    zc = _ZC.pop("zc", None)
+    if zc:
+        try:
+            zc.unregister_service(_ZC.pop("info"))
+            zc.close()
+        except Exception:
+            pass
 
 
 @web.middleware
 async def local_only_guard(request, handler):
-    if request.remote not in ("127.0.0.1", "::1") and request.path.startswith(LOCAL_ONLY):
+    if request.path.startswith(LOCAL_ONLY) and not is_local(request):
         return web.json_response({"error": "Only Liner Notes on this PC can do that."}, status=403)
     if request.remote not in ("127.0.0.1", "::1") and request.path == "/api/now":
         request.app["last_wifi_poll"] = time.time()
@@ -4339,12 +4479,18 @@ async def api_now(request):
         request.app["last_window_poll"] = time.time()      # a Liner Notes window on the PC is open
     else:
         request.app["last_phone_poll"] = time.time()       # the phone screen is open
+        if "LinerNotesApp" in request.headers.get("User-Agent", ""):
+            request.app["last_app_poll"] = time.time()     # ...in the Liner Notes app (it keeps listening with the screen off)
     return web.json_response({"version": st.version, "track": st.track, "mic": mic_info(request.app),
                               "donate": CFG.get("donate_url") or "", "update": update_info(request.app),
                               "record": request.app["record"].summary() if request.app.get("record") else None,
                               "progress": progress_now(request.app),
                               "phone_follows_pc": CFG.get("phone_follows_pc", True),
                               "phone_off_minutes": CFG.get("phone_off_minutes") or 0,
+                              "phone_screen": "off" if request.app.get("phone_idle_off") else "on",
+                              # a phone asking to pair: only Liner Notes on the PC itself is asked
+                              "pair_requests": pair_requests() if request.remote in ("127.0.0.1", "::1")
+                              and "Android" not in request.headers.get("User-Agent", "") else [],
                               "phone_listens": str(CFG.get("audio_device")).lower() == "phone",
                               "saved": bool(st.track and st.track.get("id") in st.db.saved_ids),
                               "media_default": CFG.get("room_medium"),
@@ -4490,9 +4636,11 @@ async def on_startup(app):
                         asyncio.create_task(lastfm_loop(app)),
                         asyncio.create_task(phone_off_loop(app)),
                         asyncio.create_task(collection_loop(app))]
+        await asyncio.to_thread(advertise_start)      # so the phone app finds this PC on the Wi-Fi
 
 
 async def on_cleanup(app):
+    advertise_stop()
     for t in app["tasks"]:
         t.cancel()
     await app["http"].close()
@@ -4543,6 +4691,11 @@ def build_app(demo=False):
     app.router.add_post("/api/collection", api_collection)
     app.router.add_get("/api/market", api_market)
     app.router.add_get("/api/share", api_share)
+    app.router.add_post("/api/pair/start", api_pair_start)
+    app.router.add_get("/api/pair/status", api_pair_status)
+    app.router.add_post("/api/pair/answer", api_pair_answer)
+    app.router.add_get("/api/devices", api_devices)
+    app.router.add_post("/api/devices", api_devices)
     app.router.add_get("/api/discogs/pressings", api_discogs_pressings)
     app.router.add_post("/api/discogs/add", api_discogs_add)
     app.router.add_post("/api/album/name", api_album_name)

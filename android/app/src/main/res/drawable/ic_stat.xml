@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- notification icon: a record -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2A10,10 0,1 0,22 12A10,10 0,0 0,12 2ZM12,15.5A3.5,3.5 0,1 1,15.5 12A3.5,3.5 0,0 1,12 15.5ZM12,11A1,1 0,1 0,13 12A1,1 0,0 0,12 11Z" />
+</vector>

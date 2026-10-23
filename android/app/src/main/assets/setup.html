@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Liner Notes</title>
+<style>
+  :root { --fg: #f4f1ea; --dim: #a39f97; --gold: #c9a04a; --bg: #0b0b0c; --card: #18181b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { min-height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 32px 24px calc(32px + env(safe-area-inset-bottom)); max-width: 520px; margin: 0 auto; }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 700; font-size: 22px; margin-bottom: 30px; }
+  .brand svg { width: 40px; height: 40px; }
+  h1 { font-size: 26px; line-height: 1.2; margin: 0 0 10px; }
+  p { margin: 0 0 12px; color: var(--dim); }
+  .spin { width: 22px; height: 22px; border-radius: 50%; border: 3px solid rgba(255,255,255,.15); border-top-color: var(--gold); animation: s 1s linear infinite; display: inline-block; vertical-align: -5px; margin-right: 10px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .pc { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; background: var(--card); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px; padding: 16px 18px; margin: 10px 0; color: var(--fg); font: inherit; text-align: left; }
+  .pc b { font-weight: 600; } .pc span { color: var(--dim); font-size: 14px; }
+  .pc:active { border-color: var(--gold); }
+  .code { font-size: 54px; font-weight: 700; letter-spacing: .18em; color: var(--gold); margin: 18px 0; font-variant-numeric: tabular-nums; }
+  button.main { background: var(--gold); color: #111; border: 0; border-radius: 99px; padding: 14px 26px; font: 600 17px system-ui, sans-serif; margin-top: 14px; }
+  button.ghost { background: none; color: var(--fg); border: 1.5px solid rgba(255,255,255,.35); border-radius: 99px; padding: 12px 22px; font: 600 16px system-ui, sans-serif; margin-top: 14px; }
+  ol { padding-left: 22px; color: var(--dim); margin: 6px 0 16px; } li { margin: 8px 0; } li b { color: var(--fg); font-weight: 600; }
+  details { margin-top: 22px; color: var(--dim); }
+  summary { cursor: pointer; color: var(--fg); }
+  .row { display: flex; gap: 10px; margin-top: 12px; }
+  input { flex: 1; min-width: 0; background: var(--card); color: var(--fg); border: 1px solid rgba(255,255,255,.2); border-radius: 99px; padding: 12px 16px; font: inherit; outline: none; }
+  input:focus { border-color: var(--gold); }
+  .err { color: #e39a7a; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="68" cy="50" r="30" fill="#141416" stroke="#5c5c66" stroke-width="2.2"/><circle cx="68" cy="50" r="24" fill="none" stroke="#3a3a42" stroke-width="1.6"/><circle cx="68" cy="50" r="10" fill="#c9a04a"/><circle cx="68" cy="50" r="1.8" fill="#141416"/><rect x="2" y="17" width="60" height="66" rx="5" fill="#f4f1ea"/><g stroke="#141416" stroke-width="6.5" stroke-linecap="round"><line x1="12" y1="36" x2="51" y2="36"/><line x1="12" y1="50" x2="45" y2="50"/><line x1="12" y1="64" x2="35" y2="64"/></g></svg>
+    Liner Notes
+  </div>
+  <div id="view"></div>
+  <details id="manualBox">
+    <summary>Type the PC's address</summary>
+    <p style="margin-top:10px">It's shown on the PC in Settings &gt; Phone screen &gt; Use a phone as a second screen, on the Wi-Fi tab.</p>
+    <form class="row" id="manualForm"><input id="addr" placeholder="192.168.1.20" inputmode="url" autocomplete="off" autocapitalize="off"><button class="ghost" style="margin:0">Connect</button></form>
+  </details>
+</main>
+<script>
+const app = window.LinerNotesApp;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const HELP = `<ol>
+  <li>Open <b>Liner Notes on your PC</b>.</li>
+  <li>Make sure this phone and the PC are on the <b>same Wi-Fi</b>.</li>
+  <li>On the PC, turn on Wi-Fi sharing: <b>Settings &gt; Phone screen &gt; Use a phone as a second screen</b>, then the <b>Wi-Fi</b> tab.</li>
+</ol><p>Or plug this phone into the PC with a USB cable (the PC's phone setup walks you through it).</p>`;
+window.ln = {
+  show(json) {
+    const s = typeof json === "string" ? JSON.parse(json) : json;
+    let h = "";
+    if (s.view === "searching") h = `<h1><span class="spin"></span>Looking for your PC…</h1><p>Liner Notes on your PC needs to be open, on the same Wi-Fi as this phone.</p>`;
+    else if (s.view === "found") h = `<h1>Pick your PC</h1>` + s.list.map(p => `<button class="pc" data-url="${esc(p.url)}" data-name="${esc(p.name)}"><span><b>${esc(p.name)}</b><br><span>${esc(p.url.replace(/^http:\/\//, ""))}</span></span><span>›</span></button>`).join("");
+    else if (s.view === "notfound") h = `<h1>Can't find Liner Notes</h1>${HELP}<button class="main" data-act="retry">Look again</button>`;
+    else if (s.view === "pair") h = `<h1>Connect to ${esc(s.name)}</h1><p>On your PC, Liner Notes is asking whether to connect this phone. Check it shows this code, then click <b style="color:var(--fg)">Connect</b> there.</p><div class="code">${esc(s.code)}</div><p><span class="spin"></span>Waiting for the PC…</p>`;
+    else if (s.view === "denied") h = `<h1>Not connected</h1><p>The PC said no. If that was a mistake, try again and click Connect on the PC.</p><button class="main" data-act="retry">Try again</button>`;
+    else if (s.view === "error") h = `<h1>Something went wrong</h1><p class="err">${esc(s.msg)}</p>${HELP}<button class="main" data-act="retry">Try again</button>`;
+    $("view").innerHTML = h;
+  }
+};
+$("view").addEventListener("click", e => {
+  const pc = e.target.closest("[data-url]");
+  if (pc) { app.connectTo(pc.dataset.url, pc.dataset.name); return; }
+  const b = e.target.closest("[data-act]");
+  if (b && b.dataset.act === "retry") app.retry();
+});
+$("manualForm").addEventListener("submit", e => { e.preventDefault(); app.manual($("addr").value); });
+ln.show({ view: "searching" });
+if (app) app.ready();
+</script>
+</body>
+</html>

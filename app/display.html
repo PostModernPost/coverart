@@ -326,6 +326,13 @@
   #shareMenu { position: fixed; z-index: 30; display: none; background: #1c1c20; border: 1px solid rgba(255,255,255,.18); border-radius: 14px;
     padding: .5em; min-width: 15em; box-shadow: 0 14px 40px rgba(0,0,0,.6); font-size: clamp(14px, 2.4vmin, 17px); --ts: 1; }
   #shareMenu.on { display: block; }
+  #pairAsk { position: fixed; z-index: 40; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; width: min(26em, 90vw);
+    background: #1c1c20; border: 1px solid rgba(201,160,74,.6); border-radius: 16px; padding: 1.4em 1.5em; box-shadow: 0 20px 60px rgba(0,0,0,.7);
+    font-size: clamp(15px, 2.6vmin, 18px); --ts: 1; text-align: center; }
+  #pairAsk.on { display: block; }
+  #pairAsk h3 { margin: 0 0 .5em; font-size: 1.15em; text-transform: none; letter-spacing: 0; color: var(--fg); }
+  #pairAsk .code { font-size: 2.4em; font-weight: 700; letter-spacing: .2em; color: var(--gold); margin: .3em 0; font-variant-numeric: tabular-nums; }
+  #pairAsk .row { justify-content: center; margin-top: 1em; }
   #shareMenu .smHead { padding: .55em .8em .6em; color: var(--dim); font-size: .85em; border-bottom: 1px solid var(--faint); margin-bottom: .3em; max-width: 19em; }
   #shareMenu a, #shareMenu button { display: flex; align-items: center; gap: .7em; width: 100%; box-sizing: border-box; padding: .6em .8em; border-radius: 9px;
     color: var(--fg); background: none; border: 0; font: inherit; text-decoration: none; cursor: pointer; text-align: left; }
@@ -566,6 +573,7 @@
 </div>
 
 <div id="shareMenu" role="menu"></div>
+<div id="pairAsk" role="dialog" aria-live="assertive"></div>
 <div id="toolbar">
   <a id="tb-coffee" href="https://buymeacoffee.com/goodisanoun" target="_blank" rel="noopener" title="Buy me a coffee" aria-label="Buy me a coffee" style="display:none">☕</a>
   <button id="tb-listen" title="Turn listening off" aria-label="Listening is on. Turn it off" aria-pressed="true">
@@ -858,6 +866,9 @@
     <div class="sizes">
       <button class="pill" data-po="0">Never</button><button class="pill" data-po="5">5 min</button><button class="pill" data-po="15">15 min</button>
       <button class="pill" data-po="30">30 min</button><button class="pill" data-po="60">1 hour</button></div></div>
+  <div class="setting" id="devRow" style="cursor:default;display:none;flex-wrap:wrap">
+    <div style="width:100%">Phones connected over Wi-Fi<small>Phones running the Liner Notes app that you connected to this PC. Disconnect one you no longer use.</small></div>
+    <div id="devList" style="width:100%"></div></div>
   <div class="setting" id="followRow">
     <div>Phone screen sleeps and wakes with this PC<small>A phone plugged in over USB turns its screen off when the PC sleeps or hibernates, and back on when it wakes.</small></div><div class="switch"></div></div>
   <h3 class="group">Accounts</h3>
@@ -915,6 +926,8 @@
 
 <script>
 const $ = id => document.getElementById(id);
+// The Liner Notes phone app shows this page and handles the mic, screen and sharing itself
+const APP = window.LinerNotesApp || null, IN_APP = !!APP;
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 let version = -1, current = null, infoFor = null, donateUrl = "", coffeeShown = false;
 const infoCache = {};
@@ -955,7 +968,7 @@ document.querySelectorAll(".setting[data-key]").forEach(el => el.addEventListene
   settings[el.dataset.key] = !settings[el.dataset.key]; saveSettings(); applySettings();
 }));
 const standalone = matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches;
-if ((standalone || !document.fullscreenEnabled) && !new URLSearchParams(location.search).has("window")) {
+if (IN_APP || ((standalone || !document.fullscreenEnabled) && !new URLSearchParams(location.search).has("window"))) {
   $("fsSetting").style.display = "none";
 }
 $("fsSetting").addEventListener("click", async () => {
@@ -1041,6 +1054,7 @@ async function poll() {
     donateUrl = d.donate || "";
     if (d.update) showUpdate(d.update);
     $("followRow").classList.toggle("on", d.phone_follows_pc !== false);
+    showPairAsk(d.pair_requests || []);
     if (Date.now() > phoneOffBusy) document.querySelectorAll("#phoneOffRow [data-po]").forEach(b => b.classList.toggle("on", +b.dataset.po === (d.phone_off_minutes || 0)));
     $("phoneOffHint").textContent = "After this long with nothing playing and no music heard, a phone plugged in over USB turns its screen off. It comes back on with the next song." +
       (d.phone_listens ? " The phone is doing the listening, so its screen only turns off while listening is turned off." : "");
@@ -1055,7 +1069,7 @@ async function poll() {
     showProgress(d.progress || null);
     showRecord(d.record || null, d.discogs_ready !== false);
     if (d.version !== version) { version = d.version; render(d.track); }
-    if (IS_PHONE && d.mic) micTick(d.mic);
+    if (IS_PHONE && d.mic && !IN_APP) micTick(d.mic);
     if (pcAway) { pcAway = false; document.body.classList.remove("pc-away"); stayAwake(); }
     pollFails = 0;
   } catch (e) {
@@ -1522,6 +1536,7 @@ function goDark() {
   screenDark = true;
   document.body.classList.add("idle-dark");
   letScreenSleep();
+  if (IN_APP) { try { APP.screenOff(); } catch (e) {} }
 }
 function wakeFromDark() {
   if (!screenDark) return;
@@ -1996,7 +2011,7 @@ async function loadRecap() {
   img.src = rcUrl();
   const acts = [];
   if (!IS_PHONE) acts.push(`<button class="pill" id="rcSave">Save to Pictures</button>`);
-  if (navigator.canShare) acts.push(`<button class="pill" id="rcShare">Share</button>`);
+  if (navigator.canShare || IN_APP) acts.push(`<button class="pill" id="rcShare">Share</button>`);
   else if (window.ClipboardItem) acts.push(`<button class="pill" id="rcCopy">Copy picture</button>`);
   acts.push(`<a class="pill" id="rcDl" href="${rcUrl()}" download="liner-notes-recap-${rc.period}.png">Download</a>`);
   $("rcActions").innerHTML = acts.join("");
@@ -2019,6 +2034,7 @@ $("rcActions").addEventListener("click", async e => {
       toast("Copied. Paste it into a message or a post.");
     } catch (err) { toast("Couldn't copy the picture. Use Download instead."); }
   } else if (b.id === "rcShare") {
+    if (IN_APP) { try { APP.shareImage(new URL(rcUrl(), location.href).href, `liner-notes-recap-${rc.period}.png`); } catch (err) {} return; }
     try {
       const blob = await (await fetch(rcUrl())).blob();
       const file = new File([blob], `liner-notes-recap-${rc.period}.png`, { type: "image/png" });
@@ -2131,6 +2147,12 @@ $("followAlbumRow").addEventListener("click", async () => {
   try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ follow_album: on }) }); } catch (e) {}
 });
 let phoneOffBusy = 0;
+$("devList").addEventListener("click", async e => {
+  const b = e.target.closest("[data-rm]"); if (!b) return;
+  e.stopPropagation();
+  try { await fetch("/api/devices", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ remove: b.dataset.rm }) }); } catch (err) {}
+  loadDevices();
+});
 $("phoneOffRow").addEventListener("click", async e => {
   const b = e.target.closest("[data-po]"); if (!b) return;
   e.stopPropagation(); phoneOffBusy = Date.now() + 2500;
@@ -2442,6 +2464,43 @@ $("tb-settings").addEventListener("click", loadCollection);
 $("tb-shelf").addEventListener("click", e => { e.stopPropagation(); openPanel("shelf"); loadShelf(); });
 $("tb-settings").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
 
+// ---------------------------------------------------------------- the phone app asks to pair (shown on the PC)
+let pairShown = null, pairDone = {};
+function showPairAsk(reqs) {
+  const r = reqs.find(x => !pairDone[x.id]);
+  const el = $("pairAsk");
+  if (!r) { if (pairShown) { el.classList.remove("on"); pairShown = null; } return; }
+  if (pairShown === r.id) return;
+  pairShown = r.id;
+  el.innerHTML = `<h3>Connect ${esc(r.name)} to Liner Notes?</h3>
+    <p class="muted" style="margin:0">The Liner Notes app on your phone is asking to connect over Wi-Fi. Check the phone shows the same code:</p>
+    <div class="code">${esc(r.code)}</div>
+    <p class="muted" style="margin:0;font-size:.85em">Once connected, the phone can change Liner Notes' settings, like this PC can.</p>
+    <div class="row"><button class="pill" data-ans="1" style="border-color:var(--gold)">Connect</button><button class="pill" data-ans="0">Don't connect</button></div>`;
+  el.classList.add("on");
+  el.onclick = async e => {
+    e.stopPropagation();
+    const b = e.target.closest("[data-ans]"); if (!b) return;
+    pairDone[r.id] = true; el.classList.remove("on"); pairShown = null;
+    try {
+      await fetch("/api/pair/answer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: r.id, allow: b.dataset.ans === "1" }) });
+      toast(b.dataset.ans === "1" ? `${r.name} is connected.` : "Not connected.");
+      if (b.dataset.ans === "1") loadDevices();
+    } catch (err) { toast("Couldn't reach Liner Notes."); }
+  };
+}
+// Settings > Phone screen: phones paired over Wi-Fi
+async function loadDevices() {
+  try {
+    const r = await fetch("/api/devices"); if (!r.ok) { $("devRow").style.display = "none"; return; }
+    const d = await r.json();
+    $("devRow").style.display = d.devices.length ? "" : "none";
+    $("devList").innerHTML = d.devices.map(x => `<div class="row" style="align-items:center;justify-content:space-between;margin:.4em 0">
+      <span>${esc(x.name)}</span><button class="pill" data-rm="${esc(x.id)}">Disconnect</button></div>`).join("");
+  } catch (e) {}
+}
+$("tb-settings").addEventListener("click", loadDevices);
+
 // ---------------------------------------------------------------- sharing a song
 let infoTrack = null;
 // Phones use their own share sheet; the PC gets a small menu. The link is song.link, which opens the
@@ -2460,6 +2519,7 @@ async function shareSong(t, anchor) {
   try { const r = await fetch("/api/share?id=" + encodeURIComponent(t.id)); d = await r.json(); if (!r.ok) throw 0; }
   catch (e) { toast("Couldn't get a link for this song."); return; }
   const line = `${d.text} ${d.url}`;
+  if (IN_APP) { try { APP.share(d.title, d.text, d.url); } catch (e) {} return; }
   if (IS_PHONE && navigator.share) {
     try { await navigator.share({ title: d.title, text: d.text, url: d.url }); } catch (e) {}
     return;
@@ -2675,13 +2735,14 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
 let wakeLock = null, pcAway = false;
 async function stayAwake() {
   if (pcAway || screenDark) return;        // the PC is off or asleep, or nothing is playing: let the screen time out
+  if (IN_APP) { try { APP.keepAwake(true); } catch (e) {} return; }
   try {
     if ("wakeLock" in navigator && document.visibilityState === "visible" && !wakeLock)
       wakeLock = await navigator.wakeLock.request("screen");
     if (wakeLock) wakeLock.addEventListener("release", () => { wakeLock = null; });
   } catch (e) {}
 }
-function letScreenSleep() { try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null; }
+function letScreenSleep() { if (IN_APP) { try { APP.keepAwake(false); } catch (e) {} } try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null; }
 document.addEventListener("visibilitychange", stayAwake);
 stayAwake();
 

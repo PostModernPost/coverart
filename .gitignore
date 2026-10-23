@@ -6,3 +6,7 @@ dist/
 packaging/coverart.ico
 app/_secrets.py
 packaging/linernotes.ico
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
