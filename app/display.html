@@ -396,6 +396,7 @@
   #settings h3.group { margin: 7vmin auto 0; padding-top: 2.4vmin; border-top: 1px solid rgba(255,255,255,.22); font-size: 1.35em;
     letter-spacing: 0; text-transform: none; color: var(--fg); font-weight: 700; }
   #settings h3.group + h3 { margin-top: 1.6vmin !important; }
+  #settings h3.group ~ .pc-only > h3:first-child:not(.group) { margin-top: 1.6vmin !important; }
   /* your shelf */
   #shelfTools { display: flex; flex-wrap: wrap; gap: 1em 2em; align-items: center; margin-top: 1.4em; }
   #shelfTools .row { margin: 0; }
@@ -530,6 +531,8 @@
   #micbanner { position: fixed; left: 50%; bottom: 3vmin; transform: translateX(-50%); display: none; z-index: 10;
     background: rgba(201,160,74,.95); color: #111; font-weight: 600; border-radius: 99px;
     padding: .7em 1.3em; font-size: calc(var(--ts) * clamp(13px, 2.8vmin, 20px)); white-space: nowrap; }
+  html.in-app .pc-only { display: none !important; }
+  html:not(.in-app) .app-only { display: none !important; }
 </style>
 </head>
 <body>
@@ -857,6 +860,11 @@
       <p class="muted" style="margin:.8em 0 0">Most diamond styli last 800 to 1,000 hours; basic conical ones nearer 500. Your cartridge maker lists the figure for yours. A worn stylus sounds dull or harsh and wears your records.</p>
     </details>
   </div>
+  <h3 class="group app-only">This phone</h3>
+  <div class="setting app-only" style="cursor:default">
+    <div>Connected to <span id="appPc">your PC</span><small>This phone shows what Liner Notes on that PC hears and plays.</small></div>
+    <button class="pill" id="appSwitch">Connect to a different PC</button></div>
+  <div class="pc-only">
   <h3 class="group">Phone screen</h3>
   <div class="setting" id="phoneSetupRow" style="cursor:pointer">
     <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone or iPhone.</small></div>
@@ -871,7 +879,10 @@
     <div id="devList" style="width:100%"></div></div>
   <div class="setting" id="followRow">
     <div>Phone screen sleeps and wakes with this PC<small>A phone plugged in over USB turns its screen off when the PC sleeps or hibernates, and back on when it wakes.</small></div><div class="switch"></div></div>
+  </div>
   <h3 class="group">Accounts</h3>
+  <p class="muted app-only">Spotify, Discogs and Last.fm are connected in Liner Notes on your PC.</p>
+  <div class="pc-only">
   <h3 style="margin-top:3vmin;margin-bottom:0">Spotify</h3>
   <div id="spotifyBox">
     <div class="muted" id="spStatus">Checking…</div>
@@ -905,6 +916,7 @@
     <div class="setting" id="lfPc" style="display:none">
       <div>Also scrobble Spotify and other apps on this PC<small>Leave this off if Spotify is already connected to Last.fm (Spotify's settings), or songs will count twice.</small></div><div class="switch"></div></div>
   </div>
+  </div>
   <div id="about">
     <h3>About</h3>
     <div style="display:flex;align-items:center;margin:.4em 0 .8em"><img id="aboutMark" src="/logo.svg" alt=""><b style="font-size:1.25em">Liner Notes</b></div>
@@ -928,6 +940,7 @@
 const $ = id => document.getElementById(id);
 // The Liner Notes phone app shows this page and handles the mic, screen and sharing itself
 const APP = window.LinerNotesApp || null, IN_APP = !!APP;
+if (IN_APP) document.documentElement.classList.add("in-app");
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 let version = -1, current = null, infoFor = null, donateUrl = "", coffeeShown = false;
 const infoCache = {};
@@ -1631,12 +1644,12 @@ async function loadMics() {
     const r = await fetch("/api/mic/list");
     if (!r.ok) { $("micRow").style.display = "none"; return; }       // only from Liner Notes on the PC
     const d = await r.json(), sel = $("micSel");
-    const opts = [["", "Windows default"], ["phone", "The phone's microphone"], ...d.choices.map(n => [n, n])];
+    const opts = [["", IN_APP ? "The PC's default microphone" : "Windows default"], ["phone", IN_APP ? "This phone's microphone" : "The phone's microphone"], ...d.choices.map(n => [n, n])];
     if (d.selected && !opts.some(o => o[0] === d.selected)) opts.push([d.selected, d.selected + " (not connected)"]);
     sel.innerHTML = opts.map(([v, t]) => `<option value="${esc(v)}">${esc(t)}</option>`).join("");
     sel.value = d.selected || "";
     $("micHint").textContent = (d.listening_with ? "Listening with " + d.listening_with + ". " : "No microphone is working right now. ") +
-      "Changing it restarts Liner Notes.";
+      (IN_APP ? "Changing it restarts Liner Notes on your PC." : "Changing it restarts Liner Notes.");
   } catch (e) {}
 }
 $("micSel").addEventListener("change", async () => {
@@ -2056,6 +2069,8 @@ function showUpdate(u) {
   $("updPill").style.display = avail && !IS_PHONE ? "block" : "none";
   $("updPill").textContent = avail ? `Update to ${avail.version}` : "";
   $("verLine").textContent = u.current === "dev" ? "Liner Notes (running from source)" : `Liner Notes ${u.current}`;
+  if (IN_APP) { let av = ""; try { av = APP.version(); } catch (e) {}
+    $("verLine").innerHTML = `This app: ${esc(av)}<br>Liner Notes on your PC: ${esc(u.current)}`; }
   if (updBusy || u.updating) {
     $("updRow").innerHTML = `<span class="muted">Downloading the update. Liner Notes will close and reopen in a minute.</span>`;
     $("updNotes").textContent = ""; return;
@@ -2063,7 +2078,7 @@ function showUpdate(u) {
   if (u.current === "dev") { $("updRow").innerHTML = ""; $("updNotes").textContent = ""; return; }
   if (avail) {
     $("updRow").innerHTML = `<button class="pill gold" id="updInstall">Install ${esc(avail.version)}</button>
-      <span class="muted">Liner Notes closes and reopens with the new version.</span>`;
+      <span class="muted">${IN_APP ? "Liner Notes on your PC" : "Liner Notes"} closes and reopens with the new version.</span>`;
     $("updNotes").textContent = avail.notes || "";
   } else {
     $("updRow").innerHTML = `<span class="muted">Up to date.</span> <button class="pill" id="updCheck">Check now</button>`;
@@ -2745,6 +2760,15 @@ async function stayAwake() {
 function letScreenSleep() { if (IN_APP) { try { APP.keepAwake(false); } catch (e) {} } try { if (wakeLock) wakeLock.release(); } catch (e) {} wakeLock = null; }
 document.addEventListener("visibilitychange", stayAwake);
 stayAwake();
+
+// In the phone app, Settings talks about the PC from the phone's side
+if (IN_APP) {
+  const w = document.createTreeWalker($("settings"), NodeFilter.SHOW_TEXT);
+  for (let n; (n = w.nextNode());) if (/this PC/.test(n.nodeValue)) n.nodeValue = n.nodeValue.replace(/this PC/g, "your PC");
+  $("appPc").textContent = location.hostname;
+  fetch("/api/now").then(r => r.json()).then(d => { if (d.pc_name) $("appPc").textContent = d.pc_name; }).catch(() => {});
+  $("appSwitch").addEventListener("click", () => { try { APP.switchPc(); } catch (e) {} });
+}
 
 applySettings();
 poll();

@@ -194,7 +194,11 @@ class MainActivity : Activity() {
                 requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 2)   // the PC listens through this phone
             }
         }
-        if (LinkService.screenOffWanted && !dark) goDark()
+        if (LinkService.screenOffWanted) { if (!dark) goDark() }
+        else if (j != null && j.optJSONObject("track")?.optString("status") == "playing") {
+            // A song is playing: the screen stays on, whatever the page did (on a plain charger nothing else holds it)
+            if (dark || !keptOn) keepOn(true)
+        }
     }
 
     private fun askNotifications() {
@@ -210,7 +214,9 @@ class MainActivity : Activity() {
     }
 
     // ---------------------------------------------------------------- the screen
+    private var keptOn = false
     private fun keepOn(on: Boolean) {
+        keptOn = on
         if (on) {
             dark = false
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -276,12 +282,14 @@ class MainActivity : Activity() {
                 .setTitle("Liner Notes")
                 .setItems(arrayOf("Keep showing it", "Connect to a different PC", "Close the app")) { _, which ->
                     when (which) {
-                        1 -> { LinkService.stop(this); Link.forget(this); showSetup(); search() }
+                        1 -> switchPc()
                         2 -> { LinkService.stop(this); finish() }
                     }
                 }.show()
         }
     }
+
+    private fun switchPc() { LinkService.stop(this); Link.forget(this); showSetup(); search() }
 
     private fun shareText(title: String, text: String, url: String) {
         val i = Intent(Intent.ACTION_SEND).setType("text/plain")
@@ -314,6 +322,7 @@ class MainActivity : Activity() {
         @JavascriptInterface fun screenOff() = main.post { goDark() }.let { }
         @JavascriptInterface fun share(title: String?, text: String?, url: String?) = main.post { shareText(title ?: "", text ?: "", url ?: "") }.let { }
         @JavascriptInterface fun shareImage(url: String, name: String) = this@MainActivity.shareImage(url, name)
+        @JavascriptInterface fun switchPc() = main.post { this@MainActivity.switchPc() }.let { }
         @JavascriptInterface fun version(): String = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "" } catch (e: Exception) { "" }
         // setup page
         @JavascriptInterface fun ready() = main.post { lastSay?.let { say(it) } }.let { }

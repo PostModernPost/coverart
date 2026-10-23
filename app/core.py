@@ -4488,6 +4488,7 @@ async def api_now(request):
                               "phone_follows_pc": CFG.get("phone_follows_pc", True),
                               "phone_off_minutes": CFG.get("phone_off_minutes") or 0,
                               "phone_screen": "off" if request.app.get("phone_idle_off") else "on",
+                              "pc_name": __import__("socket").gethostname()[:40],
                               # a phone asking to pair: only Liner Notes on the PC itself is asked
                               "pair_requests": pair_requests() if request.remote in ("127.0.0.1", "::1")
                               and "Android" not in request.headers.get("User-Agent", "") else [],
