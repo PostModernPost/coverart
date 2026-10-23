@@ -4584,9 +4584,12 @@ def advertise_start():
             return
         host = socket.gethostname()
         info = ServiceInfo("_linernotes._tcp.local.", f"Liner Notes on {host[:40]}._linernotes._tcp.local.",
-                           addresses=[socket.inet_aton(ip)], port=CFG["port"],
+                           addresses=[socket.inet_aton(x) for x in (home_addresses() or [ip])], port=CFG["port"],
                            properties={"name": host, "v": "1"}, server=f"{re.sub(r'[^A-Za-z0-9-]', '', host) or 'pc'}.local.")
-        zc = Zeroconf()
+        try:
+            zc = Zeroconf(interfaces=home_addresses() or [ip])    # only on the home network, not out through a VPN
+        except Exception:
+            zc = Zeroconf()
         zc.register_service(info)
         _ZC.update(zc=zc, info=info)
         log(f"advertising on the Wi-Fi as {host} ({ip})")
@@ -4924,9 +4927,40 @@ def bind_host():
     return "0.0.0.0" if CFG["allow_other_devices"] else "127.0.0.1"
 
 
+# Adapters that aren't the home network: VPNs (their address is what "the way to the internet" finds while
+# one is on), virtual machines, Bluetooth. A phone on the Wi-Fi can't reach this PC at those addresses.
+NOT_LAN = re.compile(r"vpn|wireguard|surfshark|nord|express|proton|mullvad|private internet|pia|cyberghost|"
+                     r"windscribe|tailscale|zerotier|hamachi|openvpn|tap|tap-|tun|wintun|fortinet|cisco|"
+                     r"virtual|vethernet|hyper-v|vmware|virtualbox|wsl|docker|loopback|bluetooth", re.I)
+
+
+def home_addresses():
+    """This PC's addresses on the home network (Wi-Fi or ethernet), most likely first."""
+    try:
+        import ifaddr          # comes with zeroconf
+    except ImportError:
+        return []
+    found = []
+    for a in ifaddr.get_adapters():
+        if NOT_LAN.search(a.nice_name or "") or NOT_LAN.search(a.name or ""):
+            continue
+        for i in a.ips:
+            ip = i.ip if isinstance(i.ip, str) else None
+            if not ip or ip.startswith(("127.", "169.254.")):
+                continue
+            o = [int(x) for x in ip.split(".")]
+            rank = 0 if o[0] == 192 and o[1] == 168 else 1 if o[0] == 172 and 16 <= o[1] <= 31 else 2 if o[0] == 10 else None
+            if rank is not None:              # home networks use private addresses
+                found.append((rank, ip))
+    return [ip for _, ip in sorted(found)]
+
+
 def lan_address():
     if not CFG["allow_other_devices"]:
         return None
+    home = home_addresses()
+    if home:
+        return home[0]
     import socket
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
