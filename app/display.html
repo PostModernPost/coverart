@@ -41,8 +41,15 @@
   #artist { font-size: calc(var(--ts) * clamp(14px, 4vmin, 38px)); margin: 0; opacity: .92; }
   #album { font-size: calc(var(--ts) * clamp(12px, 2.9vmin, 26px)); margin: .35em 0 0; color: var(--dim); }
   #details { font-size: calc(var(--ts) * clamp(11px, 2.3vmin, 19px)); margin: .35em 0 0; color: var(--dim); }
+  /* where it's playing from: plain info text. The medium (vinyl, CD...) is a button that changes it. */
   #source { display: inline-block; margin-top: 1.1em; font-size: calc(var(--ts) * clamp(10px, 1.9vmin, 15px)); letter-spacing: .08em;
-    text-transform: uppercase; color: var(--dim); border: 1px solid rgba(255,255,255,.2); padding: .3em .7em; border-radius: 99px; align-self: flex-start; }
+    text-transform: uppercase; color: var(--dim); align-self: flex-start; white-space: nowrap; }
+  #mediumBtn { display: none; align-items: center; gap: .45em; font-size: calc(var(--ts) * clamp(11px, 2vmin, 16px)); font-weight: 600;
+    color: var(--fg); background: rgba(255,255,255,.08); border: 1.5px solid rgba(201,160,74,.75); border-radius: 99px;
+    padding: .35em .75em .35em .9em; cursor: pointer; font-family: inherit; flex: none; }
+  #mediumBtn:hover, #mediumBtn.open { background: rgba(201,160,74,.18); }
+  #mediumBtn svg { width: .9em; height: .9em; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; transition: transform .2s; }
+  #mediumBtn.open svg { transform: rotate(180deg); }
   @media (max-aspect-ratio: 7/5) { #source { align-self: center; } }
   .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
   #actRow { display: flex; gap: .8em; flex-wrap: wrap; margin-top: 1.4em; align-self: flex-start; }
@@ -492,8 +499,8 @@
     <p id="album" class="clamp"></p>
     <p id="details"></p>
     <div id="progress"><div class="bar"><div id="progFill"></div></div><span id="progText"></span></div>
-    <div class="metaRow"><span id="source"></span><button class="heart" id="heartBtn" aria-label="Save this song" title="Save this song"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button><button id="infoBtn" aria-label="More about this song" title="More about this song">i</button></div>
-    <div id="mediumAsk"><span>What's playing it?</span>
+    <div class="metaRow"><button id="mediumBtn" title="Change what it's playing on" aria-haspopup="true"><span id="mediumBtnText"></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><span id="source"></span><button class="heart" id="heartBtn" aria-label="Save this song" title="Save this song"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button><button id="infoBtn" aria-label="More about this song" title="More about this song">i</button></div>
+    <div id="mediumAsk"><span id="mediumAskTitle">What's playing it?</span>
       <div class="row"><button class="pill" data-m="vinyl">Vinyl</button><button class="pill" data-m="cd">CD</button><button class="pill" data-m="cassette">Cassette</button><button class="pill" data-m="radio">Radio</button><button class="pill" data-m="other">Other</button></div>
       <label><input type="checkbox" id="mediumDefault"> Always use this</label></div>
     <div id="albumAsk"><span>Songs by different artists. A compilation?</span><small id="aaSongs"></small>
@@ -925,11 +932,13 @@ function render(t, keepArt) {
   $("details").textContent = det;
   $("details").style.display = det ? "block" : "none";
   const ROOM = ["turntable", "record", "manual"];
-  let badge = t.app || t.source || "";
-  if (t.source === "turntable") badge = MEDIA[t.medium] || "In the room";
-  else if (t.source === "record" && t.medium) badge = `${MEDIA[t.medium]} · ${t.app}`;
+  const inRoom = ROOM.includes(t.source);
+  // Info: the app on the PC, or the side and track on a record. The medium gets its own button.
+  const badge = inRoom ? (t.source === "record" ? t.app || "" : "") : (t.app || t.source || "");
   $("source").textContent = badge;
   $("source").style.display = badge && !unknown ? "inline-block" : "none";
+  $("mediumBtnText").textContent = MEDIA[t.medium] || "Vinyl, CD or tape?";
+  $("mediumBtn").style.display = inRoom && !unknown ? "inline-flex" : "none";
   $("findBtn").style.display = unknown ? "inline-block" : "none";
   $("listenBtn").style.display = unknown && ["turntable", "record", "manual"].includes(t.source) ? "inline-block" : "none";
   $("infoBtn").style.display = unknown ? "none" : "grid";
@@ -961,7 +970,7 @@ async function poll() {
     $("followAlbumRow").classList.toggle("on", d.follow_album !== false);
     document.querySelectorAll("#pcMediaRow [data-pm]").forEach(b => b.classList.toggle("on", b.dataset.pm === (d.pc_media || "music")));
     document.querySelectorAll("#mediaRow [data-rm]").forEach(b => b.classList.toggle("on", b.dataset.rm === mediaDefault));
-    $("mediumAsk").classList.toggle("on", !!d.ask_medium && !mediumBusy);
+    if (!mediumPicking) $("mediumAsk").classList.toggle("on", !!d.ask_medium && !mediumBusy);
     showAlbumAsk(d.album_ask, d.album_name);
     if (d.listen) showListening(d.listen);
     showProgress(d.progress || null);
@@ -1339,14 +1348,26 @@ function nextSlide() {
 }
 
 // ---------------------------------------------------------------- which medium is playing
-let mediaDefault = "", mediumBusy = false;
+let mediaDefault = "", mediumBusy = false, mediumPicking = false;
+function setMediumPicking(on) {
+  mediumPicking = on;
+  $("mediumBtn").classList.toggle("open", on);
+  $("mediumAsk").classList.toggle("on", on);
+  $("mediumAskTitle").textContent = on ? "What are you playing it on?" : "What's playing it?";
+  document.querySelectorAll("#mediumAsk [data-m]").forEach(b => b.classList.toggle("on", on && current && b.dataset.m === current.medium));
+}
+$("mediumBtn").addEventListener("click", e => { e.stopPropagation(); setMediumPicking(!mediumPicking); });
+document.addEventListener("click", () => { if (mediumPicking) setMediumPicking(false); });
 $("mediumAsk").addEventListener("click", async e => {
   e.stopPropagation();
   const b = e.target.closest("[data-m]"); if (!b) return;
+  const change = mediumPicking;
+  setMediumPicking(false);
   mediumBusy = true; $("mediumAsk").classList.remove("on");
   const def = $("mediumDefault").checked;
+  if (current) { current.medium = b.dataset.m; $("mediumBtnText").textContent = MEDIA[b.dataset.m]; }
   try {
-    await fetch("/api/medium", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ medium: b.dataset.m, default: def }) });
+    await fetch("/api/medium", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ medium: b.dataset.m, default: def, change }) });
     toast(def ? `Got it. Songs Liner Notes hears count as ${MEDIA[b.dataset.m]} from now on (change it in Settings).`
               : `${MEDIA[b.dataset.m]} it is, until you stop listening for a while.`);
   } catch (err) {}

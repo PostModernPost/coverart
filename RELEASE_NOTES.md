@@ -1,5 +1,5 @@
-- Compilations: when two songs in a row are by different artists, Liner Notes looks for the compilation that has both, in order (Apple Music first, then Discogs), and follows its tracklist.
-- If it can't find one, a card asks "A compilation?" with Find it (record search, started from the first song), Name it (type the album's name), or Not a compilation. A named album keeps its songs together, including the ones already played, on your shelf too, until the music stops for 20 minutes. Record search also has a "Can't find it?" box to name it.
-- Best-ofs vs. studio albums: when Shazam names a greatest hits or compilation release, Liner Notes follows the original album first, and the next song settles which one is really playing. Any guessed album gets re-checked when a song turns up out of order.
-- Singles and 45s: a song Shazam lists as a single follows the single (a 7" from Discogs when there's one), with an A side and a B side on vinyl, so it tells you to flip for the B side.
-- Your shelf marks singles (45 on vinyl), EPs, best-ofs and compilations.
+- Following a record: a quiet stretch partway through a song no longer jumps to the next track. A gap only switches right away near the end of a song whose length is known; otherwise Liner Notes checks with Shazam first and moves on only if it's not the same song.
+- If a song's quiet passages fooled it once, it remembers that for the rest of the record and always checks with Shazam before leaving that song.
+- When a tracklist doesn't list a song's length, Liner Notes gets it from Apple Music.
+- Putting the needle back down partway through a side counts the song from there, instead of jumping ahead a few seconds later.
+- The medium (Vinyl, CD, Cassette...) is now its own button next to the song. Tap it to change what you're playing on; the record and the songs already played from it switch too. The side and track ("Side B · 3 of 5") sit beside it as plain information.

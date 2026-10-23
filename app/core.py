@@ -153,10 +153,10 @@ def room_medium(app):
     rec = app.get("record") if app is not None else None
     if rec is not None and getattr(rec, "medium", None):
         return rec.medium
+    if ROOM["session"] and time.time() - ROOM["last"] < SESSION_GAP:
+        return ROOM["session"]          # picked for this listening session: beats the usual one
     if CFG.get("room_medium") in MEDIA:
         return CFG["room_medium"]
-    if ROOM["session"] and time.time() - ROOM["last"] < SESSION_GAP:
-        return ROOM["session"]
     return None
 
 
@@ -1145,6 +1145,19 @@ async def itunes_album_record(http, collection_id, medium=None):
     return rec
 
 
+async def fill_duration(http, rec, i):
+    """The tracklist didn't say how long this song is: ask Apple Music, so its end can be judged."""
+    try:
+        t = rec.tracks[i]
+        info = await itunes_lookup(http, t["artist"] or rec.artist, t["title"]) or {}
+        secs = round((info.get("duration_ms") or 0) / 1000)
+        if secs and not rec.tracks[i]["duration"]:
+            rec.tracks[i]["duration"] = secs
+            log(f"{t['pos']} is {secs // 60}:{secs % 60:02d} long (Apple Music)")
+    except Exception as e:
+        log("song length lookup failed:", repr(e))
+
+
 async def find_album_record(http, title, artist, album, medium=None, collection_id=None):
     """A song was recognized on a record, CD or tape: find its album's tracklist (Discogs, then Apple Music)
     so the next songs can follow in order. Returns (record, index of this song) or (None, None)."""
@@ -1181,6 +1194,10 @@ async def find_album_record(http, title, artist, album, medium=None, collection_
 
 class RecordSession:
     def __init__(self, rel):
+        self.started = time.time()
+        self.quiet_tracks = set()       # songs whose quiet passages were mistaken for the end before
+        self.pending_gap = 0.0          # a gap that might be the next song, waiting for Shazam to say
+        self.last_jump = None           # (when, from which track) the last time a gap moved us along
         self.id = rel.get("id")
         self.title = rel.get("title")
         self.artist = join_artists(rel.get("artists"))
@@ -1243,6 +1260,9 @@ class RecordSession:
         if self.side_done:
             j = self.next_side_start(self.idx)
             return self.set_index(j if j is not None else 0)
+        # The needle went back down mid-side: where it landed isn't known, so count this song from now
+        # (Shazam fixes the place), instead of a gap seconds later counting as the song's end.
+        self.track_started, self.exact_start = time.time(), False
         self.last_active = time.time()
         return self.track()
 
@@ -1252,12 +1272,19 @@ class RecordSession:
             self.side_done = True
 
     def gap_means_next(self, now):
-        """Is this gap a real song change? (Quiet passages inside a song can look like gaps.)"""
+        """Is this gap a real song change? Quiet passages inside a song look like gaps too.
+        "yes": near the end of a song whose length is known, so switch now.
+        "maybe": could be either (length unknown, or a song that fooled us before): ask Shazam first,
+        and switch only if it doesn't say the same song is still playing. None: too early, ignore it."""
         if self.idx is None or self.last_on_side(self.idx):
-            return False
+            return None
         dur = self.tracks[self.idx]["duration"] or 0
-        # a quiet breakdown can look like a gap: only near the song's end does a gap mean the next song
-        return now - self.track_started >= (max(30, dur - 40) if dur else 30)
+        played = now - self.track_started
+        if dur:
+            if played < max(30, dur - 40):
+                return None
+            return "maybe" if self.idx in self.quiet_tracks else "yes"
+        return "maybe" if played >= 60 else None
 
     def overdue(self, now):
         """Songs that run straight into each other have no gap: use the listed length instead."""
@@ -1852,12 +1879,21 @@ async def _turntable_inner(app, mic, shz):
 
         # Record mode: follow the tracklist between Shazam checks
         if rec and rec.tracks and rec.idx is not None:
+            if rec.pending_gap and now - rec.pending_gap > 45:
+                rec.pending_gap = 0.0            # Shazam never got to answer: drop the question
             if L.gap_count != rec_gaps and L.sound_for >= 1.0:
                 rec_gaps = L.gap_count
-                if rec.gap_means_next(now):
+                verdict = rec.gap_means_next(now)
+                if verdict == "yes":
+                    rec.last_jump = (now, rec.idx)
                     show_record(app, rec, rec.advance())
                     log(f"gap: next track {rec.tracks[rec.idx]['pos']}")
+                elif verdict == "maybe" and not rec.pending_gap:
+                    rec.pending_gap = now            # ask Shazam before switching (handled after the next match)
+                    log(f"gap in {rec.tracks[rec.idx]['pos']}: checking with Shazam before moving on")
             elif rec.overdue(now):
+                rec.pending_gap = 0.0
+                rec.last_jump = (now, rec.idx)
                 show_record(app, rec, rec.advance())
                 log(f"track length passed: next track {rec.tracks[rec.idx]['pos']}")
 
@@ -1912,6 +1948,8 @@ async def _turntable_inner(app, mic, shz):
             # or the start of the next side. Anywhere else on a guessed release means a different release
             # with the same songs, like a best-of instead of the album.
             ok = {rec.idx, rec.idx + 1, rec.idx + 2, nxt} if not getattr(rec, "tentative", False) else {rec.idx, rec.idx + 1, nxt}
+            if rec.last_jump and now - rec.last_jump[0] < 180:
+                ok.add(rec.last_jump[1])       # we moved on too early and the last song is still playing
             jumped = on_record is not None and on_record not in ok
             if on_record is None or jumped:
                 # Not on the guessed release, or not where it should be (a best-of, not the album): guess again
@@ -1922,11 +1960,24 @@ async def _turntable_inner(app, mic, shz):
             elif getattr(rec, "tentative", False) and on_record != rec.idx:
                 rec.tentative = False
                 log(f"confirmed: it's {rec.title}")
+        if rec and rec.pending_gap and (on_record is not None or not (res and res.get("title"))):
+            if on_record is None and rec.idx is not None and not rec.last_on_side(rec.idx):
+                log("no match after the gap: next track")      # a new song Shazam doesn't know
+                rec.last_jump = (now, rec.idx)
+                show_record(app, rec, rec.advance())
+            elif on_record == rec.idx:
+                log("same song after the gap: staying on it")
+            rec.pending_gap = 0.0
         if on_record is not None:
             misses = 0
             if rec.idx != on_record:
+                if rec.last_jump and rec.last_jump[1] == on_record and now - rec.last_jump[0] < 180:
+                    rec.quiet_tracks.add(on_record)      # its quiet bits fooled us: ask Shazam before leaving it again
+                    log(f"moved on from {rec.tracks[on_record]['pos']} too early: its quiet passages won't count as the end again")
                 log(f"Shazam says track {rec.tracks[on_record]['pos']}: moving there")
                 show_record(app, rec, rec.set_index(on_record))
+            if not rec.tracks[on_record]["duration"]:
+                asyncio.create_task(fill_duration(app["http"], rec, on_record))
             if res.get("offset") is not None:
                 pos = res["offset"] + CFG["clip_seconds"]
                 set_progress(app, rec.track()["id"], pos, rec.tracks[rec.idx]["duration"], "exact", at=last_try)
@@ -2066,6 +2117,11 @@ class History:
         with self._db() as db:
             db.execute("UPDATE plays SET album=?, album_artist=? WHERE ts>=? AND source IN ('vinyl','cd','cassette','other','room')",
                        (title, artist, since))
+
+    def change_medium(self, old, new, since):
+        with self._db() as db:
+            db.execute("UPDATE plays SET source=? WHERE source=? AND ts>=?", (new, old, since))
+            db.execute("UPDATE saved SET source=? WHERE source=? AND ts>=?", (new, old, since))
 
     def set_room_medium(self, medium, since):
         """Plays heard before anyone said what they were on get filled in."""
@@ -2797,7 +2853,21 @@ async def api_medium(request):
         save_config_value("room_medium", m)
     st: State = request.app["state"]
     st.db.set_room_medium(m, time.time() - 6 * 3600)
-    if st.track and st.track.get("source") in ROOM_SOURCES and not st.track.get("medium"):
+    rec = request.app.get("record")
+    if body.get("change"):
+        # Switching what this is playing on (the medium button): this record and the songs played from it
+        old = (st.track or {}).get("medium") or (rec.medium if rec else None)
+        if rec is not None:
+            rec.medium = m
+        since = rec.started if rec is not None else time.time() - 30 * 60
+        if old and old != m:
+            st.db.change_medium(old, m, since)
+        if st.track and st.track.get("source") in ROOM_SOURCES:
+            st.track = {**st.track, "medium": m}
+            st.history[st.track["id"]] = st.track
+            st.version += 1
+        log(f"medium changed to {m}")
+    elif st.track and st.track.get("source") in ROOM_SOURCES and not st.track.get("medium"):
         st.track = {**st.track, "medium": m}
         st.history[st.track["id"]] = st.track
         st.version += 1
