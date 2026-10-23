@@ -94,6 +94,45 @@ jobs:
           Get-Content "$env:APPDATA\Liner Notes\selftest.txt"
           if ($p.ExitCode -ne 0) { exit 1 }
 
+      - name: Check the signing setup
+        if: env.HAS_SIGNING == 'true'
+        shell: pwsh
+        env:
+          T: ${{ secrets.AZURE_TENANT_ID }}
+          C: ${{ secrets.AZURE_CLIENT_ID }}
+          S: ${{ secrets.AZURE_CLIENT_SECRET }}
+          E: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          A: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          P: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        run: |
+          # Reports problems as annotations (readable without the full log). Never prints the values.
+          $ok = $true
+          if ($env:E -notmatch '^https://[a-z0-9]+\.codesigning\.azure\.net/?$') { Write-Output "::error::AZURE_SIGNING_ENDPOINT should look like https://wus2.codesigning.azure.net/ (it doesn't)"; $ok = $false }
+          if ($env:T -notmatch '^[0-9a-fA-F-]{36}$') { Write-Output "::error::AZURE_TENANT_ID isn't a GUID"; $ok = $false }
+          if ($env:C -notmatch '^[0-9a-fA-F-]{36}$') { Write-Output "::error::AZURE_CLIENT_ID isn't a GUID"; $ok = $false }
+          if ($env:S -match '^[0-9a-fA-F-]{36}$') { Write-Output "::error::AZURE_CLIENT_SECRET looks like the Secret ID, not the secret's Value"; $ok = $false }
+          try {
+            $tok = Invoke-RestMethod -Method Post -Uri "https://login.microsoftonline.com/$($env:T)/oauth2/v2.0/token" -Body @{
+              grant_type = "client_credentials"; client_id = $env:C; client_secret = $env:S; scope = "https://codesigning.azure.net/.default" }
+            Write-Output "::notice::Signed in to Azure as the app"
+          } catch {
+            $m = $_.ErrorDetails.Message; if (-not $m) { $m = $_.Exception.Message }
+            $code = ([regex]::Match($m, 'AADSTS\d+')).Value
+            Write-Output "::error::Azure sign-in failed ($code). Check tenant ID, client ID and client secret."
+            exit 1
+          }
+          $digest = [Convert]::ToBase64String((New-Object byte[] 32))
+          $u = "$($env:E.TrimEnd('/'))/codesigningaccounts/$($env:A)/certificateprofiles/$($env:P)/sign?api-version=2022-06-15-preview"
+          try {
+            $r = Invoke-WebRequest -Method Post -Uri $u -Headers @{ Authorization = "Bearer $($tok.access_token)" } -ContentType "application/json" -Body (@{ signatureAlgorithm = "RS256"; digest = $digest } | ConvertTo-Json)
+            Write-Output "::notice::Signing service answered $($r.StatusCode): the account, profile and role are all right"
+          } catch {
+            $st = $_.Exception.Response.StatusCode.value__
+            $hint = @{ 401 = "sign-in token refused"; 403 = "the app lacks the 'Artifact Signing Certificate Profile Signer' role on the signing account (or it hasn't taken effect yet)"; 404 = "account or profile name not found at that endpoint (wrong name, or wrong region in the endpoint)" }[$st]
+            Write-Output "::error::Signing service said $st : $hint"
+            exit 1
+          }
+
       - name: Sign the app
         if: env.HAS_SIGNING == 'true'
         uses: azure/artifact-signing-action@v2
