@@ -1967,6 +1967,18 @@ async def _turntable_inner(app, mic, shz):
             if not found:
                 found, idx = await find_album_record(app["http"], song["title"], song["artist"], album, medium)
                 tentative = kind == "hits"
+            if not found and kind not in ("hits", "compilation"):
+                # Shazam's album isn't a release Discogs or Apple Music can follow (often a single named on
+                # its own): follow the song's studio album instead, until the next song confirms it
+                others = [c for c in await itunes_song_albums(app["http"], song["artist"], song["title"])
+                          if norm(c["album"]) != norm(album)]
+                studio = studio_album(others)
+                if studio:
+                    found, idx = await find_album_record(app["http"], song["title"], song["artist"], studio["album"],
+                                                         medium, studio["collection_id"])
+                    tentative = bool(found)
+                    if found:
+                        log(f"Shazam says '{album}', which has no tracklist to follow; trying the album '{studio['album']}'")
         except Exception as e:
             log("album lookup failed:", repr(e))
             return
