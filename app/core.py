@@ -75,6 +75,7 @@ CFG = {
     "room_medium": None,
     "mic_sensitivity": "normal",
     "hold_seconds": 60,
+    "phone_off_minutes": 0,        # USB phone screen turns off after this long with nothing playing (0 = never)
     "listening_paused": False,     # the listener turned listening off (main screen or Settings) until turned back on
     "follow_album": True,          # after a song is recognized on physical media, follow its album's tracklist
     "stylus_since": None,          # when the current stylus went on (unix time); None = since the first record in Liner Notes
@@ -2784,6 +2785,13 @@ async def api_config(request):
         cfg["pc_media"] = CFG["pc_media"] = body["pc_media"]
     if "listening_paused" in body:
         cfg["listening_paused"] = CFG["listening_paused"] = bool(body.get("listening_paused"))
+        if not CFG["listening_paused"]:
+            wake_screens(request.app)          # listening back on: screens that went dark come back
+    if "phone_off_minutes" in body:
+        try:
+            cfg["phone_off_minutes"] = CFG["phone_off_minutes"] = max(0, min(240, int(body.get("phone_off_minutes") or 0)))
+        except Exception:
+            pass
     if "follow_album" in body:
         cfg["follow_album"] = CFG["follow_album"] = bool(body.get("follow_album"))
     if body.get("mic_sensitivity") in SENSITIVITY:
@@ -3769,6 +3777,34 @@ def adb_phone_screens(on):
             adb_run("-s", d["serial"], "shell", "input", "keyevent", "KEYCODE_WAKEUP" if on else "KEYCODE_SLEEP", timeout=5)
 
 
+async def phone_off_loop(app):
+    """Settings > Phone screen: turn a USB phone's screen off after a while with nothing playing and
+    nothing heard (or with listening turned off). It comes back on with the next song."""
+    st: State = app["state"]
+    last_busy = time.time()
+    while True:
+        await asyncio.sleep(15)
+        try:
+            now = time.time()
+            mins = float(CFG.get("phone_off_minutes") or 0)
+            playing = bool(st.track and st.track.get("status") == "playing")
+            hearing = app.get("listen_mode") == "active"
+            if playing or hearing or not mins:
+                last_busy = now
+                continue
+            # The phone's own mic stops when its screen is off, so it couldn't hear the next record:
+            # with the phone listening, its screen only turns off while listening is turned off.
+            phone_listens = str(CFG.get("audio_device")).lower() == "phone" and not CFG.get("listening_paused")
+            if (phone_listens or app.get("phone_idle_off") or now - last_busy < mins * 60
+                    or now - app.get("last_phone_poll", 0) > 60 or not adb_path()):
+                continue
+            await asyncio.get_running_loop().run_in_executor(None, adb_phone_screens, False)
+            app["phone_idle_off"] = True
+            log(f"phone screen off: nothing playing for {mins:g} min")
+        except Exception as e:
+            log("phone screen timer:", repr(e))
+
+
 def adb_connect_phones():
     """Point each ready phone's localhost at this PC, so the phone can open the screen."""
     for d in adb_devices():
@@ -3947,6 +3983,8 @@ async def api_now(request):
                               "record": request.app["record"].summary() if request.app.get("record") else None,
                               "progress": progress_now(request.app),
                               "phone_follows_pc": CFG.get("phone_follows_pc", True),
+                              "phone_off_minutes": CFG.get("phone_off_minutes") or 0,
+                              "phone_listens": str(CFG.get("audio_device")).lower() == "phone",
                               "saved": bool(st.track and st.track.get("id") in st.db.saved_ids),
                               "media_default": CFG.get("room_medium"),
                               "follow_album": CFG.get("follow_album", True),
@@ -4085,7 +4123,8 @@ async def on_startup(app):
         app["tasks"] = [asyncio.create_task(pc_media_loop(app)),
                         asyncio.create_task(turntable_loop(app)),
                         asyncio.create_task(update_loop(app)),
-                        asyncio.create_task(lastfm_loop(app))]
+                        asyncio.create_task(lastfm_loop(app)),
+                        asyncio.create_task(phone_off_loop(app))]
 
 
 async def on_cleanup(app):

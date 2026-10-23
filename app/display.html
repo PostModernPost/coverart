@@ -353,10 +353,10 @@
   #ownAlbum { margin-top: 3vmin; padding-top: 2vmin; border-top: 1px solid var(--faint); }
   #ownAlbum .row { gap: .6em; flex-wrap: wrap; }
   /* settings with several choices: the choices go on their own line under the label */
-  #textSize, #mediaRow, #idleModeRow, #idleOffRow, #pcMediaRow { flex-wrap: wrap; }
+  #textSize, #mediaRow, #idleModeRow, #idleOffRow, #pcMediaRow, #phoneOffRow { flex-wrap: wrap; }
   #pcMediaRow .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
   #textSize .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
-  #mediaRow .sizes, #idleModeRow .sizes, #idleOffRow .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
+  #mediaRow .sizes, #idleModeRow .sizes, #idleOffRow .sizes, #phoneOffRow .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; justify-content: flex-start; margin-top: .2em; }
   #aboutMark { width: 44px; height: 44px; vertical-align: middle; margin-right: .7em; }
 
   /* listening history and saved songs: a readable width on big screens */
@@ -817,6 +817,11 @@
   <div class="setting" id="phoneSetupRow" style="cursor:pointer">
     <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone or iPhone.</small></div>
     <span class="pill">Set up</span></div>
+  <div class="setting" id="phoneOffRow" style="cursor:default">
+    <div>Turn the phone screen off<small id="phoneOffHint">After this long with nothing playing and no music heard, a phone plugged in over USB turns its screen off. It comes back on with the next song.</small></div>
+    <div class="sizes">
+      <button class="pill" data-po="0">Never</button><button class="pill" data-po="5">5 min</button><button class="pill" data-po="15">15 min</button>
+      <button class="pill" data-po="30">30 min</button><button class="pill" data-po="60">1 hour</button></div></div>
   <div class="setting" id="followRow">
     <div>Phone screen sleeps and wakes with this PC<small>A phone plugged in over USB turns its screen off when the PC sleeps or hibernates, and back on when it wakes.</small></div><div class="switch"></div></div>
   <h3 class="group">Accounts</h3>
@@ -984,6 +989,9 @@ async function poll() {
     donateUrl = d.donate || "";
     if (d.update) showUpdate(d.update);
     $("followRow").classList.toggle("on", d.phone_follows_pc !== false);
+    if (Date.now() > phoneOffBusy) document.querySelectorAll("#phoneOffRow [data-po]").forEach(b => b.classList.toggle("on", +b.dataset.po === (d.phone_off_minutes || 0)));
+    $("phoneOffHint").textContent = "After this long with nothing playing and no music heard, a phone plugged in over USB turns its screen off. It comes back on with the next song." +
+      (d.phone_listens ? " The phone is doing the listening, so its screen only turns off while listening is turned off." : "");
     if (!saveBusy) setHearts(!!d.saved);
     mediaDefault = d.media_default || "";
     $("followAlbumRow").classList.toggle("on", d.follow_album !== false);
@@ -2051,6 +2059,16 @@ $("followAlbumRow").addEventListener("click", async () => {
   const on = !$("followAlbumRow").classList.contains("on");
   $("followAlbumRow").classList.toggle("on", on);
   try { await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ follow_album: on }) }); } catch (e) {}
+});
+let phoneOffBusy = 0;
+$("phoneOffRow").addEventListener("click", async e => {
+  const b = e.target.closest("[data-po]"); if (!b) return;
+  e.stopPropagation(); phoneOffBusy = Date.now() + 2500;
+  document.querySelectorAll("#phoneOffRow [data-po]").forEach(x => x.classList.toggle("on", x === b));
+  try {
+    const r = await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone_off_minutes: +b.dataset.po }) });
+    if (!r.ok) toast("Only Liner Notes on the PC can change that.");
+  } catch (err) {}
 });
 $("followRow").addEventListener("click", async () => {
   const on = !$("followRow").classList.contains("on");

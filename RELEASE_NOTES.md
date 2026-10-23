@@ -1,3 +1,2 @@
-- Turn listening off: a microphone button at the top of the main screen turns listening off until you turn it back on, even after a restart. While it's off the button shows a crossed-out mic, and the screen between records says "Listening is off" with a button to turn it back on. Spotify and other apps on the PC still show.
-- The same switch is in Settings > Microphone > Listen for music.
-- Settings no longer has the "This screen" heading or the note under the title.
+- Settings > Phone screen > Turn the phone screen off: after 5, 15, 30 or 60 minutes with nothing playing and no music heard (or with listening turned off), a phone plugged in over USB turns its screen off. It comes back on with the next song, or when you turn listening back on. Set it from the PC; it doesn't need to be set on the phone.
+- If the phone's own microphone is doing the listening, its screen only turns off while listening is turned off, since a phone with its screen off can't hear the next record.
