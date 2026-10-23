@@ -67,7 +67,7 @@ CFG = {
     "gap_seconds": 1.0,            # a gap this long triggers a fresh identify
     "probe_every_seconds": 20,     # standby: how often to take a short sample
     "probe_seconds": 2,            # standby: length of that sample
-    "clip_seconds": 10,            # length of audio sent to Shazam
+    "clip_seconds": 12,            # length of audio sent to Shazam (12 s is the most it takes; 10 s missed many songs)
     "retry_seconds": 15,           # when nothing is identified yet, try this often
     "recheck_seconds": 45,         # while a record is playing, re-check this often (catches gapless track changes)
     "idle_after_seconds": 20,      # silence this long = turntable stopped
@@ -1820,7 +1820,10 @@ def shazam_client():
         from shazamio import Shazam
     except ImportError:
         from shazam_lite import Shazam
-    return Shazam()
+    try:
+        return Shazam(segment_duration_seconds=12)    # shazamio's default 10 s window missed songs that 12 s matches
+    except TypeError:
+        return Shazam()
 
 
 async def shazam_identify(shz, wav_bytes):
@@ -2866,7 +2869,7 @@ async def update_loop(app):
     await asyncio.sleep(10)
     while True:
         await check_for_update(app)
-        await asyncio.sleep(3600)          # hourly, so a new version is offered soon after it's out
+        await asyncio.sleep(15 * 60)       # every 15 minutes, so a new version is offered soon after it's out
 
 
 async def install_update(app):

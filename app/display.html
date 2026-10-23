@@ -333,6 +333,8 @@
   #pairAsk h3, #updAsk h3 { margin: 0 0 .5em; font-size: 1.15em; text-transform: none; letter-spacing: 0; color: var(--fg); }
   #pairAsk .code { font-size: 2.4em; font-weight: 700; letter-spacing: .2em; color: var(--gold); margin: .3em 0; font-variant-numeric: tabular-nums; }
   #pairAsk .row, #updAsk .row { justify-content: center; margin-top: 1em; }
+  #updAsk .x { position: absolute; top: .5em; right: .6em; background: none; border: 0; color: var(--dim); font-size: 1.4em; cursor: pointer; line-height: 1; }
+  #updAsk .x:hover { color: var(--fg); }
   #updAsk .notes { margin: .6em 0 0; font-size: .85em; max-height: 8em; overflow: auto; white-space: pre-line; text-align: left; }
   #shareMenu .smHead { padding: .55em .8em .6em; color: var(--dim); font-size: .85em; border-bottom: 1px solid var(--faint); margin-bottom: .3em; max-width: 19em; }
   #shareMenu a, #shareMenu button { display: flex; align-items: center; gap: .7em; width: 100%; box-sizing: border-box; padding: .6em .8em; border-radius: 9px;
@@ -2121,31 +2123,40 @@ function pillShow() {
   $("updPill").textContent = avail ? `Update to ${avail.version}` : appAvail ? "Update the app" : "";
   updAskShow(appAvail ? { kind: "app", version: appAvail } : avail && !updBusy && !upd.updating ? { kind: "pc", version: avail.version, notes: avail.notes } : null);
 }
-// A new version: ask right away, whatever screen is open. "Later" asks again in 6 hours.
-var updAsked = null;
+// A new version: ask right away, whatever screen is open. It updates by itself after 30 s;
+// the X (or "Later") skips it and asks again in 6 hours.
+var updAsked = null, updCountdown = null;
 function updAskLater(key) { try { return Date.now() - Number(localStorage.getItem("updLater:" + key) || 0) < 6 * 3600e3; } catch (e) { return false; } }
 function updAskShow(u) {
   const el = $("updAsk");
   const key = u ? u.kind + ":" + u.version : null;
-  if (!u || updAskLater(key)) { if (updAsked) { el.classList.remove("on"); updAsked = null; } return; }
+  if (!u || updAskLater(key)) { if (updAsked) { el.classList.remove("on"); updAsked = null; clearInterval(updCountdown); } return; }
   if (updAsked === key) return;
   updAsked = key;
   const what = u.kind === "app" ? `Liner Notes for Android ${esc(u.version)}` : `Liner Notes ${esc(u.version)}`;
-  el.innerHTML = `<h3>${what} is ready</h3>
+  el.innerHTML = `<button class="x" data-ans="0" aria-label="Not now">×</button><h3>${what} is ready</h3>
     <p class="muted" style="margin:0">${u.kind === "app" ? "The app downloads it, then Android asks you to install it."
       : "Liner Notes closes and reopens with the new version in about a minute."}</p>
     ${u.notes ? `<p class="muted notes">${esc(u.notes.slice(0, 600))}</p>` : ""}
-    <div class="row"><button class="pill gold" data-ans="1">Update now</button><button class="pill" data-ans="0">Later</button></div>`;
+    <div class="row"><button class="pill gold" data-ans="1">Update now</button><button class="pill" data-ans="0">Later</button></div>
+    <p class="muted" style="margin:.7em 0 0;font-size:.85em" id="updLeft"></p>`;
   el.classList.add("on");
+  let left = 30;
+  const tick = () => { if (left <= 0) { clearInterval(updCountdown); answer("1"); return; }
+    const t = $("updLeft"); if (t) t.textContent = `Updating in ${left} s`; left--; };
+  clearInterval(updCountdown); tick(); updCountdown = setInterval(tick, 1000);
   el.onclick = e => {
     e.stopPropagation();
-    const b = e.target.closest("[data-ans]"); if (!b) return;
+    const b = e.target.closest("[data-ans]"); if (b) answer(b.dataset.ans);
+  };
+  function answer(ans) {
+    clearInterval(updCountdown);
     el.classList.remove("on");
-    if (b.dataset.ans === "1") {
+    if (ans === "1") {
       if (u.kind === "app") { try { APP.installAppUpdate(); } catch (err) {} setTimeout(appUpdTick, 300); }
       else installPcUpdate();
     } else { try { localStorage.setItem("updLater:" + key, String(Date.now())); } catch (err) {} }
-  };
+  }
 }
 function appUpdTick() {
   if (!IN_APP || !APP.appUpdate) return;

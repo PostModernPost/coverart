@@ -93,11 +93,11 @@ class MainActivity : Activity() {
         main.post(updateCheck)
     }
 
-    /** Look for a new version of the app every hour while it's open (the page asks whether to install it). */
+    /** Look for a new version of the app every 15 minutes while it's open (the page asks whether to install it). */
     private val updateCheck = object : Runnable {
         override fun run() {
             io.execute { Updater.check(this@MainActivity) }
-            main.postDelayed(this, 3600_000L)
+            main.postDelayed(this, 15 * 60_000L)
         }
     }
 
