@@ -422,7 +422,7 @@
   #sensRow .sizes { display: flex; flex-wrap: wrap; gap: .5em; width: 100%; margin-top: .2em; justify-content: flex-start; }
   #meterBox { padding: 1.4em 0 2em; border-bottom: 1px solid var(--faint); font-size: clamp(14px, 2.6vmin, 18px); }
   #meter { position: relative; height: 18px; border-radius: 99px; background: rgba(255,255,255,.08); margin: 1em 0 .7em; overflow: hidden; }
-  #meterFill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, #6f8fb5, #c9a04a); transition: width .4s ease; }
+  #meterFill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, #6f8fb5, #c9a04a); transition: width .08s linear; }
   #meter .mk { position: absolute; top: -2px; bottom: -2px; width: 3px; background: rgba(255,255,255,.55); }
   #meter .mk.gold { background: var(--gold); width: 4px; }
   #meterBox .legend { display: flex; gap: 1.2em; flex-wrap: wrap; font-size: .85em; color: var(--dim); }
@@ -1547,16 +1547,16 @@ function dbPos(v) {                       // loudness on a log scale: -66 dB (si
   return Math.max(0, Math.min(100, (db + 66) / 60 * 100));
 }
 async function meterTick() {
-  if (!$("settings").classList.contains("open")) { clearInterval(meterTimer); meterTimer = null; return; }
+  if (!$("settings").classList.contains("open")) return;
   let d;
-  try { const r = await fetch("/api/mic/level"); if (r.status === 403) { $("meterBox").style.display = "none"; clearInterval(meterTimer); return; } d = await r.json(); }
+  try { const r = await fetch("/api/mic/level", { cache: "no-store" }); if (r.status === 403) { $("meterBox").style.display = "none"; meterTimer = null; return; } d = await r.json(); }
   catch (e) { return; }
   document.querySelectorAll("#sensRow [data-sens]").forEach(b => b.classList.toggle("on", b.dataset.sens === d.sensitivity));
   if (!d.has_mic) { $("meterNow").textContent = "No microphone is connected."; return; }
   if (d.clip_at) {
     $("clipBox").style.display = "block";
     const mins = Math.round((Date.now() / 1000 - d.clip_at) / 60);
-    $("clipWhen").textContent = `The last ${12} seconds sent to Shazam, ${mins < 1 ? "just now" : mins + " min ago"}` + (d.mic_name ? ` · ${d.mic_name}` : "");
+    $("clipWhen").textContent = `The last ${d.clip_seconds || 10} seconds sent to Shazam, ${mins < 1 ? "just now" : mins + " min ago"}` + (d.mic_name ? ` · ${d.mic_name}` : "");
     if ($("clipAudio").dataset.at !== String(d.clip_at) && $("clipAudio").paused) {
       $("clipAudio").dataset.at = String(d.clip_at); $("clipAudio").src = "/api/mic/last-clip.wav?t=" + d.clip_at;
     }
@@ -1565,13 +1565,23 @@ async function meterTick() {
   $("mkFloor").style.left = dbPos(d.floor) + "%";
   $("mkStart").style.left = dbPos(d.start) + "%";
   $("mkKeep").style.left = dbPos(d.keep) + "%";
+  const sus = d.sustained ?? d.level;
   $("meterNow").textContent = d.level == null ? "Waiting for the mic…" :
-    d.level >= d.start ? "That counts as music." :
-    d.level >= d.keep ? "Loud enough to keep a song going, not quite enough to start." : "Quieter than music needs to be.";
+    sus >= d.start ? "That counts as music." :
+    sus >= d.keep ? "Loud enough to keep a song going, not quite enough to start." : "Quieter than music needs to be.";
+}
+// The meter updates about ten times a second while Settings is open (one request at a time)
+async function meterLoop(gen) {
+  while (meterTimer === gen && $("settings").classList.contains("open")) {
+    const t0 = Date.now();
+    await meterTick();
+    await new Promise(r => setTimeout(r, Math.max(30, 90 - (Date.now() - t0))));
+  }
+  if (meterTimer === gen) meterTimer = null;
 }
 $("tb-settings").addEventListener("click", () => {
-  clearInterval(meterTimer);
-  setTimeout(() => { meterTimer = setInterval(meterTick, 1000); meterTick(); }, 100);   // after the panel opens
+  const gen = {}; meterTimer = gen;
+  setTimeout(() => meterLoop(gen), 100);          // after the panel opens
 });
 async function loadMics() {
   try {
@@ -2499,13 +2509,13 @@ function closeMic() {
   mic.chunks = [];
 }
 
-async function upload(probe) {
+async function upload(probe, kind) {
   const parts = mic.chunks; mic.chunks = [];
   const n = parts.reduce((a, p) => a + p.length, 0);
   if (!n) return;
   const all = new Int16Array(n); let o = 0;
   for (const p of parts) { all.set(p, o); o += p.length; }
-  try { await fetch("/api/audio?probe=" + (probe ? 1 : 0), { method: "POST", body: all.buffer }); } catch (e) {}
+  try { await fetch("/api/audio?probe=" + (probe ? 1 : 0) + (kind === "meter" ? "&meter=1" : ""), { method: "POST", body: all.buffer }); } catch (e) {}
 }
 
 async function probe(seconds) {
@@ -2525,10 +2535,17 @@ async function probe(seconds) {
 async function micTick(cfg) {
   mic.mode = cfg.mode;
   if (cfg.mode === "active") {
+    if (mic.meterSender) { clearInterval(mic.meterSender); mic.meterSender = null; }
     if (!mic.stream && !(await openMic())) return;
     if (!mic.sender) mic.sender = setInterval(() => upload(false), 1000);
     return;
   }
+  if (cfg.mode === "meter") {                 // the mic meter is open on the PC: send small pieces so it moves live
+    if (!mic.stream && !(await openMic())) return;
+    if (!mic.meterSender) mic.meterSender = setInterval(() => upload(false, "meter"), 200);
+    return;
+  }
+  if (mic.meterSender) { clearInterval(mic.meterSender); mic.meterSender = null; }
   if (mic.sender) { clearInterval(mic.sender); mic.sender = null; }
   if (cfg.mode === "off") { if (!mic.probing) closeMic(); banner(null); return; }
   // standby

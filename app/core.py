@@ -1555,6 +1555,33 @@ def music_level(data, sr):
     return float(np.percentile([np.sqrt(np.mean(b * b)) for b in blocks], 20))
 
 
+def live_feed(mic, data):
+    """The mic meter: loudness of every 20 ms as it arrives, for a bar that moves like Windows' mic test."""
+    np = __import__("numpy")
+    step = max(1, int(mic.sr * 0.02))
+    n = len(data) // step
+    if not n:
+        return
+    rms = np.sqrt(np.mean(data[: n * step].reshape(n, step) ** 2, axis=1))
+    now = time.time()
+    for i, v in enumerate(rms):
+        mic.live.append((now - (n - 1 - i) * 0.02, float(v)))
+
+
+def live_level(mic):
+    """(right now, sustained over the last second) from the meter feed, or (None, None) if it's quiet."""
+    live = getattr(mic, "live", None)
+    if not live:
+        return None, None
+    now = time.time()
+    recent = [v for t, v in list(live) if now - t <= 1.0]
+    if not recent or now - live[-1][0] > 0.6:
+        return None, None
+    instant = max(v for t, v in list(live)[-6:])           # the loudest of the last ~120 ms, like a VU peak
+    sustained = sorted(recent)[len(recent) // 5]          # the same 80%-of-the-time measure the listening uses
+    return instant, sustained
+
+
 class PcMic:
     kind = "pc"
 
@@ -1567,6 +1594,36 @@ class PcMic:
         self.name = info["name"]
         self.buf = AudioBuffer(self.sr)
         self.stream = None
+        self.live = collections.deque(maxlen=200)        # 20 ms loudness blocks for the meter
+        self.meter_stream = None                          # mic open just for the meter (in standby)
+        self.meter_raw = collections.deque(maxlen=120)   # its last ~2.5 s of audio, so standby can still notice music
+
+    def _meter_cb(self, indata, frames, t, status):
+        x = indata[:, 0].copy()
+        self.meter_raw.append(x)
+        live_feed(self, x)
+
+    def meter_start(self):
+        if self.stream is None and self.meter_stream is None:
+            self.meter_stream = self.sd.InputStream(device=self.device, channels=1, samplerate=self.sr, blocksize=1024,
+                                                    dtype="float32", callback=self._meter_cb)
+            self.meter_stream.start()
+
+    def meter_stop(self):
+        if self.meter_stream is not None:
+            try:
+                self.meter_stream.stop()
+                self.meter_stream.close()
+            finally:
+                self.meter_stream = None
+                self.meter_raw.clear()
+
+    def meter_take(self, seconds):
+        """The last few seconds the meter stream heard (instead of opening the mic again for a sample)."""
+        np = __import__("numpy")
+        if not self.meter_raw:
+            return None
+        return np.concatenate(list(self.meter_raw))[-int(seconds * self.sr):]
 
     def probe(self, seconds):
         """Blocking: record a short sample with the mic opened just for that."""
@@ -1574,14 +1631,21 @@ class PcMic:
                            device=self.device, blocking=True)
         return data[:, 0].copy()
 
+    def _main_cb(self, indata, frames, t, status):
+        x = indata[:, 0].copy()
+        self.buf.feed(x)
+        live_feed(self, x)
+
     def start(self):
         if self.stream is None:
+            self.meter_stop()                             # one stream at a time
             self.stream = self.sd.InputStream(
                 device=self.device, channels=1, samplerate=self.sr, blocksize=1024, dtype="float32",
-                callback=lambda indata, frames, t, status: self.buf.feed(indata[:, 0].copy()))
+                callback=self._main_cb)
             self.stream.start()
 
     def stop(self):
+        self.meter_stop()
         if self.stream is not None:
             try:
                 self.stream.stop()
@@ -1600,6 +1664,8 @@ class PhoneMic:
         self.buf = AudioBuffer(self.sr)
         self.probes = collections.deque(maxlen=4)
         self.last_upload = 0.0
+        self.live = collections.deque(maxlen=200)
+        self.meter_raw = collections.deque(maxlen=15)    # ~3 s of the meter's 200 ms pieces
 
     def start(self):
         pass      # the phone starts streaming when it sees mode "active"
@@ -1892,7 +1958,7 @@ async def _turntable_inner(app, mic, shz):
                 st.idle()
             samples = []
             if mic.kind == "pc":
-                if now - last_probe >= CFG["probe_every_seconds"]:
+                if now - last_probe >= CFG["probe_every_seconds"] and mic.meter_stream is None:
                     last_probe = now
                     try:
                         samples.append(await loop.run_in_executor(None, mic.probe, CFG["probe_seconds"]))
@@ -1901,6 +1967,14 @@ async def _turntable_inner(app, mic, shz):
             else:
                 while mic.probes:
                     samples.append(mic.probes.popleft())
+                if mic.meter_raw and now - last_probe >= 1.0:     # the meter is streaming: check its last second or so
+                    last_probe = now
+                    import numpy as np
+                    x = np.concatenate(list(mic.meter_raw))[-int(1.5 * mic.sr):]
+                    if len(x) >= mic.sr:
+                        samples.append(x)
+                    if app.get("meter_until", 0) <= now:
+                        mic.meter_raw.clear()
             if app.get("listen_now_at") and now - app["listen_now_at"] < 60 and not app.get("listen_now_started"):
                 app["listen_now_started"] = now          # Listen now: record right away, whatever the level
                 L.reset()
@@ -1910,12 +1984,21 @@ async def _turntable_inner(app, mic, shz):
                 set_mode(app, mic, "active")
                 active_since = now
                 continue
-            if mic.kind == "pc" and app.get("meter_until", 0) > now and now - last_probe >= 1.0:
-                last_probe = now - CFG["probe_every_seconds"] + 1.0     # the mic meter is open: sample every second
-                try:
-                    samples.append(await loop.run_in_executor(None, mic.probe, 0.8))
-                except Exception as e:
-                    log("mic sample failed:", e)
+            if mic.kind == "pc":
+                if app.get("meter_until", 0) > now:
+                    # The mic meter is open: keep the mic running so the bar moves instantly, and check
+                    # what it hears for music every second instead of taking separate samples
+                    try:
+                        mic.meter_start()
+                    except Exception as e:
+                        log("mic meter failed:", e)
+                    if now - last_probe >= 1.0 and mic.meter_stream is not None:
+                        last_probe = now - CFG["probe_every_seconds"] + 1.0
+                        x = mic.meter_take(1.5)
+                        if x is not None and len(x) >= mic.sr:
+                            samples.append(x)
+                elif mic.meter_stream is not None:
+                    mic.meter_stop()
             for data in samples:
                 level = music_level(data, mic.sr)
                 app["meter"] = {"level": level, "at": time.time()}
@@ -3096,10 +3179,14 @@ async def api_last_clip(request):
 async def api_mic_level(request):
     """For the mic meter in Settings: what the mic hears now, the room's background, and the two lines."""
     app = request.app
-    app["meter_until"] = time.time() + 6          # keep sampling while the meter is open
-    m = app.get("meter") or {}
-    fresh = time.time() - (m.get("at") or 0) < 4
-    return web.json_response({"level": m.get("level") if fresh else None, "floor": NOISE["floor"],
+    app["meter_until"] = time.time() + 3          # keep the mic running while the meter is open
+    instant, sustained = live_level(app.get("mic")) if app.get("mic") is not None else (None, None)
+    if sustained is None:                          # no live feed (yet): the last sample's level
+        m = app.get("meter") or {}
+        if time.time() - (m.get("at") or 0) < 4:
+            instant = sustained = m.get("level")
+    return web.json_response({"level": instant, "sustained": sustained, "floor": NOISE["floor"],
+                              "clip_seconds": CFG["clip_seconds"],
                               "start": music_cutoff(), "keep": keep_cutoff(),
                               "mode": app.get("listen_mode", "off"), "has_mic": app.get("mic") is not None,
                               "sensitivity": CFG.get("mic_sensitivity") or "normal",
@@ -4217,7 +4304,7 @@ def mic_info(app):
     if not mic or mic.kind != "phone":
         return {"mode": "off"}
     if app.get("meter_until", 0) > time.time() and app.get("listen_mode") == "standby":
-        return {"mode": "standby", "every": 2, "seconds": 1}          # the mic meter is open
+        return {"mode": "meter", "every": 1, "seconds": 1}            # the mic meter is open: stream in small pieces
     return {"mode": app.get("listen_mode", "off"), "every": CFG["probe_every_seconds"],
             "seconds": CFG["probe_seconds"]}
 
@@ -4264,7 +4351,10 @@ async def api_audio(request):
     if len(body) >= 2:
         data = np.frombuffer(body[: len(body) // 2 * 2], dtype="<i2").astype(np.float32) / 32768.0
         mic.last_upload = time.time()
-        if request.query.get("probe") == "1" or app.get("listen_mode") != "active":
+        live_feed(mic, data)
+        if request.query.get("meter") == "1" and app.get("listen_mode") != "active":
+            mic.meter_raw.append(data)           # the meter's live pieces: standby checks them for music each second
+        elif request.query.get("probe") == "1" or app.get("listen_mode") != "active":
             mic.probes.append(data)
         else:
             mic.buf.feed(data)

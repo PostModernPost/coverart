@@ -1,1 +1,3 @@
-- Settings is tidier: each setting's description now sits behind a small (i) next to its name. Hover it on the PC, or tap it on a phone.
+- The mic meter in Settings moves live, about ten times a second, like the mic test in Windows settings. While Settings is open the mic stays on so the bar follows the sound right away, and it still notices when a record starts. With the phone's mic, the phone sends small pieces of sound five times a second while the meter is open.
+- The bar shows the level right now; the "That counts as music" line underneath still judges the last second, the way listening does.
+- "Hear what Shazam heard" says the right clip length (10 seconds).
