@@ -1,5 +1,3 @@
-- Following a record: a quiet stretch partway through a song no longer jumps to the next track. A gap only switches right away near the end of a song whose length is known; otherwise Liner Notes checks with Shazam first and moves on only if it's not the same song.
-- If a song's quiet passages fooled it once, it remembers that for the rest of the record and always checks with Shazam before leaving that song.
-- When a tracklist doesn't list a song's length, Liner Notes gets it from Apple Music.
-- Putting the needle back down partway through a side counts the song from there, instead of jumping ahead a few seconds later.
-- The medium (Vinyl, CD, Cassette...) is now its own button next to the song. Tap it to change what you're playing on; the record and the songs already played from it switch too. The side and track ("Side B · 3 of 5") sit beside it as plain information.
+- Record skips: while a record plays, Liner Notes listens for the groove looping (the same turn of the record repeating, about every 1.8 seconds at 33 or 1.3 at 45) and quietly notes which song skipped. Nothing pops up while you listen.
+- Your shelf shows it: an album's page says how many times it skipped and in which songs, and a record that keeps skipping (the same song on different days, or several skips) gets a small "Skips often" note with a suggestion to clean it and check the stylus before replacing it.
+- Shelf covers line up again when some captions run to two lines.

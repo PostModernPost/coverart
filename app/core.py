@@ -1469,6 +1469,62 @@ class AudioBuffer:
         return r[len(r) // 10], r[len(r) // 2], r[-1]
 
 
+# ---------------------------------------------------------------- record skips
+# A skipping record loops one turn of the groove: the same sound over and over, exactly one rotation
+# long (1.8 s at 33 1/3, 1.33 s at 45). Music that repeats a bar is rarely sample-for-sample identical
+# in a room, and it also repeats at half a bar; a skip doesn't.
+SKIP_RATE = 8000
+ROTATIONS = ((33, 60 / (100 / 3)), (45, 60 / 45))
+
+
+def detect_skip(data, sr):
+    """data: the last ~6 s of mono audio. Returns (rpm, loop seconds, similarity) or None."""
+    np = __import__("numpy")
+    step = max(1, int(round(sr / SKIP_RATE)))
+    n = len(data) // step * step
+    rate = sr / step
+    x = data[-n:].astype(np.float64).reshape(-1, step).mean(axis=1)       # ~8 kHz
+    N = len(x)
+    if N < rate * 4:
+        return None
+    X = np.fft.rfft(x - x.mean())
+    fq = np.fft.rfftfreq(N, 1 / rate)
+    X[(fq < 150) | (fq > 3000)] = 0                         # where the music is; room hum and hiss count less
+    x = np.fft.irfft(X, N)
+    if float(np.sqrt(np.mean(x * x))) < 1e-5:
+        return None
+    size = 1 << (2 * N - 1).bit_length()
+    f = np.fft.rfft(x, size)
+    ac = np.fft.irfft(f * np.conj(f), size)[:N]            # sum x[t] x[t+L]
+    c2 = np.concatenate(([0.0], np.cumsum(x * x)))
+
+    def corr(lag):
+        lag = int(lag)
+        if lag <= 0 or lag > N - rate * 0.5:
+            return 0.0
+        e1, e2 = c2[N - lag], c2[N] - c2[lag]               # energy of x[:N-lag] and of x[lag:]
+        return float(ac[lag] / (np.sqrt(e1 * e2) + 1e-12))
+
+    best = None
+    for rpm, period in ROTATIONS:
+        lags = np.arange(int(period * 0.97 * rate), int(period * 1.03 * rate))
+        if 2 * lags[-1] > N - rate * 0.5:
+            continue
+        r = np.array([corr(L) for L in lags])
+        i = int(np.argmax(r))
+        L, sim = int(lags[i]), float(r[i])
+        if sim < 0.6:
+            continue
+        # turn after turn the same, so twice the loop matches too (allowing for a fraction of a sample)
+        if max(corr(2 * L + d) for d in (-1, 0, 1)) < 0.45:
+            continue
+        if max(corr(L // 2), corr(L // 3), corr(L // 4)) > 0.35:
+            continue                                         # it also repeats within the turn: that's the music
+        if not best or sim > best[2]:
+            best = (rpm, L / rate, sim)
+    return best
+
+
 def to_wav(data, sr):
     np = __import__("numpy")
     # Just bring a quiet recording up to full level. (0.7.28 to 0.7.39 also filtered and compressed the
@@ -1668,6 +1724,31 @@ async def _turntable_inner(app, mic, shz):
     last_try = 0.0
     last_probe = 0.0
     last_level_log = 0.0
+    skip = {"at": 0.0, "hits": 0, "busy": False, "logged": {}}   # record-skip watch (vinyl only)
+
+    async def check_skip():
+        """Every 1.5 s on vinyl: is the record stuck looping one turn of the groove?"""
+        skip["busy"] = True
+        try:
+            data = L.last_samples(6)
+            hit = await loop.run_in_executor(None, detect_skip, data, mic.sr) if data is not None else None
+            cur = st.track
+            if not hit or not cur or cur.get("status") != "playing":
+                skip["hits"] = 0
+                return
+            skip["hits"] += 1
+            key = norm(cur.get("title")) + "|" + norm(cur.get("artist"))
+            if skip["hits"] >= 2 and time.time() - skip["logged"].get(key, 0) > 180:   # ~7 s of looping
+                skip["logged"][key] = time.time()
+                rpm, secs, sim = hit
+                log(f"record skip: looping every {secs:.2f} s ({rpm} rpm) in {cur.get('artist')} - {cur.get('title')} "
+                    f"(match {sim:.2f})")
+                pos = progress_now(app)
+                await asyncio.to_thread(st.db.add_skip, cur, (pos or {}).get("pos"))
+        except Exception as e:
+            log("skip check failed:", repr(e))
+        finally:
+            skip["busy"] = False
     misses = 0
     not_before = 0.0          # Shazam asked us to wait, or we're backing off after misses
     rec_gaps = 0              # gaps already used to move along the tracklist
@@ -1848,6 +1929,11 @@ async def _turntable_inner(app, mic, shz):
         if mic.kind == "phone":
             while mic.probes:                 # a sample that crossed with the mode change
                 L.feed(mic.probes.popleft())
+
+        if (now - skip["at"] >= 1.5 and not skip["busy"] and on_tt
+                and ((rec.medium if rec else None) or (t or {}).get("medium") or room_medium(app)) == "vinyl"):
+            skip["at"] = now
+            asyncio.create_task(check_skip())
 
         if now - last_level_log >= 15:
             last_level_log = now
@@ -2065,6 +2151,8 @@ class History:
                 label TEXT, genre TEXT, art TEXT, source TEXT, spotify_uri TEXT)""")
             db.execute("CREATE TABLE IF NOT EXISTS song_cache (key TEXT PRIMARY KEY, ts REAL NOT NULL, data TEXT)")
             db.execute("CREATE TABLE IF NOT EXISTS shelf_hidden (key TEXT PRIMARY KEY, ts REAL NOT NULL)")
+            db.execute("""CREATE TABLE IF NOT EXISTS skips (ts REAL NOT NULL, title TEXT, artist TEXT, album TEXT,
+                album_artist TEXT, medium TEXT, pos REAL)""")
             if "album_artist" not in {r[1] for r in db.execute("PRAGMA table_info(plays)")}:
                 db.execute("ALTER TABLE plays ADD COLUMN album_artist TEXT")   # the record's artist (Various Artists on a compilation)
         self.saved_ids = self._saved_ids()
@@ -2117,6 +2205,27 @@ class History:
         with self._db() as db:
             db.execute("UPDATE plays SET album=?, album_artist=? WHERE ts>=? AND source IN ('vinyl','cd','cassette','other','room')",
                        (title, artist, since))
+
+    def add_skip(self, t, pos=None):
+        with self._db() as db:
+            db.execute("INSERT INTO skips (ts,title,artist,album,album_artist,medium,pos) VALUES (?,?,?,?,?,?,?)",
+                       (time.time(), t.get("title"), t.get("artist"), t.get("album"), t.get("album_artist"),
+                        t.get("medium") or "vinyl", pos))
+
+    def _skips_by_album(self):
+        """Skips heard on each shelf album: how many, which songs, and on how many different days."""
+        with self._db() as db:
+            rows = db.execute("SELECT ts, title, artist, album, album_artist, medium FROM skips WHERE album IS NOT NULL").fetchall()
+        out = {}
+        for ts, title, artist, album, aa, medium in rows:
+            k = self.shelf_key(medium, album, aa or artist)
+            d = out.setdefault(k, {"n": 0, "songs": {}, "days": set()})
+            d["n"] += 1
+            d["days"].add(time.strftime("%Y-%m-%d", time.localtime(ts)))
+            s = d["songs"].setdefault(norm(title), {"title": title, "n": 0, "days": set()})
+            s["n"] += 1
+            s["days"].add(time.strftime("%Y-%m-%d", time.localtime(ts)))
+        return out
 
     def change_medium(self, old, new, since):
         with self._db() as db:
@@ -2188,6 +2297,14 @@ class History:
             for k in ("art", "year", "label"):
                 a[k] = r[k] or a[k]                       # the most recent known value
         albums = sorted(out.values(), key=lambda a: -a["last"])
+        skips = self._skips_by_album()
+        for a in albums:
+            sk = skips.get(a["key"])
+            if sk:
+                a["skips"] = sk["n"]
+                a["skip_songs"] = [x["title"] for x in sk["songs"].values()]
+                # one skip is dust or a bump; the same spot again on another day, or lots of them, is wear
+                a["worn"] = sk["n"] >= 4 or len(sk["days"]) >= 3 or any(len(x["days"]) >= 2 for x in sk["songs"].values())
         for a in albums:
             a["songs"] = len(a.pop("_songs"))
             a.pop("_named", None)
@@ -2205,6 +2322,12 @@ class History:
             s["plays"] += 1
             s["last"] = r["ts"]
             s["art"] = r["art"] or s["art"]
+        sk = self._skips_by_album().get(key)
+        if sk:
+            for s in songs.values():
+                x = sk["songs"].get(norm(s["title"]))
+                if x:
+                    s["skips"] = x["n"]
         return list(songs.values())
 
     def shelf_hide(self, key, hide=True):

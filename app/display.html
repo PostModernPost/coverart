@@ -363,7 +363,7 @@
   #shelfTools .row { margin: 0; }
   #shelfFind { width: 14em; font-size: .95em; padding: .45em 1em; }
   #shelfGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2.6em 1.6em; margin-top: 2em; }
-  .shelfItem { cursor: pointer; min-width: 0; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; }
+  .shelfItem { align-self: start; cursor: pointer; min-width: 0; background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; }
   .shelfItem .cv { position: relative; aspect-ratio: 1; border-radius: 4px; overflow: hidden; background: #1d1d20; box-shadow: 0 8px 20px rgba(0,0,0,.45); }
   .shelfItem .cv img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .shelfItem .cv .ph { position: absolute; inset: 0; display: grid; place-items: center; font-size: 2.6em; font-weight: 700; color: var(--dim); }
@@ -384,6 +384,8 @@
     color: var(--fg); font: inherit; padding: .7em 0; cursor: pointer; text-align: left; }
   #sdSongs button:hover b { color: var(--gold); }
   #sdSongs button span { color: var(--dim); flex: none; }
+  .worn { color: #e39a7a; } .shelfItem small.worn { color: #e39a7a; }
+  .skipMark { font-style: normal; color: #e39a7a; margin-right: .4em; font-weight: 400; }
   .toastAct { background: none; border: 0; color: var(--gold); font: inherit; font-weight: 600; cursor: pointer; padding: 0 0 0 .6em; }
 
   /* credits on the info page */
@@ -2180,7 +2182,8 @@ function drawShelf() {
         <div class="cv">${a.art ? `<img src="${esc(a.art)}" alt="" loading="lazy">` : `<div class="ph">${esc((a.album || "?")[0])}</div>`}
           ${shelfMedium && !(a.kind === "single" && a.medium === "vinyl") ? "" : `<i class="md">${a.kind === "single" && a.medium === "vinyl" ? "45" : SHELF_MEDIA[a.medium][0]}</i>`}</div>
         <b title="${esc(a.album)}">${esc(a.album)}</b><span title="${esc(a.artist)}">${esc(a.artist)}</span>
-        <small>${KIND_NAME[a.kind] ? KIND_NAME[a.kind] + " · " : ""}${a.plays === 1 ? "Played once" : a.plays + " plays"} · ${shortDate(a.last)}</small></button>`).join("");
+        <small>${KIND_NAME[a.kind] ? KIND_NAME[a.kind] + " · " : ""}${a.plays === 1 ? "Played once" : a.plays + " plays"} · ${shortDate(a.last)}</small>
+        ${a.worn ? `<small class="worn">Skips often</small>` : ""}</button>`).join("");
 }
 async function openShelfItem(key) {
   const a = shelf.find(x => x.key === key); if (!a) return;
@@ -2191,13 +2194,15 @@ async function openShelfItem(key) {
   $("sdInfo").innerHTML = `<h3>${esc(a.album)}</h3><p style="font-size:1.15em;margin:.3em 0 1em">${esc(a.artist)}</p>
     <p class="muted" style="margin:.2em 0">${[a.kind === "single" && a.medium === "vinyl" ? "45" : SHELF_MEDIA[a.medium][0], KIND_NAME[a.kind], a.year, a.label].filter(Boolean).map(esc).join(" · ")}</p>
     <p class="muted" style="margin:.2em 0">${a.plays === 1 ? "Played once" : `Played ${a.plays} times`}, ${shortDate(a.first) === shortDate(a.last) ? "on " + shortDate(a.last) : `first on ${shortDate(a.first)}, last on ${shortDate(a.last)}`}</p>
+    ${a.skips ? `<p class="${a.worn ? "worn" : "muted"}" style="margin:.8em 0 .2em">${a.worn ? "Skips often: may need replacing." : a.skips === 1 ? "Skipped once." : `Skipped ${a.skips} times.`}
+      <span class="muted">${a.skip_songs.length ? "In " + a.skip_songs.map(x => "“" + esc(x) + "”").join(", ") + ". " : ""}${a.worn ? "Try cleaning it and checking the stylus first; if the same spots keep skipping, it's worn or scratched." : "One skip is usually dust or a bump."}</span></p>` : ""}
     <div class="row" style="margin-top:1.4em"><button class="pill" id="sdRemove">Remove from shelf</button></div>
     <p class="muted" style="font-size:.85em;margin-top:.8em">Remove anything you don't own, or a wrong match. It stays in your listening history.</p>`;
   $("sdSongs").innerHTML = `<p class="muted">Loading…</p>`;
   try {
     const songs = (await (await fetch("/api/shelf?key=" + encodeURIComponent(key))).json()).songs || [];
     $("sdSongs").innerHTML = `<p class="kicker" style="margin:0 0 .4em">Songs you've heard from it</p>` + songs.map((s, i) =>
-      `<button data-i="${i}"><b>${esc(s.title)}${s.artist && s.artist.toLowerCase() !== (a.artist || "").toLowerCase() ? ` <span style="font-weight:400">· ${esc(s.artist)}</span>` : ""}</b><span>${s.plays === 1 ? "once" : s.plays + "×"}</span></button>`).join("");
+      `<button data-i="${i}"><b>${s.skips ? `<i class="skipMark" title="Skipped ${s.skips === 1 ? "once" : s.skips + " times"}">⟳</i>` : ""}${esc(s.title)}${s.artist && s.artist.toLowerCase() !== (a.artist || "").toLowerCase() ? ` <span style="font-weight:400">· ${esc(s.artist)}</span>` : ""}</b><span>${s.plays === 1 ? "once" : s.plays + "×"}</span></button>`).join("");
     $("sdSongs").onclick = e => { const b = e.target.closest("[data-i]"); if (b) { const s = songs[+b.dataset.i]; openSong({ title: s.title, artist: s.artist, album: s.album, art: s.art || a.art }); } };
   } catch (e) { $("sdSongs").innerHTML = ""; }
 }
