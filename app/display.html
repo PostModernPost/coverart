@@ -2078,7 +2078,7 @@ function showUpdate(u) {
   pillShow();
   $("verLine").textContent = u.current === "dev" ? "Liner Notes (running from source)" : `Liner Notes ${u.current}`;
   if (IN_APP) { let av = ""; try { av = APP.version(); } catch (e) {}
-    $("verLine").innerHTML = APP_SOLO ? `Liner Notes for Android ${esc(av)}` : `This app: ${esc(av)}<br>Liner Notes on your PC: ${esc(u.current)}`; }
+    $("verLine").innerHTML = APP_SOLO ? `Liner Notes for Android ${esc(av)}<br><span class="muted">Engine ${esc(u.current)}</span>` : `This app: ${esc(av)}<br>Liner Notes on your PC: ${esc(u.current)}`; }
   if (APP_SOLO) { $("updRow").innerHTML = ""; $("updNotes").textContent = ""; return; }     // the app updates itself
   if (updBusy || u.updating) {
     $("updRow").innerHTML = `<span class="muted">Downloading the update. Liner Notes will close and reopen in a minute.</span>`;

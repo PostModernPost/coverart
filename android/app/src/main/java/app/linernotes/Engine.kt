@@ -29,7 +29,7 @@ object Engine {
                     copyAssets(ctx, here)
                     if (!Python.isStarted()) Python.start(AndroidPlatform(ctx))
                     Python.getInstance().getModule("android_main")
-                        .callAttr("start", ctx.filesDir.absolutePath, here.absolutePath, PORT, Updater.current(ctx))
+                        .callAttr("start", ctx.filesDir.absolutePath, here.absolutePath, PORT, BuildConfig.ENGINE_VERSION)
                 } catch (e: Throwable) {
                     android.util.Log.e("LinerNotes", "engine failed", e)
                     started = false

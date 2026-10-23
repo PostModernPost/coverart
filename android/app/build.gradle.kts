@@ -6,8 +6,10 @@ plugins {
     id("com.chaquo.python")      // Liner Notes' engine (the same Python code as the Windows app) runs inside the app
 }
 
-// The app's version follows the PC app's VERSION file (0.7.58 -> versionName 0.7.58, versionCode 7058)
-val appVersion = rootProject.file("../VERSION").takeIf { it.exists() }?.readText()?.trim() ?: "0.0.1"
+// The app has its own number in ANDROID_VERSION (1.0.3 -> versionName 1.0.3, versionCode 1000003).
+// The engine inside it is the PC app's code, so it keeps the PC's number from VERSION.
+val appVersion = rootProject.file("../ANDROID_VERSION").takeIf { it.exists() }?.readText()?.trim() ?: "0.0.1"
+val engineVersion = rootProject.file("../VERSION").takeIf { it.exists() }?.readText()?.trim() ?: "dev"
 val parts = appVersion.split(".").map { it.toIntOrNull() ?: 0 } + listOf(0, 0, 0)
 val appVersionCode = parts[0] * 1_000_000 + parts[1] * 1_000 + parts[2]
 
@@ -21,6 +23,7 @@ android {
         targetSdk = 36
         versionCode = appVersionCode
         versionName = appVersion
+        buildConfigField("String", "ENGINE_VERSION", "\"$engineVersion\"")
         ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 

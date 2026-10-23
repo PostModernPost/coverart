@@ -47,9 +47,12 @@ Kotlin. It's a WebView that shows either the PC's page or the engine running on 
 - The Android build runs only when started: `.github/workflows/android.yml` (Actions > Run workflow, or
   `gh api -X POST repos/PostModernPost/linernotes/actions/workflows/android.yml/dispatches -f ref=main`).
   It takes about 15 minutes, so batch Android changes. It publishes to the rolling prerelease `android`
-  (`LinerNotes-Android.apk`, which the app checks for updates) and copies the APK onto `v<VERSION>` if that release exists.
+  (`LinerNotes-Android.apk`, which the app checks for updates).
+- The Android app has its own version in `ANDROID_VERSION` (1.0.x), separate from the Windows `VERSION` (0.7.x).
+  Bump `ANDROID_VERSION` before each Android build, or phones won't see the update. The engine inside the app keeps
+  the Windows number (Settings > About on the phone shows both). An Android-only change doesn't need a `VERSION` bump.
   Permanent link: https://github.com/PostModernPost/linernotes/releases/download/android/LinerNotes-Android.apk
-- Commit message style: what changed for the user, with `(0.7.xx)` at the end.
+- Commit message style: what changed for the user, with `(0.7.xx)` at the end, or `(Android 1.0.x)` for Android-only changes.
 
 ## Secrets (never put them in code, commits or replies)
 

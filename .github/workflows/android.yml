@@ -80,7 +80,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          v=$(cat VERSION | tr -d '[:space:]')
+          v=$(cat ANDROID_VERSION | tr -d '[:space:]')      # the app's own number, separate from the Windows app's VERSION
           apk=android/app/build/outputs/apk/direct/release/app-direct-release.apk
           aab=android/app/build/outputs/bundle/playRelease/app-play-release.aab
           cp "$apk" LinerNotes-Android.apk
@@ -95,7 +95,3 @@ jobs:
             gh release delete-asset android "$old" -y || true
           done
           gh release upload android LinerNotes-Android.apk "LinerNotes-Android-$v.aab" --clobber
-          # older copies of the app look for it on the Windows release of the same version
-          if gh release view "v$v" >/dev/null 2>&1; then
-            gh release upload "v$v" LinerNotes-Android.apk --clobber
-          fi
