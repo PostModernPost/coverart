@@ -4952,7 +4952,20 @@ def home_addresses():
             rank = 0 if o[0] == 192 and o[1] == 168 else 1 if o[0] == 172 and 16 <= o[1] <= 31 else 2 if o[0] == 10 else None
             if rank is not None:              # home networks use private addresses
                 found.append((rank, ip))
-    return [ip for _, ip in sorted(found)]
+    found = [ip for _, ip in sorted(found)]
+    # A disconnected adapter can keep its old address: keep the ones Windows actually uses for their network
+    import socket
+    live = []
+    for ip in found:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect((".".join(ip.split(".")[:3] + ["1"]), 9))        # nothing is sent; this only asks for the route
+            if s.getsockname()[0] == ip:
+                live.append(ip)
+            s.close()
+        except Exception:
+            pass
+    return live or found
 
 
 def lan_address():
