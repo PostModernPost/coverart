@@ -999,6 +999,48 @@ def show_record(app, rec, track):
     """A song from the record's tracklist: show it, and count its position from when it started."""
     show_and_enrich(app, track)
     record_progress(app, rec)
+    save_record(rec)
+
+
+RECORD_FILE = os.path.join(DATA_DIR, "record.json")
+
+
+def save_record(rec):
+    """Remember the record on the turntable and where it is, so restarting Liner Notes mid-side keeps it."""
+    try:
+        if rec is None:
+            if os.path.exists(RECORD_FILE):
+                os.remove(RECORD_FILE)
+            return
+        with open(RECORD_FILE, "w", encoding="utf-8") as f:
+            json.dump({"rel": rec.rel, "idx": rec.idx, "track_started": rec.track_started, "auto": rec.auto,
+                       "side_done": rec.side_done, "saved": time.time()}, f)
+    except Exception as e:
+        log("couldn't save the record:", repr(e))
+
+
+def restore_record():
+    """The record from before a restart, if it was playing in the last 20 minutes."""
+    try:
+        with open(RECORD_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        if time.time() - d.get("saved", 0) > 20 * 60:
+            return None
+        rec = RecordSession(d["rel"])
+        if not rec.tracks:
+            return None
+        rec.auto = bool(d.get("auto"))
+        if d.get("idx") is not None:
+            rec.set_index(d["idx"])
+            rec.track_started = d.get("track_started") or rec.track_started
+            rec.side_done = bool(d.get("side_done"))
+        log(f"still on the record from before: {rec.artist} - {rec.title}")
+        return rec
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        log("couldn't restore the record:", repr(e))
+        return None
 
 
 # ---------------------------------------------------------------- record mode (Discogs)
@@ -1777,6 +1819,8 @@ async def turntable_loop(app):
     except Exception as e:
         log("Song recognition unavailable (shazamio failed to load):", repr(e))
         return
+    if not app.get("record"):
+        app["record"] = restore_record()       # Liner Notes restarted mid-side
     try:
         await _turntable_inner(app, mic, shz)
     except Exception:
@@ -1955,6 +1999,7 @@ async def _turntable_inner(app, mic, shz):
 
         if rec and app["listen_mode"] != "active" and now - rec.last_active > 3 * 3600:
             app["record"] = rec = None       # forget a record that hasn't played in hours
+            save_record(None)
         if (app.get("album_name") or app.get("album_ask")) and now - max(ROOM["last"], (app.get("album_name") or {}).get("since", 0)) > 20 * 60:
             app.pop("album_name", None)      # a compilation you named lasts while it plays, not into the next record
             app.pop("album_ask", None)
@@ -2136,6 +2181,20 @@ async def _turntable_inner(app, mic, shz):
             app["listen_now_done"] = time.time()
 
         on_record = rec.find(res["title"], res["artist"]) if (rec and res and res.get("title")) else None
+        if rec and not rec.auto and res and res.get("title") and on_record is None and rec.idx is not None:
+            # A record you loaded yourself (a live album, a compilation): Shazam often names the studio
+            # version of a song on it, or a song that just sounds alike. Stay on the record unless it
+            # names two different songs that aren't on it in a row (then a different record is playing).
+            off = getattr(rec, "off_record", None)
+            if not off or norm(off) == norm(res["title"]):
+                rec.off_record = res["title"]
+                log(f"Shazam says '{res['title']}', which isn't on {rec.title}: staying on the record")
+                continue
+            log(f"Shazam named two songs that aren't on {rec.title}: a different record is playing")
+            app["record"] = rec = None
+            save_record(None)
+        elif rec and on_record is not None:
+            rec.off_record = None
         prev_song = None            # what was playing before, when a guessed record turns out wrong
         if rec and rec.auto and res and res.get("title") and rec.idx is not None:
             nxt = rec.next_side_start(rec.idx)
@@ -2151,6 +2210,7 @@ async def _turntable_inner(app, mic, shz):
                 prev_song = {"title": rec.tracks[rec.idx]["title"], "artist": rec.tracks[rec.idx]["artist"]}
                 log(f"'{res['title']}' {'is not next' if on_record is not None else 'is not'} on {rec.title}: dropping that guess")
                 app["record"] = rec = None
+                save_record(None)
                 on_record = None
             elif getattr(rec, "tentative", False) and on_record != rec.idx:
                 rec.tentative = False
@@ -2872,6 +2932,7 @@ async def api_records_load(request):
     app["record"] = rec
     app.pop("album_ask", None)
     app.pop("album_name", None)
+    save_record(rec)
     log(f"record loaded: {rec.artist} - {rec.title} ({len(rec.tracks)} tracks)")
     if app.get("listen_mode") == "active":          # already playing: start at track 1, Shazam will correct it
         show_record(app, rec, rec.set_index(0))
@@ -2925,6 +2986,7 @@ async def api_album_ask(request):
 async def api_records_clear(request):
     app = request.app
     rec = app.pop("record", None)
+    save_record(None)
     st = app["state"]
     if rec and st.track and st.track.get("source") == "record":
         st.idle()
