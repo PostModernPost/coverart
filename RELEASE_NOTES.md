@@ -1,3 +1,1 @@
-- Share a song: a share button sits next to the heart on the main screen (and beside the lyrics), and the song page has "Share this song". It sends "Listening to [song] by [artist] on vinyl" with a song.link link, which opens the song in whatever music app your friend uses.
-- On a phone it opens the phone's own share menu. On the PC a small menu offers Copy link, Email, X, Bluesky, Threads and Facebook.
-- Recap cards on the PC have "Copy picture", so you can paste the card straight into a message or a post. Phones keep their Share button.
+- Liner Notes is now code-signed: Windows shows a verified publisher (Adam Waitt) instead of "Unknown publisher" when you install it.
