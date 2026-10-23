@@ -1,4 +1,1 @@
-- Discogs collection: Settings > Accounts > Discogs. Type your Discogs username and your whole collection joins your shelf, including records you haven't played yet. A private collection works with a personal Discogs token. It syncs once a day, or tap Sync now.
-- Your shelf marks what's not played yet, with a "Not played yet" filter. "Not played lately" puts never-played records first.
-- A record from your collection shows when you added it, its format and catalog number, what copies sell for on the Discogs marketplace right now, and a link to its Discogs page.
-- "I'm playing this" on a collection record loads its exact tracklist, so Liner Notes follows that pressing from the first song, sides and all.
+- The screen between records now says "Last played" instead of "Just played".

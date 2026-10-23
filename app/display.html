@@ -523,7 +523,7 @@
 
 <div id="idle"><div class="record"></div><div id="idleText">Nothing playing</div>
   <div id="idleShow">
-    <div id="jp" class="off"><img id="jpArt" alt=""><div id="jpSide"><p id="jpKicker">Just played</p><p id="jpAlbum" class="clamp"></p>
+    <div id="jp" class="off"><img id="jpArt" alt=""><div id="jpSide"><p id="jpKicker">Last played</p><p id="jpAlbum" class="clamp"></p>
       <p id="jpArtist" class="clamp"></p><p id="jpWhen"></p><div id="jpRecent"></div><div id="jpSaved"></div></div></div>
     <div id="slides" class="off"><div class="bgl"></div><div class="bgl hide"></div><div class="sl hide"></div><div class="sl hide"></div></div>
   </div>
@@ -753,7 +753,7 @@
   <div class="setting" data-key="showProgress"><div>Song length and position<small>Exact for Spotify and other apps on this PC, and for records Shazam recognizes. Songs known only from a record's tracklist are estimated (~).</small></div><div class="switch"></div></div>
   <h3 style="margin-top:3vmin;margin-bottom:0">Between records</h3>
   <div class="setting" id="idleModeRow" style="cursor:default">
-    <div>When nothing is playing<small>Recently played shows the album you just played, your other recent records and songs you saved. The slideshow shows album covers from your history.</small></div>
+    <div>When nothing is playing<small>Recently played shows the album you played last, your other recent records and songs you saved. The slideshow shows album covers from your history.</small></div>
     <div class="sizes">
       <button class="pill" data-im="both">Recent, then slideshow</button><button class="pill" data-im="recent">Recently played</button>
       <button class="pill" data-im="slides">Slideshow</button><button class="pill" data-im="record">Spinning record</button></div></div>
@@ -1379,7 +1379,7 @@ function showJustPlayed() {
 function idleTick() {
   if (!idleOn || !idleData) return;
   const l = idleData.last;
-  // the "just played" card for a few minutes after a record ends (or right away if it ended long ago)
+  // the "last played" card for a few minutes after a record ends (or right away if it ended long ago)
   const mode = idleMode();
   const fresh = mode === "recent" || (mode === "both" && l && (Date.now() - idleSince < JP_MINUTES * 60000));
   if (l) $("jpWhen").textContent = agoText(l.ended || l.ts) + (ON_MEDIUM[l.source] || "");
