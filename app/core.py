@@ -2114,6 +2114,10 @@ async def _turntable_inner(app, mic, shz):
                 app["meter"] = {"level": level, "at": time.time()}
                 if level < music_cutoff():
                     learn_room_noise(level)
+                    if now - last_level_log >= 60:      # so a mic that's too quiet shows in the log
+                        last_level_log = now
+                        log(f"standby: sample level {level:.4f}, below the music cutoff {music_cutoff():.4f} "
+                            f"(room {NOISE['floor']:.4f})")
                     continue
                 if level >= music_cutoff():
                     L.reset()

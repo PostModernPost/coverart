@@ -52,6 +52,7 @@ class LinkService : Service() {
     private var thread: Thread? = null
     @Volatile private var stopping = false
     private var recorder: AudioRecord? = null
+    private var gain = 1                // UNPROCESSED has no mic boost: room music comes in around 0.001, too quiet to count as music
     private val sr = 16000
     private var micMode = "off"
     private var lastVersion = -1
@@ -203,6 +204,7 @@ class LinkService : Service() {
                 if (r.state == AudioRecord.STATE_INITIALIZED) {
                     r.startRecording()
                     recorder = r
+                    gain = if (src == MediaRecorder.AudioSource.UNPROCESSED) 8 else 1     // +18 dB, about what MIC's own boost adds
                     return r
                 }
                 r.release()
@@ -227,7 +229,15 @@ class LinkService : Service() {
             if (n <= 0) break
             out.write(buf, 0, n)
         }
-        return out.toByteArray()      // 16-bit little-endian mono at 16 kHz, what the PC expects
+        val pcm = out.toByteArray()   // 16-bit little-endian mono at 16 kHz, what the PC expects
+        if (gain != 1) {
+            for (i in 0 until pcm.size - 1 step 2) {
+                val v = ((pcm[i + 1].toInt() shl 8) or (pcm[i].toInt() and 0xff)) * gain
+                val c = v.coerceIn(-32768, 32767)
+                pcm[i] = c.toByte(); pcm[i + 1] = (c shr 8).toByte()
+            }
+        }
+        return pcm
     }
 
     private fun upload(url: String, pcm: ByteArray, query: String) {
