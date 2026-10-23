@@ -1057,6 +1057,7 @@ def restore_record():
             rec.set_index(d["idx"])
             rec.track_started = d.get("track_started") or rec.track_started
             rec.side_done = bool(d.get("side_done"))
+        rec.unconfirmed = True             # it may have been changed while Liner Notes was closed
         log(f"still on the record from before: {rec.artist} - {rec.title}")
         return rec
     except FileNotFoundError:
@@ -1324,6 +1325,7 @@ class RecordSession:
         self.track_started = 0.0
         self.last_active = time.time()
         self.auto = False          # True when Liner Notes worked out the record itself
+        self.unconfirmed = False   # music started again after the side ended (or a restart): a flip, or a new record?
         self.medium = discogs_medium(rel)
         self.rel = rel             # the full Discogs release, for the credits on the info page
 
@@ -1358,6 +1360,7 @@ class RecordSession:
             return self.set_index(0)
         if self.side_done:
             j = self.next_side_start(self.idx)
+            self.unconfirmed = True          # the other side, or a different record: Shazam decides
             return self.set_index(j if j is not None else 0)
         # The needle went back down mid-side: where it landed isn't known, so count this song from now
         # (Shazam fixes the place), instead of a gap seconds later counting as the song's end.
@@ -2167,6 +2170,7 @@ async def _turntable_inner(app, mic, shz):
                 rec.on_stop()
                 if rec.side_done:
                     log(f"side {rec.tracks[rec.idx]['side']} finished")
+                    save_record(rec)         # so a restart (an update) still knows the side ended
             if on_tt:
                 st.idle()
             set_mode(app, mic, "standby")
@@ -2281,6 +2285,7 @@ async def _turntable_inner(app, mic, shz):
             rec.pending_gap = 0.0
         if on_record is not None:
             misses = 0
+            rec.unconfirmed, rec.unconfirmed_misses = False, 0
             if rec.idx != on_record:
                 if rec.last_jump and rec.last_jump[1] == on_record and now - rec.last_jump[0] < 180:
                     rec.quiet_tracks.add(on_record)      # its quiet bits fooled us: ask Shazam before leaving it again
@@ -2333,6 +2338,16 @@ async def _turntable_inner(app, mic, shz):
             if SHAZAM_REPLY.get("retryms"):
                 not_before = now + min(float(SHAZAM_REPLY["retryms"]) / 1000.0, 600)
                 log(f"Shazam asked to wait {SHAZAM_REPLY['retryms'] / 1000:.0f} s")
+            if rec and rec.unconfirmed:
+                rec.unconfirmed_misses = getattr(rec, "unconfirmed_misses", 0) + 1     # gaps don't reset this one
+            if rec and rec.auto and rec.unconfirmed and rec.unconfirmed_misses >= 3:
+                # A record Liner Notes guessed, and the music that started after the side ended isn't on it
+                # as far as Shazam can tell: probably a new record. Don't keep showing the old one's songs.
+                log(f"Shazam can't place this on {rec.title}: probably a different record, dropping it")
+                app["record"] = rec = None
+                save_record(None)
+                st.show(UNKNOWN)
+                continue
             # The song changed to one Shazam doesn't know (common on Vinyl Moon). Don't keep showing
             # the previous song: right after a gap, one miss is enough; otherwise two in a row.
             # A song the user picked by search stays until the next gap.
