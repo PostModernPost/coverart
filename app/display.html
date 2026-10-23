@@ -472,6 +472,15 @@
   .setting { display: flex; justify-content: space-between; align-items: center; gap: 3vmin; padding: 2.2vmin 0;
     border-bottom: 1px solid var(--faint); font-size: calc(var(--ts) * clamp(14px, 2.8vmin, 20px)); cursor: pointer; }
   .setting small { display: block; color: var(--dim); font-size: .78em; margin-top: .2em; }
+  /* descriptions sit behind a small (i) next to each setting's name: hover, or tap on a phone */
+  .tip { position: relative; display: inline-block; vertical-align: middle; margin-left: .45em; }
+  .tip > button { width: 1.25em; height: 1.25em; border-radius: 50%; border: 1.3px solid rgba(255,255,255,.4); background: none; color: var(--dim);
+    font: italic 600 .8em/1 Georgia, serif; padding: 0; cursor: help; display: grid; place-items: center; }
+  .tip:hover > button, .tip.open > button, .tip > button:focus-visible { color: var(--fg); border-color: var(--gold); }
+  .tip > small { display: none !important; position: absolute; left: -.6em; top: calc(100% + .5em); z-index: 12; width: min(24em, 78vw);
+    background: #1c1c20; border: 1px solid rgba(255,255,255,.18); border-radius: 10px; padding: .75em .9em; margin: 0 !important;
+    color: var(--fg) !important; font-size: .82em !important; line-height: 1.45; box-shadow: 0 10px 30px rgba(0,0,0,.55); font-weight: 400; cursor: default; }
+  .tip:hover > small, .tip.open > small { display: block !important; }
   /* keep each switch close to its label: rows are a readable width instead of the full screen */
 
   #settings .setting .pill { white-space: nowrap; }
@@ -2386,6 +2395,30 @@ $("dcOff").addEventListener("click", () => collectionCall({ action: "disconnect"
 $("tb-settings").addEventListener("click", loadCollection);
 $("tb-shelf").addEventListener("click", e => { e.stopPropagation(); openPanel("shelf"); loadShelf(); });
 $("tb-settings").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
+// keep the bubble on screen: shift it left when the (i) is near the right edge (phones)
+function placeTip(tip) {
+  const sm = tip.querySelector("small");
+  sm.style.left = "-.6em";
+  requestAnimationFrame(() => {
+    const r = sm.getBoundingClientRect(), over = r.right - (window.innerWidth - 12);
+    if (over > 0) sm.style.left = `calc(-.6em - ${Math.min(over, r.left - 12)}px)`;
+  });
+}
+// Settings: each description moves behind an (i) next to its setting's name
+document.querySelectorAll("#settings .setting > div:first-child > small").forEach(sm => {
+  const tip = document.createElement("span"); tip.className = "tip";
+  const b = document.createElement("button"); b.type = "button"; b.textContent = "i"; b.setAttribute("aria-label", "What this does");
+  sm.parentNode.insertBefore(tip, sm); tip.append(b, sm);
+  tip.addEventListener("mouseenter", () => placeTip(tip));
+  tip.addEventListener("click", e => {
+    e.stopPropagation();                       // don't flip the switch on this row
+    const open = !tip.classList.contains("open");
+    document.querySelectorAll("#settings .tip.open").forEach(t => t.classList.remove("open"));
+    tip.classList.toggle("open", open);
+    if (open) placeTip(tip);
+  });
+});
+document.addEventListener("click", () => document.querySelectorAll("#settings .tip.open").forEach(t => t.classList.remove("open")));
 
 // ---------------------------------------------------------------- phone microphone
 const IS_PHONE = /Android/i.test(navigator.userAgent) || new URLSearchParams(location.search).has("mic");

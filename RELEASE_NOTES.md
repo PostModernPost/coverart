@@ -1,4 +1,1 @@
-- Add to Discogs: a record on your shelf that isn't in your Discogs collection has an "Add to Discogs" button. Pick your pressing from the list (the one Liner Notes followed is marked) and it goes into your collection's Uncategorized folder. Nothing is added without you choosing it.
-- New "Not on Discogs" filter on the shelf, to find the records you've played but haven't added yet.
-- Adding needs your personal Discogs token (Settings > Accounts > Discogs > My collection is private), since Discogs only lets you change your own collection.
-- Liner Notes now remembers which Discogs pressing it followed for each play, so "I'm playing this" and marketplace prices work for those records too.
+- Settings is tidier: each setting's description now sits behind a small (i) next to its name. Hover it on the PC, or tap it on a phone.
