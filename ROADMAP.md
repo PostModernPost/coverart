@@ -14,4 +14,3 @@
 - Mac version (needs a Mac to test on; Apple Developer account to share it)
 - Phone apps (Android and iPhone), including photographing a record's liner notes: keep the photo and turn the text into readable text attached to the album and songs
 - Accounts: sync history and saved songs across devices
-- Code signing to remove the Windows "unknown publisher" warning (on hold)
