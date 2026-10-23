@@ -2724,7 +2724,7 @@ async def check_for_update(app):
     asset = next((a for a in rel.get("assets", []) if a.get("name", "").lower().endswith(".exe")), None)
     app["update_checked"] = time.time()
     if asset and version_tuple(latest) > version_tuple(VERSION):
-        app["update"] = {"version": latest.lstrip("v"), "url": asset["browser_download_url"],
+        app["update"] = {"version": latest.lstrip("v"), "url": asset["browser_download_url"], "api_url": asset.get("url"),
                          "notes": (rel.get("body") or "").strip()[:2000], "page": rel.get("html_url")}
         log(f"update available: {latest}")
     else:
@@ -2747,11 +2747,26 @@ async def install_update(app):
     app["updating"] = True
     path = os.path.join(tempfile.gettempdir(), f"LinerNotes-Setup-{upd['version']}.exe")
     log(f"downloading update {upd['version']}")
-    async with app["http"].get(upd["url"], timeout=ClientTimeout(total=600)) as r:
-        r.raise_for_status()
-        with open(path, "wb") as f:
-            async for chunk in r.content.iter_chunked(1 << 16):
-                f.write(chunk)
+    # GitHub's download page now answers with headers longer than aiohttp's 8 KB default, so allow more,
+    # and ask the API for the file (it redirects straight to the download host)
+    async with ClientSession(timeout=ClientTimeout(total=600), max_line_size=65536, max_field_size=65536) as http:
+        last = None
+        for url, headers in ((upd.get("api_url"), {"Accept": "application/octet-stream"}), (upd["url"], {})):
+            if not url:
+                continue
+            try:
+                async with http.get(url, headers=headers) as r:
+                    r.raise_for_status()
+                    with open(path, "wb") as f:
+                        async for chunk in r.content.iter_chunked(1 << 16):
+                            f.write(chunk)
+                last = None
+                break
+            except Exception as e:
+                last = e
+                log(f"update download from {url.split('/')[2]} failed: {e!r}"[:300])
+        if last:
+            raise last
     log("starting installer")
     import subprocess
     subprocess.Popen([path, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/updated=1"],
