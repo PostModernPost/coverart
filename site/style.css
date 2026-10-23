@@ -40,6 +40,14 @@ h1, h2, h3 { font-family: var(--display); font-stretch: 125%; margin: 0; }
 main { max-width: 1280px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 48px); }
 section { padding: clamp(56px, 9vw, 120px) 0 0; }
 
+/* Buy Me a Coffee */
+.bmc { display: inline-block; line-height: 0; border-radius: 10px; box-shadow: 0 2px 0 rgba(0,0,0,.25); transition: transform .15s; }
+.bmc:hover { transform: translateY(-1px); }
+.bmc img { display: block; border-radius: 10px; }
+.top nav .bmc { box-shadow: none; } .top nav .bmc img { height: 40px; width: auto; border-radius: 8px; }
+.cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 16px; }
+@media (max-width: 640px) { .top nav a.bmc { display: inline-block; } .top nav .bmc img { height: 34px; } }
+
 /* hero: the copy on the left, the record coming out of its sleeve on the right */
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: clamp(32px, 5vw, 72px); align-items: center; padding-top: clamp(24px, 5vw, 64px); }
 .hero h1 { font-weight: 900; font-size: clamp(46px, 7.2vw, 104px); line-height: .94; letter-spacing: -.02em; max-width: 9ch; }
@@ -130,8 +138,8 @@ section { padding: clamp(56px, 9vw, 120px) 0 0; }
 .credits dl div::after { content: ""; order: 1; flex: 1; border-bottom: 2px dotted rgba(34,27,20,.45); transform: translateY(-4px); }
 .credits dd { order: 2; margin: 0; font-weight: 600; text-align: right; }
 .credits .small { font-size: 14.5px; color: var(--pencil); margin-top: 26px; }
-.credits .coffee { margin-top: 18px; font-size: 18px; }
-.credits .coffee a { font-weight: 600; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.credits .coffee { margin-top: 26px; font-size: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.credits .coffee p { margin: 0; }
 
 footer { border-top: 2px solid var(--ink); max-width: 1280px; margin: 0 auto; padding: 22px clamp(16px, 4vw, 48px) 40px;
   display: flex; flex-wrap: wrap; gap: 12px 28px; font-size: 15px; }
