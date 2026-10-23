@@ -29,9 +29,13 @@
   input { flex: 1; min-width: 0; background: var(--card); color: var(--fg); border: 1px solid rgba(255,255,255,.2); border-radius: 99px; padding: 12px 16px; font: inherit; outline: none; }
   input:focus { border-color: var(--gold); }
   .err { color: #e39a7a; }
+  #close { position: fixed; top: calc(14px + env(safe-area-inset-top)); right: 14px; width: 44px; height: 44px; border-radius: 50%;
+    background: none; border: 0; color: var(--dim); font: 30px/1 system-ui, sans-serif; display: none; }
+  #close.on { display: block; } #close:active { color: var(--fg); }
 </style>
 </head>
 <body>
+<button id="close" aria-label="Use this phone on its own">×</button>
 <main>
   <div class="brand">
     <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="68" cy="50" r="30" fill="#141416" stroke="#5c5c66" stroke-width="2.2"/><circle cx="68" cy="50" r="24" fill="none" stroke="#3a3a42" stroke-width="1.6"/><circle cx="68" cy="50" r="10" fill="#c9a04a"/><circle cx="68" cy="50" r="1.8" fill="#141416"/><rect x="2" y="17" width="60" height="66" rx="5" fill="#f4f1ea"/><g stroke="#141416" stroke-width="6.5" stroke-linecap="round"><line x1="12" y1="36" x2="51" y2="36"/><line x1="12" y1="50" x2="45" y2="50"/><line x1="12" y1="64" x2="35" y2="64"/></g></svg>
@@ -59,6 +63,7 @@ window.ln = {
   show(json) {
     const s = typeof json === "string" ? JSON.parse(json) : json;
     let h = "";
+    $("close").classList.toggle("on", s.view !== "starting");     // back to the phone on its own, from any of these screens
     if (s.view === "searching") h = `<h1><span class="spin"></span>Looking for your PC…</h1><p>Liner Notes on your PC needs to be open, on the same Wi-Fi as this phone.</p>`;
     else if (s.view === "found") h = `<h1>${s.solo ? "Liner Notes is on your PC" : "Pick your PC"}</h1>` +
       (s.solo ? `<p>Connect to it to use its microphone or line in, and see what it plays. Or use this phone on its own.</p>` : "") +
@@ -79,6 +84,7 @@ $("view").addEventListener("click", e => {
   if (b && b.dataset.act === "retry") app.retry();
   if (b && b.dataset.act === "solo") app.solo();
 });
+$("close").addEventListener("click", () => app.solo());
 $("manualForm").addEventListener("submit", e => { e.preventDefault(); app.manual($("addr").value); });
 ln.show({ view: "searching" });
 if (app) app.ready();

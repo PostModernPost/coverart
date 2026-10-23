@@ -1,6 +1,8 @@
 package app.linernotes
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiManager
@@ -9,8 +11,12 @@ import android.os.Handler
 import android.os.Looper
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.net.URL
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /** Where Liner Notes on the PC is, and the token this phone got when it was connected over Wi-Fi. */
 object Link {
@@ -117,7 +123,8 @@ class Finder(private val ctx: Context, private val onFound: (name: String, url: 
             nsd.resolveService(service, object : NsdManager.ResolveListener {
                 override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) { done.countDown() }
                 override fun onServiceResolved(info: NsdServiceInfo) {
-                    val host = info.host?.hostAddress
+                    // Android 14+ lists every address the PC gave; older ones give one
+                    val host = (if (Build.VERSION.SDK_INT >= 34) info.hostAddresses.firstOrNull { it is Inet4Address } else info.host)?.hostAddress
                     if (host != null && !host.contains(":")) {
                         val name = info.attributes["name"]?.let { String(it) } ?: info.serviceName.removePrefix("Liner Notes on ")
                         val url = "http://$host:${info.port}"
@@ -135,6 +142,47 @@ class Finder(private val ctx: Context, private val onFound: (name: String, url: 
         listener = null
         try { lock?.release() } catch (e: Exception) { }
         lock = null
+    }
+}
+
+/**
+ * The backup search: knock on every address on this phone's Wi-Fi for Liner Notes' port. For networks,
+ * routers and VPNs that block the usual search (NSD/Bonjour), which needs multicast to get through.
+ * Takes a few seconds; call from a background thread. Each PC found is reported on the main thread.
+ */
+object Sweep {
+    private val main = Handler(Looper.getMainLooper())
+
+    /** "192.168.0." for a phone at 192.168.0.127 on Wi-Fi, or null when it isn't on a home-size network. */
+    @Suppress("DEPRECATION")
+    fun prefix(c: Context): String? {
+        val cm = c.getSystemService(ConnectivityManager::class.java) ?: return null
+        for (n in cm.allNetworks) {
+            val caps = cm.getNetworkCapabilities(n) ?: continue
+            if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && !caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) continue
+            val a = cm.getLinkProperties(n)?.linkAddresses?.firstOrNull { it.address is Inet4Address && it.address.isSiteLocalAddress } ?: continue
+            if (a.prefixLength < 16) continue
+            val b = a.address.address
+            return "${b[0].toInt() and 255}.${b[1].toInt() and 255}.${b[2].toInt() and 255}."
+        }
+        return null
+    }
+
+    fun find(c: Context, port: Int = 8765, onFound: (name: String, url: String) -> Unit) {
+        val pre = prefix(c) ?: return
+        val pool = Executors.newFixedThreadPool(32)
+        for (i in 1..254) pool.execute {
+            val ip = pre + i
+            val open = try { Socket().use { it.connect(InetSocketAddress(ip, port), 500); true } } catch (e: Exception) { false }
+            if (!open) return@execute
+            val url = "http://$ip:$port"
+            val r = Link.call(c, url, "/api/now", timeoutMs = 1500) ?: return@execute
+            if (r.first != 200 || !r.second.contains("\"version\"")) return@execute
+            val name = try { JSONObject(r.second).optString("pc_name") } catch (e: Exception) { "" }.ifEmpty { "your PC" }
+            main.post { onFound(name, url) }
+        }
+        pool.shutdown()
+        try { pool.awaitTermination(15, TimeUnit.SECONDS) } catch (e: Exception) { }
     }
 }
 

@@ -131,6 +131,14 @@ class MainActivity : Activity() {
             found[url] = name
             say(JSONObject().put("view", "found").put("list", JSONArray(found.map { JSONObject().put("name", it.value).put("url", it.key) })))
         }.also { it.start() }
+        // the backup search, for networks that block the usual one: every address on the Wi-Fi
+        Thread {
+            Sweep.find(this) { name, url ->
+                if (server != null || pairing != null || searchGen !== gen || found.containsKey(url)) return@find
+                found[url] = name
+                say(JSONObject().put("view", "found").put("list", JSONArray(found.map { JSONObject().put("name", it.value).put("url", it.key) })))
+            }
+        }.start()
         // nothing after a while: show the help
         main.postDelayed({ if (server == null && pairing == null && found.isEmpty() && searchGen === gen) say(JSONObject().put("view", "notfound")) }, 9000)
     }
@@ -184,8 +192,8 @@ class MainActivity : Activity() {
     private fun lookOnWifi() {
         bgFinder?.stop()
         if (stayOwn) return
-        val f = Finder(this) { name, url ->
-            if (!Engine.isLocal(server)) return@Finder
+        val onPc: (String, String) -> Unit = onPc@{ name, url ->
+            if (!Engine.isLocal(server)) return@onPc
             io.execute {
                 val c = this@MainActivity
                 if (!Link.alive(c, url)) return@execute
@@ -207,9 +215,12 @@ class MainActivity : Activity() {
                 }
             }
         }
+        val f = Finder(this, onPc)
         bgFinder = f
         f.start()
         main.postDelayed({ f.stop() }, 15_000)
+        // the backup search, for networks that block the usual one (a PC it already knows, or a new one to ask)
+        Thread { Sweep.find(this, onFound = onPc) }.start()
     }
 
     /** A short message on the page (the page shows it like its own). */

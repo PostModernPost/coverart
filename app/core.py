@@ -4599,7 +4599,9 @@ def advertise_start():
         host = socket.gethostname()
         info = ServiceInfo("_linernotes._tcp.local.", f"Liner Notes on {host[:40]}._linernotes._tcp.local.",
                            addresses=[socket.inet_aton(x) for x in (home_addresses() or [ip])], port=CFG["port"],
-                           properties={"name": host, "v": "1"}, server=f"{re.sub(r'[^A-Za-z0-9-]', '', host) or 'pc'}.local.")
+                           properties={"name": host, "v": "1"},
+                           # its own name: Windows answers for "<pc>.local" itself, with every address it has (VPN included)
+                           server=f"linernotes-{re.sub(r'[^A-Za-z0-9-]', '', host) or 'pc'}.local.")
         try:
             zc = Zeroconf(interfaces=home_addresses() or [ip])    # only on the home network, not out through a VPN
         except Exception:
