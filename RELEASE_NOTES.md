@@ -1,1 +1,1 @@
-- The screen between records now says "Last played" instead of "Just played".
+- With listening off, the screen between records just shows a "Turn listening on" button (no "Listening is off" text).
