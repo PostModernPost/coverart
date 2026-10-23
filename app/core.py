@@ -3459,6 +3459,30 @@ async def api_discogs_add(request):
     return web.json_response({"ok": True, "title": row["title"]})
 
 
+async def api_share(request):
+    """What to send when you share a song: one line and a link anyone can open in their music app
+    (song.link, from the song's Apple Music entry), falling back to Spotify or Shazam."""
+    st: State = request.app["state"]
+    t = st.history.get(request.query.get("id", "")) or (st.track if st.track and st.track.get("id") == request.query.get("id") else None)
+    if not t or not t.get("title"):
+        return web.json_response({"error": "nothing to share"}, status=404)
+    url = None
+    try:
+        info = await itunes_lookup(request.app["http"], t["artist"], t["title"]) or {}
+        if info.get("track_id") and norm(clean_title(info.get("title"))) == norm(clean_title(t["title"])):
+            url = f"https://song.link/i/{info['track_id']}"
+    except Exception:
+        pass
+    if not url:
+        links = {l.get("name"): l.get("url") for l in t.get("links") or []}
+        url = links.get("Spotify") or links.get("Shazam") or next(iter(links.values()), None) or \
+            "https://open.spotify.com/search/" + urllib.parse.quote(f"{t['artist']} {t['title']}")
+    on = {"vinyl": " on vinyl", "cassette": " on tape", "cd": " on CD"}.get(t.get("medium") or "", "")
+    text = f"Listening to \u201c{t['title']}\u201d by {t['artist']}{on}"
+    return web.json_response({"title": f"{t['title']} \u00b7 {t['artist']}", "text": text, "url": url,
+                              "via": "https://liner-notes.app"})
+
+
 async def api_market(request):
     """What a release goes for on the Discogs marketplace (lowest price listed, how many for sale)."""
     try:
@@ -4518,6 +4542,7 @@ def build_app(demo=False):
     app.router.add_get("/api/collection", api_collection)
     app.router.add_post("/api/collection", api_collection)
     app.router.add_get("/api/market", api_market)
+    app.router.add_get("/api/share", api_share)
     app.router.add_get("/api/discogs/pressings", api_discogs_pressings)
     app.router.add_post("/api/discogs/add", api_discogs_add)
     app.router.add_post("/api/album/name", api_album_name)

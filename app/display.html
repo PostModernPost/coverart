@@ -320,6 +320,17 @@
   .heart:hover { background: rgba(255,255,255,.12); }
   .heart svg { width: 56%; height: 56%; fill: none; stroke: var(--fg); stroke-width: 2; stroke-linejoin: round; transition: transform .2s; }
   .heart.on svg { fill: #e8556d; stroke: #e8556d; }
+  .shareBtn svg { stroke-linecap: round; }
+  #lyShare { display: inline-grid; margin-top: 1.4vmin; margin-left: .6em; }
+  /* share menu (PC; phones use their own share sheet) */
+  #shareMenu { position: fixed; z-index: 30; display: none; background: #1c1c20; border: 1px solid rgba(255,255,255,.18); border-radius: 14px;
+    padding: .5em; min-width: 15em; box-shadow: 0 14px 40px rgba(0,0,0,.6); font-size: clamp(14px, 2.4vmin, 17px); --ts: 1; }
+  #shareMenu.on { display: block; }
+  #shareMenu .smHead { padding: .55em .8em .6em; color: var(--dim); font-size: .85em; border-bottom: 1px solid var(--faint); margin-bottom: .3em; max-width: 19em; }
+  #shareMenu a, #shareMenu button { display: flex; align-items: center; gap: .7em; width: 100%; box-sizing: border-box; padding: .6em .8em; border-radius: 9px;
+    color: var(--fg); background: none; border: 0; font: inherit; text-decoration: none; cursor: pointer; text-align: left; }
+  #shareMenu a:hover, #shareMenu button:hover { background: rgba(255,255,255,.08); }
+  #shareMenu i { font-style: normal; width: 1.3em; text-align: center; color: var(--dim); }
   .heart.pop svg { transform: scale(1.3); }
   #lyHeart { display: inline-grid; margin-top: 1.4vmin; }
   #toast { position: fixed; left: 50%; bottom: 6vmin; transform: translate(-50%, 1em); background: rgba(20,20,22,.94); color: var(--fg);
@@ -521,7 +532,7 @@
   <div id="artCol">
     <p id="lyTitle" class="clamp"></p>
     <img id="art" alt="">
-    <div id="lyBelow"><p id="lyArtist" class="clamp"></p><p id="lyAlbum" class="clamp"></p><button class="heart" id="lyHeart" aria-label="Save this song" title="Save this song"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button></div>
+    <div id="lyBelow"><p id="lyArtist" class="clamp"></p><p id="lyAlbum" class="clamp"></p><button class="heart" id="lyHeart" aria-label="Save this song" title="Save this song"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button><button class="heart shareBtn" id="lyShare" aria-label="Share this song" title="Share this song"><svg viewBox="0 0 24 24"><path d="M12 15V3M7.5 7.5 12 3l4.5 4.5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></button></div>
   </div>
   <div id="lyricsCol"><div id="lyricLines"></div></div>
   <div id="side">
@@ -530,7 +541,7 @@
     <p id="album" class="clamp"></p>
     <p id="details"></p>
     <div id="progress"><div class="bar"><div id="progFill"></div></div><span id="progText"></span></div>
-    <div class="metaRow"><button id="mediumBtn" title="Change what it's playing on" aria-haspopup="true"><span id="mediumBtnText"></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><span id="source"></span><button class="heart" id="heartBtn" aria-label="Save this song" title="Save this song"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button><button id="infoBtn" aria-label="More about this song" title="More about this song">i</button></div>
+    <div class="metaRow"><button id="mediumBtn" title="Change what it's playing on" aria-haspopup="true"><span id="mediumBtnText"></span><svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><span id="source"></span><button class="heart" id="heartBtn" aria-label="Save this song" title="Save this song"><svg viewBox="0 0 24 24"><path d="M12 20.5s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.6a4.3 4.3 0 0 1 7.5 2.7c0 5.6-7.5 10.2-7.5 10.2z"/></svg></button><button class="heart shareBtn" id="shareBtn" aria-label="Share this song" title="Share this song"><svg viewBox="0 0 24 24"><path d="M12 15V3M7.5 7.5 12 3l4.5 4.5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg></button><button id="infoBtn" aria-label="More about this song" title="More about this song">i</button></div>
     <div id="mediumAsk"><span id="mediumAskTitle">What's playing it?</span>
       <div class="row"><button class="pill" data-m="vinyl">Vinyl</button><button class="pill" data-m="cd">CD</button><button class="pill" data-m="cassette">Cassette</button><button class="pill" data-m="radio">Radio</button><button class="pill" data-m="other">Other</button></div>
       <label><input type="checkbox" id="mediumDefault"> Always use this</label></div>
@@ -554,6 +565,7 @@
   <div id="stylusNote"><span id="stylusMsg"></span><button class="pill" id="stylusLater">Later</button><button class="pill" id="stylusNew">Replaced it</button></div>
 </div>
 
+<div id="shareMenu" role="menu"></div>
 <div id="toolbar">
   <a id="tb-coffee" href="https://buymeacoffee.com/goodisanoun" target="_blank" rel="noopener" title="Buy me a coffee" aria-label="Buy me a coffee" style="display:none">☕</a>
   <button id="tb-listen" title="Turn listening off" aria-label="Listening is on. Turn it off" aria-pressed="true">
@@ -578,6 +590,7 @@
   <h2 id="i-title"></h2>
   <div class="sub" id="i-sub"></div>
   <div id="i-details"></div>
+  <div class="row" style="margin-top:1.2em"><button class="pill" id="iShare">Share this song</button></div>
   <div id="links" class="row"></div>
   <div class="cols">
     <div><section><h3>About the artist</h3><div id="bio" class="muted">Loading…</div></section>
@@ -1003,6 +1016,8 @@ function render(t, keepArt) {
   $("listenBtn").style.display = unknown && ["turntable", "record", "manual"].includes(t.source) ? "inline-block" : "none";
   $("infoBtn").style.display = unknown ? "none" : "grid";
   $("heartBtn").style.display = unknown ? "none" : "grid";
+  $("shareBtn").style.display = unknown ? "none" : "grid";
+  $("lyShare").style.visibility = unknown ? "hidden" : "visible";
   $("lyHeart").style.visibility = unknown ? "hidden" : "visible";
   $("stage").title = unknown ? "" : "Tap for more info";
 
@@ -1641,6 +1656,7 @@ async function openInfo(t) {
   t = (t && t.id) ? t : current;
   if (!t) return;
   if (t.status !== "playing") { openSearch(); return; }
+  infoTrack = t;
   openPanel("info");
   $("i-title").textContent = t.title;
   $("i-sub").textContent = [t.artist, t.album].filter(Boolean).join(" · ");
@@ -1981,6 +1997,7 @@ async function loadRecap() {
   const acts = [];
   if (!IS_PHONE) acts.push(`<button class="pill" id="rcSave">Save to Pictures</button>`);
   if (navigator.canShare) acts.push(`<button class="pill" id="rcShare">Share</button>`);
+  else if (window.ClipboardItem) acts.push(`<button class="pill" id="rcCopy">Copy picture</button>`);
   acts.push(`<a class="pill" id="rcDl" href="${rcUrl()}" download="liner-notes-recap-${rc.period}.png">Download</a>`);
   $("rcActions").innerHTML = acts.join("");
 }
@@ -1995,6 +2012,12 @@ $("rcActions").addEventListener("click", async e => {
       const r = await (await fetch("/api/recap/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rc) })).json();
       toast(r.ok ? "Saved to Pictures > Liner Notes." : (r.error || "Couldn't save it."));
     } catch (err) { toast("Couldn't save it."); }
+  } else if (b.id === "rcCopy") {
+    try {
+      const blob = await (await fetch(rcUrl())).blob();
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast("Copied. Paste it into a message or a post.");
+    } catch (err) { toast("Couldn't copy the picture. Use Download instead."); }
   } else if (b.id === "rcShare") {
     try {
       const blob = await (await fetch(rcUrl())).blob();
@@ -2418,6 +2441,56 @@ $("dcOff").addEventListener("click", () => collectionCall({ action: "disconnect"
 $("tb-settings").addEventListener("click", loadCollection);
 $("tb-shelf").addEventListener("click", e => { e.stopPropagation(); openPanel("shelf"); loadShelf(); });
 $("tb-settings").addEventListener("click", e => { e.stopPropagation(); applySettings(); openPanel("settings"); });
+
+// ---------------------------------------------------------------- sharing a song
+let infoTrack = null;
+// Phones use their own share sheet; the PC gets a small menu. The link is song.link, which opens the
+// song in whatever music app your friend uses.
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch (e) {}
+  try {
+    const ta = document.createElement("textarea"); ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.append(ta); ta.select(); const ok = document.execCommand("copy"); ta.remove(); return ok;
+  } catch (e) { return false; }
+}
+function closeShareMenu() { $("shareMenu").classList.remove("on"); }
+async function shareSong(t, anchor) {
+  if (!t || !t.id) return;
+  let d;
+  try { const r = await fetch("/api/share?id=" + encodeURIComponent(t.id)); d = await r.json(); if (!r.ok) throw 0; }
+  catch (e) { toast("Couldn't get a link for this song."); return; }
+  const line = `${d.text} ${d.url}`;
+  if (IS_PHONE && navigator.share) {
+    try { await navigator.share({ title: d.title, text: d.text, url: d.url }); } catch (e) {}
+    return;
+  }
+  const enc = encodeURIComponent, m = $("shareMenu");
+  const items = [
+    ["⧉", "Copy link", null, "copy"],
+    ["✉", "Email", `mailto:?subject=${enc(d.title)}&body=${enc(d.text + "\n" + d.url + "\n\nHeard with Liner Notes: " + d.via)}`],
+    ...(IS_PHONE ? [["💬", "Messages", `sms:?&body=${enc(line)}`]] : []),
+    ["𝕏", "X", `https://x.com/intent/post?text=${enc(d.text)}&url=${enc(d.url)}`],
+    ["🦋", "Bluesky", `https://bsky.app/intent/compose?text=${enc(line)}`],
+    ["@", "Threads", `https://www.threads.net/intent/post?text=${enc(line)}`],
+    ["f", "Facebook", `https://www.facebook.com/sharer/sharer.php?u=${enc(d.url)}`]];
+  m.innerHTML = `<div class="smHead">${esc(d.text)}</div>` + items.map(([ic, label, href, act]) => href
+    ? `<a href="${esc(href)}" target="_blank" rel="noopener"><i>${ic}</i>${label}</a>`
+    : `<button data-act="${act}"><i>${ic}</i>${label}</button>`).join("");
+  m.classList.add("on");
+  const r = (anchor || document.body).getBoundingClientRect(), mw = m.offsetWidth, mh = m.offsetHeight;
+  m.style.left = Math.max(10, Math.min(window.innerWidth - mw - 10, r.left + r.width / 2 - mw / 2)) + "px";
+  m.style.top = (r.bottom + mh + 12 < window.innerHeight ? r.bottom + 8 : Math.max(10, r.top - mh - 8)) + "px";
+  m.onclick = async e => {
+    e.stopPropagation();
+    if (e.target.closest("[data-act=copy]")) { toast((await copyText(line)) ? "Link copied." : "Couldn't copy it."); closeShareMenu(); }
+    else if (e.target.closest("a")) setTimeout(closeShareMenu, 50);
+  };
+}
+document.addEventListener("click", () => closeShareMenu());
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeShareMenu(); });
+$("shareBtn").addEventListener("click", e => { e.stopPropagation(); shareSong(current, e.currentTarget); });
+$("lyShare").addEventListener("click", e => { e.stopPropagation(); shareSong(current, e.currentTarget); });
+$("iShare").addEventListener("click", e => { e.stopPropagation(); shareSong(infoTrack || current, e.currentTarget); });
 // the Buy Me a Coffee button next to each page's close button
 document.querySelectorAll(".panel > .close").forEach(c => {
   const a = document.createElement("a");
