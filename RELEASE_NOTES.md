@@ -1,3 +1,4 @@
-- Record skips: while a record plays, Liner Notes listens for the groove looping (the same turn of the record repeating, about every 1.8 seconds at 33 or 1.3 at 45) and quietly notes which song skipped. Nothing pops up while you listen.
-- Your shelf shows it: an album's page says how many times it skipped and in which songs, and a record that keeps skipping (the same song on different days, or several skips) gets a small "Skips often" note with a suggestion to clean it and check the stylus before replacing it.
-- Shelf covers line up again when some captions run to two lines.
+- Settings are reorganized into clear sections, with every option kept:
+  - This screen: text size, lyrics beside the art, fullscreen, what the main screen shows, what shows between records, and the song page.
+  - Listening: records, CDs and tapes (what's playing them, following the album), apps on this PC, and the microphone.
+  - Stylus, Phone screen, Accounts (Spotify and Last.fm), and About.

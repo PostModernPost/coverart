@@ -358,6 +358,9 @@
   /* listening history and saved songs: a readable width on big screens */
   #stats > :not(.close), #saved > :not(.close), #records > :not(.close), #recap > :not(.close), #shelf > :not(.close) { max-width: 960px; margin-left: auto; margin-right: auto; }
   #settings > :not(.close) { max-width: 640px; margin-left: auto; margin-right: auto; }
+  #settings h3.group { margin: 7vmin auto 0; padding-top: 2.4vmin; border-top: 1px solid rgba(255,255,255,.22); font-size: 1.35em;
+    letter-spacing: 0; text-transform: none; color: var(--fg); font-weight: 700; }
+  #settings h3.group + h3 { margin-top: 1.6vmin !important; }
   /* your shelf */
   #shelfTools { display: flex; flex-wrap: wrap; gap: 1em 2em; align-items: center; margin-top: 1.4em; }
   #shelfTools .row { margin: 0; }
@@ -727,29 +730,24 @@
 <div id="settings" class="panel">
   <button class="close" aria-label="Close">&times;</button>
   <h2>Settings</h2>
-  <div class="sub">These apply to this screen only, except Music in the room, the phone setting, Spotify and Last.fm, which are for the whole app.</div>
-  <div class="setting" data-key="lyricsBeside">
-    <div>Lyrics beside the album art<small>The words scroll along with the song when timed lyrics exist. The screen then shows just the title, artist and album around the cover.</small></div><div class="switch"></div></div>
+  <div class="sub">Settings under This screen are for the screen you're looking at (the PC window or the phone). Everything else is for the whole app.</div>
+  <h3 class="group">This screen</h3>
   <div class="setting" id="textSize" style="cursor:default">
     <div>Text size<small>For the main screen. Auto makes words bigger on small screens like phones.</small></div>
     <div class="sizes">
       <button class="pill" data-ts="auto">Auto</button><button class="pill" data-ts="1">Normal</button>
       <button class="pill" data-ts="1.3">Large</button><button class="pill" data-ts="1.6">Extra large</button></div></div>
+  <div class="setting" data-key="lyricsBeside">
+    <div>Lyrics beside the album art<small>The words scroll along with the song when timed lyrics exist. The screen then shows just the title, artist and album around the cover.</small></div><div class="switch"></div></div>
+  <div class="setting" id="fsSetting">
+    <div>Fullscreen<small id="fsHint">Hides the browser's bars until you leave the page.</small></div><div class="switch"></div></div>
   <h3 style="margin-top:3vmin;margin-bottom:0">On the main screen</h3>
   <div class="setting" data-key="showYear"><div>Year</div><div class="switch"></div></div>
   <div class="setting" data-key="showLabel"><div>Record label</div><div class="switch"></div></div>
   <div class="setting" data-key="showGenre"><div>Genre</div><div class="switch"></div></div>
+  <div class="setting" data-key="showBpm"><div>BPM<small>Tempo of the song, when it can be found. ≈ means estimated from the sound.</small></div><div class="switch"></div></div>
   <div class="setting" data-key="showProgress"><div>Song length and position<small>Exact for Spotify and other apps on this PC, and for records Shazam recognizes. Songs known only from a record's tracklist are estimated (~).</small></div><div class="switch"></div></div>
-  <div class="setting" id="mediaRow" style="cursor:default">
-    <div>Music in the room<small>What Liner Notes says songs it hears are playing on. Ask: it asks once each time you start listening.</small></div>
-    <div class="sizes">
-      <button class="pill" data-rm="">Ask</button><button class="pill" data-rm="vinyl">Vinyl</button><button class="pill" data-rm="cd">CD</button>
-      <button class="pill" data-rm="cassette">Cassette</button><button class="pill" data-rm="radio">Radio</button><button class="pill" data-rm="other">Other</button></div></div>
-  <div class="setting" id="pcMediaRow" style="cursor:default">
-    <div>Apps on this PC<small>What Liner Notes shows from this PC. Music apps only: Spotify, Apple Music, Tidal and other music players, plus music sites in a browser (Spotify, YouTube Music, Bandcamp). Everything: anything Windows says is playing, YouTube and Reddit videos included.</small></div>
-    <div class="sizes"><button class="pill" data-pm="music">Music apps only</button><button class="pill" data-pm="all">Everything</button></div></div>
-  <div class="setting" id="followAlbumRow">
-    <div>Follow the album<small>When a song on a record, CD or tape is recognized, Liner Notes assumes the album is playing and shows the next songs in order, switching when each one's length is up, even if Shazam can't match them. Turn off for mixtapes and compilations, or load the compilation with Manual search.</small></div><div class="switch"></div></div>
+  <h3 style="margin-top:3vmin;margin-bottom:0">Between records</h3>
   <div class="setting" id="idleModeRow" style="cursor:default">
     <div>When nothing is playing<small>Recently played shows the album you just played, your other recent records and songs you saved. The slideshow shows album covers from your history.</small></div>
     <div class="sizes">
@@ -760,15 +758,21 @@
     <div class="sizes">
       <button class="pill" data-io="0">Never</button><button class="pill" data-io="5">5 min</button><button class="pill" data-io="15">15 min</button>
       <button class="pill" data-io="30">30 min</button><button class="pill" data-io="60">1 hour</button></div></div>
+  <h3 style="margin-top:3vmin;margin-bottom:0">Song page</h3>
   <div class="setting" data-key="simNewOnly"><div>More like this: only new bands<small>On the song page, only suggest bands you haven't played in Liner Notes yet.</small></div><div class="switch"></div></div>
-  <div class="setting" data-key="showBpm"><div>BPM<small>Tempo of the song, when it can be found. ≈ means estimated from the sound.</small></div><div class="switch"></div></div>
-  <div class="setting" id="fsSetting">
-    <div>Fullscreen<small id="fsHint">Hides the browser's bars until you leave the page.</small></div><div class="switch"></div></div>
-  <div class="setting" id="followRow">
-    <div>Phone screen sleeps and wakes with this PC<small>A phone plugged in over USB turns its screen off when the PC sleeps or hibernates, and back on when it wakes.</small></div><div class="switch"></div></div>
-  <div class="setting" id="phoneSetupRow" style="cursor:pointer">
-    <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone or iPhone.</small></div>
-    <span class="pill">Set up</span></div>
+  <h3 class="group">Listening</h3>
+  <h3 style="margin-top:3vmin;margin-bottom:0">Records, CDs and tapes</h3>
+  <div class="setting" id="mediaRow" style="cursor:default">
+    <div>Music in the room<small>What Liner Notes says songs it hears are playing on. Ask: it asks once each time you start listening.</small></div>
+    <div class="sizes">
+      <button class="pill" data-rm="">Ask</button><button class="pill" data-rm="vinyl">Vinyl</button><button class="pill" data-rm="cd">CD</button>
+      <button class="pill" data-rm="cassette">Cassette</button><button class="pill" data-rm="radio">Radio</button><button class="pill" data-rm="other">Other</button></div></div>
+  <div class="setting" id="followAlbumRow">
+    <div>Follow the album<small>When a song on a record, CD or tape is recognized, Liner Notes assumes the album is playing and shows the next songs in order, switching when each one's length is up, even if Shazam can't match them. Turn off for mixtapes and compilations, or load the compilation with Manual search.</small></div><div class="switch"></div></div>
+  <h3 style="margin-top:3vmin;margin-bottom:0">On this PC</h3>
+  <div class="setting" id="pcMediaRow" style="cursor:default">
+    <div>Apps on this PC<small>What Liner Notes shows from this PC. Music apps only: Spotify, Apple Music, Tidal and other music players, plus music sites in a browser (Spotify, YouTube Music, Bandcamp). Everything: anything Windows says is playing, YouTube and Reddit videos included.</small></div>
+    <div class="sizes"><button class="pill" data-pm="music">Music apps only</button><button class="pill" data-pm="all">Everything</button></div></div>
   <h3 style="margin-top:3vmin;margin-bottom:0">Microphone</h3>
   <div class="setting" id="micRow" style="cursor:default">
     <div>Listen with<small id="micHint">The microphone Liner Notes uses to hear records. Changing it restarts Liner Notes.</small></div>
@@ -787,7 +791,7 @@
       <small class="muted" style="display:block;margin-top:.4em">If it sounds muffled, faint or full of room noise, Shazam will struggle too. A mic closer to a speaker helps most.</small>
     </div>
   </div>
-  <h3 style="margin-top:3vmin;margin-bottom:0">Stylus</h3>
+  <h3 class="group">Stylus</h3>
   <div id="stylusBox">
     <div><b id="stHours">0</b> of <span id="stLife">1,000</span> hours on vinyl</div>
     <div id="stBar"><div id="stFill"></div></div>
@@ -803,6 +807,13 @@
       <p class="muted" style="margin:.8em 0 0">Most diamond styli last 800 to 1,000 hours; basic conical ones nearer 500. Your cartridge maker lists the figure for yours. A worn stylus sounds dull or harsh and wears your records.</p>
     </details>
   </div>
+  <h3 class="group">Phone screen</h3>
+  <div class="setting" id="phoneSetupRow" style="cursor:pointer">
+    <div>Use a phone as a second screen<small>Step-by-step setup for an old Android phone or iPhone.</small></div>
+    <span class="pill">Set up</span></div>
+  <div class="setting" id="followRow">
+    <div>Phone screen sleeps and wakes with this PC<small>A phone plugged in over USB turns its screen off when the PC sleeps or hibernates, and back on when it wakes.</small></div><div class="switch"></div></div>
+  <h3 class="group">Accounts</h3>
   <h3 style="margin-top:3vmin;margin-bottom:0">Spotify</h3>
   <div id="spotifyBox">
     <div class="muted" id="spStatus">Checking…</div>
