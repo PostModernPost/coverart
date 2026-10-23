@@ -1056,8 +1056,7 @@ def restore_record():
         if d.get("idx") is not None:
             rec.set_index(d["idx"])
             rec.track_started = d.get("track_started") or rec.track_started
-            rec.side_done = bool(d.get("side_done"))
-        rec.unconfirmed = True             # it may have been changed while Liner Notes was closed
+            rec.side_done = bool(d.get("side_done"))    # an ended side: the next music start asks Shazam to confirm
         log(f"still on the record from before: {rec.artist} - {rec.title}")
         return rec
     except FileNotFoundError:
@@ -1325,7 +1324,7 @@ class RecordSession:
         self.track_started = 0.0
         self.last_active = time.time()
         self.auto = False          # True when Liner Notes worked out the record itself
-        self.unconfirmed = False   # music started again after the side ended (or a restart): a flip, or a new record?
+        self.unconfirmed = False   # music started again after the side ended: a flip, or a new record?
         self.medium = discogs_medium(rel)
         self.rel = rel             # the full Discogs release, for the credits on the info page
 
