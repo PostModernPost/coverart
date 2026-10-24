@@ -996,8 +996,26 @@ def show_and_enrich(app, track):
         asyncio.get_running_loop().create_task(enrich_track(app, track))
 
 
+def fill_artists(app, rec):
+    """A compilation whose tracklist doesn't say who a song is by: use who Shazam said it was by, when it
+    named that song before (often just before the record was picked). True if any were filled in."""
+    missing = [t for t in rec.tracks if not t["artist"]]
+    if not missing:
+        return False
+    try:
+        known = app["state"].db.song_artists([t["title"] for t in missing])
+    except Exception as e:
+        log("song artists lookup failed:", repr(e))
+        return False
+    for t in missing:
+        t["artist"] = known.get(norm(clean_title(t["title"]))) or ""
+    return any(t["artist"] for t in missing)
+
+
 def show_record(app, rec, track):
     """A song from the record's tracklist: show it, and count its position from when it started."""
+    if fill_artists(app, rec) and rec.idx is not None and track.get("title") == rec.tracks[rec.idx]["title"]:
+        track = rec.track()
     show_and_enrich(app, track)
     record_progress(app, rec)
     save_record(rec)
@@ -2838,6 +2856,21 @@ class History:
                 db.execute("DELETE FROM shelf_hidden WHERE key=?", (key,))
 
     # ---- song pages saved on this PC, so they open instantly (and offline) the next time
+    def song_artists(self, titles, days=365):
+        """Who these songs are by, from the songs Shazam named in the last year (not compilations' "Various")."""
+        want = {norm(clean_title(t)) for t in titles if t}
+        if not want:
+            return {}
+        with self._db() as db:
+            rows = db.execute("SELECT title, artist FROM plays WHERE ts>? AND artist!='' ORDER BY ts DESC LIMIT 20000",
+                              (time.time() - days * 86400,)).fetchall()
+        out = {}
+        for title, artist in rows:
+            k = norm(clean_title(title))
+            if k in want and k not in out and len(k) >= 5 and norm(artist) not in ("various", "variousartists"):   # not "Intro"
+                out[k] = artist
+        return out
+
     def cache_get(self, key, max_age_days=30):
         with self._db() as db:
             row = db.execute("SELECT ts, data FROM song_cache WHERE key=?", (key,)).fetchone()
