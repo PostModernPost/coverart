@@ -31,7 +31,7 @@ Free, no ads, no account. Your listening stays on your own phone or PC.
 **Phone screenshots:** play-1-now.png, play-2-lyrics.png, play-3-song.png, play-4-last.png, play-5-shelf.png
 
 **Category:** Music & Audio
-**Contact email:** adamwaitt@gmail.com (or another address you want shown publicly)
+**Contact email:** linernotes987@gmail.com
 **Website:** https://liner-notes.app
 **Privacy policy:** https://liner-notes.app/privacy
 
