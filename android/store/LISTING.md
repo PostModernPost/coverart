@@ -12,58 +12,60 @@ Album art, lyrics and credits for the record on your turntable, on your phone.
 **Full description:**
 Liner Notes turns your phone into the screen by your turntable.
 
-Put a record on. Liner Notes on your PC hears it, names the song, and your phone shows the cover, the lyrics and who played on it. It follows the record song by song, side by side, and tells you when to flip.
+Put a record on. Liner Notes hears it, names the song, and shows the cover, the lyrics and who played on it. It follows the record song by song, side by side, and tells you when to flip.
 
-The phone app connects to Liner Notes on your Windows PC (free at liner-notes.app), over your home Wi-Fi or a USB cable.
+It works on the phone on its own, listening with the phone's microphone. If you also run Liner Notes on a Windows PC (free at liner-notes.app), the phone can connect to it over your home Wi-Fi or a USB cable and show what the PC hears, including Spotify and other apps playing on the PC.
 
 - The cover, song, side and track, big enough to read from the couch
 - Timed lyrics that scroll along with the song
 - The band's story, full credits from Discogs, and similar bands
 - Your shelf: every record you play, synced with your Discogs collection
-- Use the phone's microphone to listen right by the speakers
+- A gentle warning when a side is about to end
 - The screen wakes for the next record and goes dark when nothing is playing
 - Share the song you're hearing with a link that opens in any music app
 
-Free, no ads, no account. Your listening stays on your own PC.
-
-Requires Liner Notes for Windows, running on a PC on the same network.
+Free, no ads, no account. Your listening stays on your own phone or PC.
 
 **App icon:** icon-512.png
 **Feature graphic:** feature-graphic.png
 **Phone screenshots:** play-1-now.png, play-2-lyrics.png, play-3-song.png, play-4-last.png, play-5-shelf.png
 
 **Category:** Music & Audio
-**Contact email:** your email
+**Contact email:** adamwaitt@gmail.com (or another address you want shown publicly)
 **Website:** https://liner-notes.app
 **Privacy policy:** https://liner-notes.app/privacy
 
 ## App content answers
 
 - **Ads:** No ads.
-- **App access:** All features need Liner Notes running on a Windows PC on the same network. Reviewers can't reach one, so say: "This app is a display for the Liner Notes desktop app (free at https://liner-notes.app). Without it the app shows a setup screen explaining how to connect." Choose "All or some functionality is restricted" and paste that.
-- **Content rating:** Questionnaire: category "Utility, Productivity, Communication, or Other"; answer No to everything (no violence, user content, etc.). Lyrics come from public lyric sites, so answer the "crude humor / profanity" question No unless they object.
-- **Target audience:** 13 and over (or 18+; nothing is aimed at children).
-- **News app:** No.
-- **Government app:** No.
-- **Financial features:** None.
-- **Health:** None.
+- **App access:** "All functionality is available without special access." The app works on its own: open it, allow the microphone, and play music near the phone. (Connecting to a PC is optional.) If Google asks for instructions, paste: "Open the app and tap Use this phone on its own. Allow the microphone and play a song near the phone: it is recognized within about 30 seconds. Connecting to the free Liner Notes desktop app (https://liner-notes.app) is optional."
+- **Content rating:** Questionnaire: category "Utility, Productivity, Communication, or Other"; answer No to everything (no violence, no user content, no chat). Lyrics come from public lyric sites; answer the profanity question No unless they object.
+- **Target audience:** 18 and over (nothing is aimed at children, and it keeps the children's-app rules out of the way).
+- **News app:** No. **Government app:** No. **Financial features:** None. **Health:** None.
 
 ## Data safety
 
 - **Does your app collect or share any of the required user data types?** Yes.
-- **Is all of the user data collected by your app encrypted in transit?** No (it goes to your own PC over your home network without encryption). Answer honestly: No.
-- **Do you provide a way for users to request that their data is deleted?** Yes: the data lives on the user's own PC and they can delete it there; disconnecting the phone in Settings removes its key.
+- **Is all of the user data collected by your app encrypted in transit?** No. (Clips to Shazam go over HTTPS, but audio sent to the user's own PC over the home network isn't encrypted.)
+- **Do you provide a way for users to request that their data is deleted?** Yes: everything is stored on the user's own phone or PC. Uninstalling the app or clearing its data deletes it; disconnecting the phone in Settings removes its key.
 - **Data types:**
-  - **Audio > Voice or sound recordings:** Collected (sent off the phone to the user's own PC), not shared. Processed ephemerally: yes. Required or optional: optional (only when the PC is set to listen through the phone). Purpose: App functionality.
-  - Nothing else (no location, contacts, identifiers, analytics or crash data).
+  - **Audio > Voice or sound recordings:**
+    - Collected: Yes. Shared: Yes (short clips go to Shazam to name the song; on a PC setup, to the user's own PC).
+    - Processed ephemerally: Yes (only the last clip is kept, in memory).
+    - Required or optional: Required for recognizing music on the phone (the user can still use the app connected to a PC without it).
+    - Purpose: App functionality.
+  - **App activity > Other actions** (the songs recognized, kept as listening history): Collected: No. It never leaves the device, so Play doesn't count it as collected.
+  - Nothing else: no location, contacts, identifiers, analytics, ads or crash reporting.
 
 ## Permissions declarations
 
-- **Foreground service, microphone:** "When the user sets Liner Notes on their PC to listen through this phone, the app records with the phone's microphone and sends the audio to the user's own PC to recognize the record playing. It runs while the screen is off so recognition continues through a whole record side. A notification is shown the whole time."
-- **Foreground service, special use:** "Keeps this phone's now-playing display in sync with the Liner Notes app on the user's PC while the screen is off, and turns the screen on when the next song starts. It polls the user's own PC on the local network about once a second. A notification is shown the whole time." Google may ask for a short video: record the phone screen going dark, then waking when a song starts.
+- **Foreground service, microphone:** "Liner Notes recognizes the record playing in the room. While music is playing it records with the phone's microphone and sends short clips to Shazam (or to the user's own Liner Notes PC app) to name the song. It runs while the screen is off so recognition continues through a whole record side. A notification is shown the whole time, and listening can be turned off in the app."
+- **Foreground service, special use:** "Keeps the now-playing display in sync while the screen is off: it watches the Liner Notes engine (running in the app, or on the user's own PC on the local network) about once a second, and turns the screen on when the next song starts. A notification is shown the whole time." Google may ask for a short video: record the phone screen going dark, then waking when a song starts.
 
 ## Releasing
 
-1. Internal testing: upload `LinerNotes-Android-<version>.aab` from the GitHub release. Add yourself as a tester.
+1. Internal testing: upload `LinerNotes-Android-<version>.aab` from the GitHub release `android` (the newest Play version is always there). Add yourself as a tester.
 2. Closed testing (required for new personal accounts): at least 12 testers opted in for 14 days in a row. Ask friends with Android phones to join via the opt-in link.
 3. Then apply for production access in Play Console.
+
+The Play version doesn't update itself (Play updates it) and has no donation links (Google Play only allows its own payments in apps).

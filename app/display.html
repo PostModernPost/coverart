@@ -2712,7 +2712,11 @@ document.querySelectorAll(".panel > .close").forEach(c => {
   a.addEventListener("click", e => e.stopPropagation());
   c.after(a);
 });
+// The Play Store copy of the app has no donation links: Google Play only allows its own payments in apps.
+// (That copy doesn't update itself; the GitHub one does.)
+const PLAY_APP = IN_APP && (() => { try { return !JSON.parse(APP.appUpdate()).enabled; } catch (e) { return false; } })();
 function showCoffee(url) {
+  if (PLAY_APP) url = "";
   document.querySelectorAll(".bmc, #tb-coffee").forEach(a => { a.style.display = url ? "" : "none"; if (url) a.href = url; });
   $("tb-coffee").style.display = url ? "grid" : "none";
 }
