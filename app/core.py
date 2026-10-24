@@ -1200,6 +1200,39 @@ async def compilation_guesses(http, songs, medium=None):
     return [search_row(r) for _, r in checked]
 
 
+async def song_album_guesses(http, artist, title, medium=None):
+    """The artist's albums on Discogs with this song on them, oldest first, one pressing each: the album
+    it's from, then best-ofs and anything else it's on. Singles, 12-inch mixes and videos are left out."""
+    fmt, owned, want = medium_format(medium), owned_release_ids(), norm(lead_artist(artist))
+    results = []
+    for t in dict.fromkeys([clean_title(title), re.sub(r"[^\w\s]", "", clean_title(title))]):   # Discogs is picky about "Can't"
+        for page in (1, 2):               # a hit single is on hundreds of releases: read a second page
+            res = await discogs_get(http, "/database/search", {"type": "release", "artist": lead_artist(artist),
+                                                               "track": t, "per_page": 100, "page": page})
+            results += res.get("results", [])
+            if (res.get("pagination") or {}).get("pages", 1) <= page:
+                break
+        if results:
+            break
+    best = {}
+    for r in results:
+        who, _, name = (r.get("title") or "").partition(" - ")
+        f = r.get("format") or []
+        if not name or (want and norm(clean_artist(who).rstrip("*")) != want):
+            continue
+        if not ({"Album", "LP", "Compilation"} & set(f)) or {"DVD", "VHS", "Unofficial Release", "Single"} & set(f):
+            continue                          # the albums it's on, not the 45 or the 12-inch mix
+        y = str(r.get("year") or "")
+        rank = (0 if r["id"] in owned else 1, 0 if fmt in f else 1, int(y) if y.isdigit() else 9999)
+        k = norm(name.split(" = ")[0])        # "Open Our Eyes = Abre Nuestros Ojos" is the same album
+        if k not in best or rank < best[k][0]:
+            best[k] = (rank, r)
+    def year(r):
+        y = str(r.get("year") or "")
+        return int(y) if y.isdigit() else 9999
+    return [search_row(r) for _, r in sorted(best.values(), key=lambda x: year(x[1]))[:10]]
+
+
 async def studio_album_guesses(http, artist, medium=None):
     """The artist's studio albums on Discogs, oldest first: one pressing each (your own copy, or the earliest
     on this medium), leaving out best-ofs, live albums and compilations."""
@@ -2279,6 +2312,7 @@ async def _turntable_inner(app, mic, shz):
                     active_since = now
                     needle_drop = True
                     heard = []                # a new record (or side): the songs before it don't pair with this one
+                    app.pop("album_ask_off_until", None)    # and "don't ask" was about the last record, not this one
                     if rec and rec.tracks:
                         rec_gaps = L.gap_count
                         show_record(app, rec, rec.on_music_start())
@@ -3147,8 +3181,13 @@ async def api_records_guess(request):
         if request.query.get("kind") == "compilation":
             songs = (app.get("album_ask") or {}).get("songs") or []
             return web.json_response({"results": await compilation_guesses(app["http"], songs, medium) if songs else []})
-        artist = (request.query.get("artist") or "").strip()
-        return web.json_response({"results": await studio_album_guesses(app["http"], artist, medium) if artist else []})
+        artist, title = (request.query.get("artist") or "").strip(), (request.query.get("title") or "").strip()
+        if not artist:
+            return web.json_response({"results": []})
+        with_song = await song_album_guesses(app["http"], artist, title, medium) if title else []
+        have = {norm(r["title"]) for r in with_song}
+        others = [r for r in await studio_album_guesses(app["http"], artist, medium) if norm(r["title"]) not in have]
+        return web.json_response({"results": with_song + others, "with_song": len(with_song)})
     except Exception as e:
         log("record suggestions failed:", repr(e))
         return web.json_response({"results": [], "error": "Discogs isn't reachable right now."})

@@ -2399,16 +2399,17 @@ async function albumAskDone() {          // stop asking for a few hours
   try { await fetch("/api/album/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }); } catch (err) {}
 }
 // The search screen, opened with Liner Notes' suggestions: compilations with the songs heard, or the artist's studio albums
-async function openGuesses(kind, artist) {
+async function openGuesses(kind, artist, title) {
   recView = "pick"; renderRecords(); openPanel("records");
   $("rq").value = ""; $("songResults").innerHTML = "";
   $("recResults").innerHTML = `<p class="muted">Looking for ${kind === "compilation" ? "compilations with these songs" : `${esc(artist)}'s albums`}…</p>`;
   let d = {};
-  try { d = await (await fetch("/api/records/guess?" + new URLSearchParams({ kind, artist: artist || "" }))).json(); } catch (e) {}
+  try { d = await (await fetch("/api/records/guess?" + new URLSearchParams({ kind, artist: artist || "", title: title || "" }))).json(); } catch (e) {}
   if (d.need_key) { discogsReady = false; renderRecords(); return; }
-  const recs = d.results || [];
+  const recs = d.results || [], n = d.with_song || 0;
   $("recResults").innerHTML = recs.length
-    ? recRows(recs, kind === "compilation" ? "Compilations with these songs" : `${artist}'s albums`)
+    ? (kind === "compilation" ? recRows(recs, "Compilations with these songs")
+       : (n ? recRows(recs.slice(0, n), `Albums with ${title}`) : "") + (recs.length > n ? recRows(recs.slice(n), n ? `${artist}'s other albums` : `${artist}'s albums`) : ""))
     : `<p class="muted">${esc(d.error || (kind === "compilation" ? "No compilation with these songs turned up. Search for it below, or name it yourself."
                                                                 : "Couldn't find their albums. Search for it below."))}</p>`;
 }
@@ -2420,10 +2421,10 @@ $("albumAsk").addEventListener("click", e => {
   if (aaStep === "comp" && a === "yes") { aaStep = "picking"; drawAlbumAsk(); if (discogsReady) openGuesses("compilation"); else openSearch(); }
   else if (aaStep === "comp" && a === "no") {
     if (current && current.album) { aaStep = "album"; drawAlbumAsk(); }
-    else { albumAskDone(); openGuesses("studio", artist); }
+    else { albumAskDone(); openGuesses("studio", artist, current && current.title); }
   }
   else if (aaStep === "album" && a === "yes") { albumAskDone(); toast("Great, it'll stay on this album."); }
-  else if (aaStep === "album" && a === "no") { albumAskDone(); openGuesses("studio", artist); }
+  else if (aaStep === "album" && a === "no") { albumAskDone(); openGuesses("studio", artist, current && current.title); }
   else if (a === "name") { $("albumAsk").classList.add("naming"); setTimeout(() => $("aaTitle").focus(), 30); }
 });
 async function nameAlbum(title, artist) {
