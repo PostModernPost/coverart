@@ -626,6 +626,7 @@
   <h2 id="i-title"></h2>
   <div class="sub" id="i-sub"></div>
   <div id="i-details"></div>
+  <div id="i-orig" class="muted"></div>
   <div class="row" style="margin-top:1.2em"><button class="pill" id="iShare">Share this song</button></div>
   <div id="links" class="row"></div>
   <div class="cols">
@@ -1749,6 +1750,9 @@ async function openInfo(t) {
   $("i-title").textContent = t.title;
   $("i-sub").textContent = [t.artist, t.album].filter(Boolean).join(" · ");
   $("i-details").textContent = [detailsText(t, true), t.duration_ms ? fmtDur(Math.round(t.duration_ms / 1000)) : ""].filter(Boolean).join(" · ");
+  // a song on a compilation: the album it first came out on
+  const o = t.original;
+  $("i-orig").innerHTML = o && o.album ? `Originally on <b>${esc(o.album)}</b>${o.year ? ` (${esc(o.year)})` : ""}` : "";
   $("links").innerHTML = (t.links || []).map(l =>
     `<a class="pill" href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.name)}</a>`).join("");
   $("donate").style.display = "none";              // the coffee button sits at the top of the page now

@@ -999,17 +999,24 @@ def show_and_enrich(app, track):
 def fill_artists(app, rec):
     """A compilation whose tracklist doesn't say who a song is by: use who Shazam said it was by, when it
     named that song before (often just before the record was picked). True if any were filled in."""
-    missing = [t for t in rec.tracks if not t["artist"]]
-    if not missing:
+    todo = [t for t in rec.tracks if not t["artist"] or (rec.various and "original" not in t)]
+    if not todo:
         return False
     try:
-        known = app["state"].db.song_artists([t["title"] for t in missing])
+        known = app["state"].db.song_origins([t["title"] for t in todo])
     except Exception as e:
         log("song artists lookup failed:", repr(e))
         return False
-    for t in missing:
-        t["artist"] = known.get(norm(clean_title(t["title"]))) or ""
-    return any(t["artist"] for t in missing)
+    changed = False
+    for t in todo:
+        k = known.get(norm(clean_title(t["title"])))
+        if not k:
+            continue
+        if not t["artist"]:
+            t["artist"], changed = k["artist"], True
+        if rec.various and k.get("album") and "original" not in t and norm(main_artist(k["artist"])) == norm(main_artist(t["artist"])):
+            t["original"], changed = {"album": k["album"], "year": k["year"]}, True
+    return changed
 
 
 def show_record(app, rec, track):
@@ -1017,11 +1024,30 @@ def show_record(app, rec, track):
     if fill_artists(app, rec) and rec.idx is not None and track.get("title") == rec.tracks[rec.idx]["title"]:
         track = rec.track()
     show_and_enrich(app, track)
+    if rec.various and rec.idx is not None and "original" not in rec.tracks[rec.idx] and rec.tracks[rec.idx]["artist"]:
+        asyncio.create_task(find_original(app, rec, rec.idx))
     record_progress(app, rec)
     save_record(rec)
     if not getattr(rec, "orig_checked", False):
         rec.orig_checked = True
         asyncio.create_task(original_year(app, rec))
+
+
+async def find_original(app, rec, i):
+    """A song on a compilation: the album it first came out on (Apple Music), for "Originally on" on the song page."""
+    t = rec.tracks[i]
+    t["original"] = None                 # looked up once
+    try:
+        st = studio_album(await itunes_song_albums(app["http"], t["artist"], t["title"]))
+    except Exception as e:
+        log("original album lookup failed:", repr(e))
+        return
+    if not st or norm(st["album"]) == norm(rec.title):
+        return
+    t["original"] = {"album": st["album"], "year": st["year"] or None}
+    if rec.idx == i:
+        cur = rec.track()
+        app["state"].enrich(cur["id"], {"original": t["original"]})
 
 
 async def original_year(app, rec):
@@ -1614,6 +1640,7 @@ class RecordSession:
                 "status": "playing",
                 "year": getattr(self, "orig_year", None) or self.year, "label": self.label, "genre": self.genre,
                 "duration_ms": (t["duration"] or 0) * 1000 or None, "record_pos": t["pos"],
+                "original": t.get("original") if self.various else None,     # a compilation's song: its own album
                 "links": search_links(artist, t["title"], self.title)}
 
     def summary(self):
@@ -2856,19 +2883,22 @@ class History:
                 db.execute("DELETE FROM shelf_hidden WHERE key=?", (key,))
 
     # ---- song pages saved on this PC, so they open instantly (and offline) the next time
-    def song_artists(self, titles, days=365):
-        """Who these songs are by, from the songs Shazam named in the last year (not compilations' "Various")."""
+    def song_origins(self, titles, days=365):
+        """Who these songs are by and the album they first came out on, from the songs Shazam named in the
+        last year. Songs followed from a record's tracklist are left out: on a compilation those name the
+        compilation, not the original album."""
         want = {norm(clean_title(t)) for t in titles if t}
         if not want:
             return {}
         with self._db() as db:
-            rows = db.execute("SELECT title, artist FROM plays WHERE ts>? AND artist!='' ORDER BY ts DESC LIMIT 20000",
+            rows = db.execute("SELECT title, artist, album, year FROM plays WHERE ts>? AND artist!='' "
+                              "AND COALESCE(album_artist,'')='' ORDER BY ts DESC LIMIT 20000",
                               (time.time() - days * 86400,)).fetchall()
         out = {}
-        for title, artist in rows:
+        for title, artist, album, year in rows:
             k = norm(clean_title(title))
             if k in want and k not in out and len(k) >= 5 and norm(artist) not in ("various", "variousartists"):   # not "Intro"
-                out[k] = artist
+                out[k] = {"artist": artist, "album": album, "year": (re.findall(r"\d{4}", str(year or "")) or [None])[0]}
         return out
 
     def cache_get(self, key, max_age_days=30):
