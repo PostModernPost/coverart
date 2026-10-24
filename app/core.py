@@ -1454,6 +1454,16 @@ async def find_album_record(http, title, artist, album, medium=None, collection_
     return None, None
 
 
+PERFORMER_ROLES = re.compile(r"^(musician|performer|artist|band|vocals|lead vocals|featuring|dj)$", re.I)
+
+
+def track_performer(t):
+    """Some compilations on Discogs name a song's artist only in its credits, as "Musician" or "Performer"."""
+    names = [{"name": c.get("anv") or c.get("name")} for c in t.get("extraartists") or []
+             if PERFORMER_ROLES.match((c.get("role") or "").strip()) and (c.get("anv") or c.get("name"))]
+    return join_artists([{**n, "join": "&"} for n in names[:-1]] + names[-1:]) if names else ""
+
+
 class RecordSession:
     def __init__(self, rel):
         self.started = time.time()
@@ -1480,7 +1490,8 @@ class RecordSession:
             m = re.match(r"^([A-Za-z]+)", pos)
             side = m.group(1).upper() if m else (pos.split("-")[0] if "-" in pos else "1")
             self.tracks.append({"pos": pos, "side": side, "title": t.get("title"),
-                                "artist": join_artists(t.get("artists")) or self.artist,
+                                "artist": join_artists(t.get("artists")) or track_performer(t)
+                                          or ("" if self.various else self.artist),
                                 "duration": parse_duration(t.get("duration"))})
         self.idx = None
         self.side_done = False
@@ -1577,9 +1588,9 @@ class RecordSession:
     def track(self):
         t = self.tracks[self.idx]
         side, n, count = self.side_info(self.idx)
-        artist = t["artist"] if (self.various or t["artist"]) else self.artist
+        artist = t["artist"] or ("Various Artists" if self.various else self.artist)
         return {"id": make_id(artist, t["title"]), "title": t["title"], "artist": artist, "album": self.title,
-                "album_artist": self.artist, "release_id": self.id,
+                "album_artist": "Various Artists" if self.various else self.artist, "release_id": self.id,
                 "art": self.cover, "source": "record", "medium": self.medium,
                 "app": (f"Track {n} of {count}" if self.medium == "cd" or not side.isalpha() else f"Side {side} · {n} of {count}"),
                 "status": "playing",
@@ -2461,7 +2472,7 @@ async def _turntable_inner(app, mic, shz):
             jumped = on_record is not None and on_record not in ok
             if on_record is None or jumped:
                 # Not on the guessed release, or not where it should be (a best-of, not the album): guess again
-                prev_song = {"title": rec.tracks[rec.idx]["title"], "artist": rec.tracks[rec.idx]["artist"]}
+                prev_song = {"title": rec.tracks[rec.idx]["title"], "artist": rec.track()["artist"]}
                 log(f"'{res['title']}' {'is not next' if on_record is not None else 'is not'} on {rec.title}: dropping that guess")
                 app["record"] = rec = None
                 save_record(None)
@@ -2480,6 +2491,10 @@ async def _turntable_inner(app, mic, shz):
         if on_record is not None:
             misses = 0
             rec.unconfirmed, rec.unconfirmed_misses = False, 0
+            if not rec.tracks[on_record]["artist"] and res.get("artist"):
+                rec.tracks[on_record]["artist"] = res["artist"]          # the tracklist didn't say who it's by
+                if rec.idx == on_record:
+                    show_record(app, rec, rec.track())
             if rec.idx != on_record:
                 if rec.last_jump and rec.last_jump[1] == on_record and now - rec.last_jump[0] < 180:
                     rec.quiet_tracks.add(on_record)      # its quiet bits fooled us: ask Shazam before leaving it again
