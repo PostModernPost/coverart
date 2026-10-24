@@ -35,6 +35,11 @@ Kotlin. It's a WebView that shows either the PC's page or the engine running on 
 - `Engine.kt`: starts the Python engine; `Updater.kt`: self-update for the GitHub ("direct") build.
 - `Link.kt`: HTTP, pairing tokens, NSD `Finder`, `Pairing`.
 - Flavors: `direct` (GitHub APK, updates itself, REQUEST_INSTALL_PACKAGES) and `play` (Play Store AAB).
+- Liner Notes Plus: the `play` copy sells an unlock through Google Play Billing (`src/play/.../Pro.kt`: subscription
+  `liner_notes_plus` with base plans `monthly` $1 and `yearly` $10, one-time `liner_notes_plus_lifetime` $25). `direct`
+  (`src/direct/.../Pro.kt`) is always unlocked, as are the PC and browsers. The page asks `LinerNotesApp.pro()`;
+  `isPro()` in display.html gates the song page, shelf, saved, stats, recap, lyrics beside the cover, the side-end
+  pulse and the accounts, and `LinkService.wakeScreen` checks `Pro.unlocked`. The Play copy shows no donation links.
 - Store listing text and images: `android/store/`.
 - aiohttp and its helpers are installed as plain-Python wheels (the workflow builds them with `*_NO_EXTENSIONS=1`
   into `android/wheels`). certifi supplies SSL certificates (`extractPackages("certifi")`).

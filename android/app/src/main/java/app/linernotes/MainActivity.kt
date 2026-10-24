@@ -91,6 +91,7 @@ class MainActivity : Activity() {
         showSetup()
         connect()
         main.post(updateCheck)
+        Pro.start(this)
     }
 
     /** Look for a new version of the app every 15 minutes while it's open (the page asks whether to install it). */
@@ -361,6 +362,7 @@ class MainActivity : Activity() {
         fullScreen()
         if (dark && !LinkService.screenOffWanted) keepOn(true)
         io.execute { Updater.check(this) }
+        Pro.refresh()                    // bought, renewed or cancelled while the app was away
     }
 
     @Suppress("DEPRECATION")
@@ -471,6 +473,10 @@ class MainActivity : Activity() {
         @JavascriptInterface fun switchPc() = main.post { this@MainActivity.switchPc() }.let { }
         // updates for the copy installed from GitHub
         @JavascriptInterface fun appUpdate(): String = Updater.json(this@MainActivity)
+        // Liner Notes Plus (Google Play copy): what's unlocked, and buying it
+        @JavascriptInterface fun pro(): String = Pro.json(this@MainActivity)
+        @JavascriptInterface fun buyPro(plan: String) = main.post { Pro.buy(this@MainActivity, plan) }.let { }
+        @JavascriptInterface fun restorePro() = Pro.refresh()
         @JavascriptInterface fun checkAppUpdate() = io.execute { Updater.check(this@MainActivity, force = true) }
         @JavascriptInterface fun installAppUpdate() { Thread { Updater.install(this@MainActivity) { r -> main.post(r) } }.start() }
         @JavascriptInterface fun version(): String = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "" } catch (e: Exception) { "" }

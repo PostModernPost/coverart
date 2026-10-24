@@ -175,6 +175,7 @@ class LinkService : Service() {
     @SuppressLint("WakelockTimeout")
     @Suppress("DEPRECATION")
     private fun wakeScreen() {
+        if (!Pro.unlocked(this)) return          // waking the screen for the next song is part of Liner Notes Plus
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (pm.isInteractive) return
         try {

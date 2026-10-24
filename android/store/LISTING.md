@@ -62,6 +62,23 @@ Free, no ads, no account. Your listening stays on your own phone or PC.
 - **Foreground service, microphone:** "Liner Notes recognizes the record playing in the room. While music is playing it records with the phone's microphone and sends short clips to Shazam (or to the user's own Liner Notes PC app) to name the song. It runs while the screen is off so recognition continues through a whole record side. A notification is shown the whole time, and listening can be turned off in the app."
 - **Foreground service, special use:** "Keeps the now-playing display in sync while the screen is off: it watches the Liner Notes engine (running in the app, or on the user's own PC on the local network) about once a second, and turns the screen on when the next song starts. A notification is shown the whole time." Google may ask for a short video: record the phone screen going dark, then waking when a song starts.
 
+## Liner Notes Plus (the paid unlock)
+
+The app is free. Liner Notes Plus unlocks timed lyrics, the song page (the band's story, credits, similar bands), the shelf, saved songs, history and stats, Spotify, Discogs and Last.fm, the side-end warning and waking the screen for the next song. Recognizing the record, the cover, song, side and track, the progress bar and connecting to a PC stay free. The GitHub copy has everything unlocked.
+
+The IDs below must be typed exactly; the app looks for them.
+
+1. **Payments profile** (once): Play Console > **Settings** > **Payments profile**: your bank account and US tax details. Selling isn't possible until it's set up.
+2. Upload a build with billing (1.0.8 or later) to a testing track first: Play only lets you create products once it has seen one.
+3. **Subscription:** Play Console > the app > **Monetize with Play** > **Products** > **Subscriptions** > **Create subscription**.
+   - Product ID: `liner_notes_plus`. Name: Liner Notes Plus.
+   - Add a base plan: ID `monthly`, auto-renewing, billing period 1 month, price $1.00 (let Play set the other countries' prices). Activate it.
+   - Add a base plan: ID `yearly`, auto-renewing, billing period 1 year, price $10.00. Activate it.
+4. **Lifetime:** **Products** > **One-time products** (or In-app products) > **Create**.
+   - Product ID: `liner_notes_plus_lifetime`. Name: Liner Notes Plus, lifetime. Price $25.00. Activate it.
+5. **Testing without paying:** Play Console > **Settings** > **License testing**: add the testers' Gmail addresses. Their purchases are test purchases (subscriptions renew every few minutes and end after a few renewals).
+6. **Data safety:** purchases add **Financial info > Purchase history** as collected by Google Play, not by the app. Play's form says purchases handled by Google Play Billing don't need to be declared; leave it off.
+
 ## Releasing
 
 1. Internal testing: upload `LinerNotes-Android-<version>.aab` from the GitHub release `android` (the newest Play version is always there). Add yourself as a tester.

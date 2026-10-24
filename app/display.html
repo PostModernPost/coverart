@@ -332,15 +332,24 @@
   #shareMenu { position: fixed; z-index: 30; display: none; background: #1c1c20; border: 1px solid rgba(255,255,255,.18); border-radius: 14px;
     padding: .5em; min-width: 15em; box-shadow: 0 14px 40px rgba(0,0,0,.6); font-size: clamp(14px, 2.4vmin, 17px); --ts: 1; }
   #shareMenu.on { display: block; }
-  #pairAsk, #updAsk { position: fixed; z-index: 40; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; width: min(26em, 90vw);
+  #pairAsk, #updAsk, #proAsk { position: fixed; z-index: 40; left: 50%; top: 50%; transform: translate(-50%, -50%); display: none; width: min(26em, 90vw);
     background: #1c1c20; border: 1px solid rgba(201,160,74,.6); border-radius: 16px; padding: 1.4em 1.5em; box-shadow: 0 20px 60px rgba(0,0,0,.7);
     font-size: clamp(15px, 2.6vmin, 18px); --ts: 1; text-align: center; }
-  #pairAsk.on, #updAsk.on { display: block; }
-  #pairAsk h3, #updAsk h3 { margin: 0 0 .5em; font-size: 1.15em; text-transform: none; letter-spacing: 0; color: var(--fg); }
+  #pairAsk.on, #updAsk.on, #proAsk.on { display: block; }
+  #pairAsk h3, #updAsk h3, #proAsk h3 { margin: 0 0 .5em; font-size: 1.15em; text-transform: none; letter-spacing: 0; color: var(--fg); }
   #pairAsk .code { font-size: 2.4em; font-weight: 700; letter-spacing: .2em; color: var(--gold); margin: .3em 0; font-variant-numeric: tabular-nums; }
   #pairAsk .row, #updAsk .row { justify-content: center; margin-top: 1em; }
-  #updAsk .x { position: absolute; top: .5em; right: .6em; background: none; border: 0; color: var(--dim); font-size: 1.4em; cursor: pointer; line-height: 1; }
-  #updAsk .x:hover { color: var(--fg); }
+  #proAsk { text-align: left; z-index: 41; }
+  #proAsk ul { margin: .6em 0 1em; padding-left: 1.2em; color: var(--dim); } #proAsk li { margin: .25em 0; }
+  #proAsk .plans { display: grid; gap: .6em; }
+  #proAsk .plan { display: flex; justify-content: space-between; align-items: center; width: 100%; font-size: 1em; padding: .7em 1.1em; }
+  #proAsk .plan b { font-weight: 650; } #proAsk .plan small { color: var(--dim); }
+  #proAsk .plan.best { border-color: var(--gold); }
+  #proAsk .foot { margin: .9em 0 0; font-size: .85em; text-align: center; }
+  #proAsk .x, #updAsk .x { position: absolute; top: .5em; right: .6em; background: none; border: 0; color: var(--dim); font-size: 1.4em; cursor: pointer; line-height: 1; }
+  #updAsk .x:hover, #proAsk .x:hover { color: var(--fg); }
+  html.pro-locked .pro-only { display: none !important; }
+  html:not(.pro-locked) .pro-locked-only { display: none !important; }
   #updAsk .notes { margin: .6em 0 0; font-size: .85em; max-height: 8em; overflow: auto; white-space: pre-line; text-align: left; }
   #shareMenu .smHead { padding: .55em .8em .6em; color: var(--dim); font-size: .85em; border-bottom: 1px solid var(--faint); margin-bottom: .3em; max-width: 19em; }
   #shareMenu a, #shareMenu button { display: flex; align-items: center; gap: .7em; width: 100%; box-sizing: border-box; padding: .6em .8em; border-radius: 9px;
@@ -592,6 +601,7 @@
 <div id="shareMenu" role="menu"></div>
 <div id="pairAsk" role="dialog" aria-live="assertive"></div>
 <div id="updAsk" role="dialog" aria-live="assertive"></div>
+<div id="proAsk" role="dialog" aria-live="assertive"></div>
 <div id="toolbar">
   <a id="tb-coffee" href="https://buymeacoffee.com/goodisanoun" target="_blank" rel="noopener" title="Buy me a coffee" aria-label="Buy me a coffee" style="display:none">☕</a>
   <button id="tb-listen" title="Turn listening off" aria-label="Listening is on. Turn it off" aria-pressed="true">
@@ -900,8 +910,10 @@
     <div>Phone screen sleeps and wakes with this PC<small>A phone plugged in over USB turns its screen off when the PC sleeps or hibernates, and back on when it wakes.</small></div><div class="switch"></div></div>
   </div>
   <h3 class="group">Accounts</h3>
-  <p class="muted app-pc-only">Spotify, Discogs and Last.fm are connected in Liner Notes on your PC.</p>
-  <div class="not-app-pc">
+  <p class="muted app-pc-only pro-only">Spotify, Discogs and Last.fm are connected in Liner Notes on your PC.</p>
+  <div class="setting pro-locked-only" style="cursor:default"><div>Spotify, Discogs and Last.fm<small>Save songs to Spotify, add your Discogs collection to your shelf, and scrobble to Last.fm, with Liner Notes Plus.</small></div>
+    <button class="pill gold proOpen">Unlock</button></div>
+  <div class="not-app-pc pro-only">
   <h3 style="margin-top:3vmin;margin-bottom:0">Spotify</h3>
   <div id="spotifyBox">
     <div class="muted" id="spStatus">Checking…</div>
@@ -941,6 +953,7 @@
     <div style="display:flex;align-items:center;margin:.4em 0 .8em"><img id="aboutMark" src="/logo.svg" alt=""><b style="font-size:1.25em">Liner Notes</b></div>
     <div id="verLine"></div>
     <div class="row app-only" id="appUpdRow"></div>
+    <div class="row" id="proRow" style="display:none;margin-top:.6em"></div>
     <div class="row solo-only" style="margin-top:.6em"><button class="pill" id="appLog">Send the log</button><span class="muted">If something isn't working on the phone, send this to whoever is helping you.</span></div>
     <div class="row" id="updRow"></div>
     <div id="updNotes"></div>
@@ -961,6 +974,13 @@
 const $ = id => document.getElementById(id);
 // The Liner Notes phone app shows this page and handles the mic, screen and sharing itself
 const APP = window.LinerNotesApp || null, IN_APP = !!APP;
+// The Play Store copy of the app: no donation links (Google Play only allows its own payments in apps),
+// and Liner Notes Plus unlocks the extras. The PC, browsers and the GitHub copy have everything.
+const PLAY_APP = IN_APP && (() => { try { return JSON.parse(APP.pro()).enabled === true; } catch (e) { return false; } })();
+let proInfo = null;
+function readPro() { if (PLAY_APP) { try { proInfo = JSON.parse(APP.pro()); } catch (e) {} } }
+readPro();
+function isPro() { return !PLAY_APP || !!(proInfo && proInfo.unlocked); }
 const APP_SOLO = IN_APP && (() => { try { return APP.mode() === "solo"; } catch (e) { return false; } })();   // the phone on its own
 if (IN_APP) document.documentElement.classList.add("in-app", APP_SOLO ? "app-solo" : "app-pc");
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
@@ -999,7 +1019,9 @@ document.querySelectorAll("#textSize [data-ts]").forEach(b => b.addEventListener
   e.stopPropagation(); settings.textSize = b.dataset.ts; saveSettings(); applySettings();
 }));
 addEventListener("resize", () => document.documentElement.style.setProperty("--ts", textScale()));
+const PLUS_SETTINGS = new Set(["lyricsBeside", "sideEndPulse"]);
 document.querySelectorAll(".setting[data-key]").forEach(el => el.addEventListener("click", () => {
+  if (PLUS_SETTINGS.has(el.dataset.key) && !isPro()) { showUnlock(); return; }
   settings[el.dataset.key] = !settings[el.dataset.key]; saveSettings(); applySettings();
 }));
 const standalone = matchMedia("(display-mode: fullscreen), (display-mode: standalone)").matches;
@@ -1070,7 +1092,7 @@ function render(t, keepArt) {
   $("stage").title = unknown ? "" : "Tap for more info";
 
   // lyrics beside the art: just title, artist and album around the cover; lyrics scroll on their own
-  const lyricsOn = !!settings.lyricsBeside && !unknown;
+  const lyricsOn = !!settings.lyricsBeside && !unknown && isPro();
   document.body.classList.toggle("lyrics-show", lyricsOn);
   $("lyTitle").textContent = t.title || "";
   $("lyArtist").textContent = t.artist || "";
@@ -1295,7 +1317,7 @@ function drawProgress() {
 setInterval(drawProgress, 500);
 // The last song on a side (on a record you're following), with 30 seconds or less to go
 function sideEnding() {
-  if (!settings.sideEndPulse || !current || current.source !== "record" || !record || record.idx == null || !record.tracks) return false;
+  if (!settings.sideEndPulse || !isPro() || !current || current.source !== "record" || !record || record.idx == null || !record.tracks) return false;
   const tr = record.tracks, i = record.idx;
   if (i + 1 < tr.length && tr[i + 1].side === tr[i].side) return false;
   if (!prog || !prog.dur || prog.pos == null) return false;
@@ -1704,7 +1726,11 @@ $("sensRow").addEventListener("click", async e => {
 });
 
 // ---------------------------------------------------------------- panels
-function openPanel(id) { document.querySelectorAll(".panel.open").forEach(p => p.classList.remove("open")); $(id).classList.add("open"); }
+const PLUS_PANELS = new Set(["info", "saved", "shelf", "stats", "recap"]);    // the song page, shelf, saved songs, stats
+function openPanel(id) {
+  if (PLUS_PANELS.has(id) && !isPro()) { showUnlock(); return; }
+  document.querySelectorAll(".panel.open").forEach(p => p.classList.remove("open")); $(id).classList.add("open");
+}
 function closePanel(id) { $(id).classList.remove("open"); if (id === "records" && scanStream) stopScan(); }
 document.querySelectorAll(".panel .close").forEach(b => b.addEventListener("click", e => { e.stopPropagation(); closePanel(b.parentElement.id); }));
 document.addEventListener("keydown", e => { if (e.key === "Escape") document.querySelectorAll(".panel.open").forEach(p => closePanel(p.id)); });
@@ -1886,6 +1912,7 @@ function setHearts(on) {
 }
 async function toggleSave(e) {
   e.stopPropagation();
+  if (!isPro()) { showUnlock(); return; }
   if (!current || saveBusy) return;
   const on = !$("heartBtn").classList.contains("on");
   saveBusy = true; setHearts(on);
@@ -2362,7 +2389,8 @@ $("findBtn").addEventListener("click", e => { e.stopPropagation(); openSearch();
 $("infoBtn").addEventListener("click", e => { e.stopPropagation(); openInfo(); });
 $("tb-search").addEventListener("click", e => { e.stopPropagation(); openSearch(); });
 $("lyricsBtn").addEventListener("click", e => {
-  e.stopPropagation(); settings.lyricsBeside = !settings.lyricsBeside; saveSettings(); applySettings();
+  e.stopPropagation(); if (!isPro()) { showUnlock(); return; }
+  settings.lyricsBeside = !settings.lyricsBeside; saveSettings(); applySettings();
 });
 $("tb-stats").addEventListener("click", e => { e.stopPropagation(); openPanel("stats"); loadStats(); });
 
@@ -2712,9 +2740,55 @@ document.querySelectorAll(".panel > .close").forEach(c => {
   a.addEventListener("click", e => e.stopPropagation());
   c.after(a);
 });
-// The Play Store copy of the app has no donation links: Google Play only allows its own payments in apps.
-// (That copy doesn't update itself; the GitHub one does.)
-const PLAY_APP = IN_APP && (() => { try { return !JSON.parse(APP.appUpdate()).enabled; } catch (e) { return false; } })();
+// ---------------------------------------------------------------- Liner Notes Plus (Google Play copy)
+const PLUS_FEATURES = ["Timed lyrics, beside the cover and on the song page", "The band's story, full credits and similar bands",
+  "Your shelf, saved songs, history and listening stats", "Spotify, Discogs collection and Last.fm",
+  "A warning before a side ends, and the screen waking for the next song"];
+const PLAN_LABEL = { monthly: ["a month", ""], yearly: ["a year", "Two months free"], lifetime: ["once", "Yours for good"] };
+function showUnlock() {
+  readPro();
+  const el = $("proAsk");
+  const plans = (proInfo && proInfo.plans) || [];
+  el.innerHTML = `<button class="x" data-pro="close" aria-label="Not now">×</button>
+    <h3>Unlock Liner Notes Plus</h3>
+    <ul>${PLUS_FEATURES.map(f => `<li>${esc(f)}</li>`).join("")}</ul>
+    <div class="plans">${plans.map(p => `<button class="pill plan${p.id === "yearly" ? " best" : ""}" data-plan="${esc(p.id)}">
+      <b>${esc(p.price)} ${esc(PLAN_LABEL[p.id] ? PLAN_LABEL[p.id][0] : "")}</b><small>${esc(PLAN_LABEL[p.id] ? PLAN_LABEL[p.id][1] : "")}</small></button>`).join("")}</div>
+    <p class="muted foot" id="proMsg">Paid through Google Play. Cancel a subscription any time in the Play Store.</p>
+    <p class="foot"><button class="pill" data-pro="restore">Restore purchase</button></p>`;
+  el.classList.add("on");
+}
+$("proAsk").addEventListener("click", e => {
+  e.stopPropagation();
+  const plan = e.target.closest("[data-plan]");
+  if (plan) { try { APP.buyPro(plan.dataset.plan); } catch (err) {} return; }
+  const b = e.target.closest("[data-pro]"); if (!b) return;
+  if (b.dataset.pro === "close") $("proAsk").classList.remove("on");
+  if (b.dataset.pro === "restore") { try { APP.restorePro(); } catch (err) {} $("proMsg").textContent = "Checking with Google Play…"; }
+});
+document.addEventListener("click", e => { if (e.target.closest(".proOpen")) { e.stopPropagation(); showUnlock(); } });
+// Plus unlocked (or a purchase went through): update what's shown
+let proWas = null;
+function proTick() {
+  if (!PLAY_APP) return;
+  readPro();
+  const on = isPro();
+  document.documentElement.classList.toggle("pro-locked", !on);
+  $("proRow").style.display = "";
+  const h = on ? `<span class="muted">Liner Notes Plus is unlocked. Thanks!</span>`
+               : `<button class="pill gold proOpen">Unlock Liner Notes Plus</button><span class="muted">Lyrics, the song page, your shelf and more.</span>`;
+  if ($("proRow").innerHTML !== h) $("proRow").innerHTML = h;
+  const st = proInfo && proInfo.state;
+  if ($("proAsk").classList.contains("on")) {
+    if (on) { $("proAsk").classList.remove("on"); toast("Liner Notes Plus is unlocked. Thanks!"); }
+    else if (st === "failed" && $("proMsg")) $("proMsg").textContent = "That didn't go through. Try again, or check your payment in the Play Store.";
+    else if (st === "pending" && $("proMsg")) $("proMsg").textContent = "Google Play is waiting for the payment. Plus unlocks as soon as it's done.";
+  }
+  if (proWas === false && on) { applySettings(); if (current) render(current, true); }
+  proWas = on;
+}
+if (PLAY_APP) { proTick(); setInterval(proTick, 2000); }
+
 function showCoffee(url) {
   if (PLAY_APP) url = "";
   document.querySelectorAll(".bmc, #tb-coffee").forEach(a => { a.style.display = url ? "" : "none"; if (url) a.href = url; });

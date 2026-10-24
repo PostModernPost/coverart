@@ -101,4 +101,5 @@ kotlin {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    "playImplementation"("com.android.billingclient:billing:8.0.0")    // Liner Notes Plus, sold through Google Play
 }
