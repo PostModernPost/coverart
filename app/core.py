@@ -70,7 +70,7 @@ CFG = {
     "probe_seconds": 2,            # standby: length of that sample
     "clip_seconds": 12,            # length of audio sent to Shazam (12 s is the most it takes; 10 s missed many songs)
     "retry_seconds": 15,           # when nothing is identified yet, try this often
-    "recheck_seconds": 45,         # while a record is playing, re-check this often (catches gapless track changes)
+    "recheck_seconds": 15,         # a song is named but where in it isn't known yet: check again this soon
     "idle_after_seconds": 20,      # silence this long = turntable stopped
     "poll_seconds": 1.0,           # how often to check Spotify / PC media
     "pc_media": "music",           # "music": only music apps on this PC; "all": anything Windows says is playing
@@ -2388,15 +2388,28 @@ async def _turntable_inner(app, mic, shz):
             continue          # wait for a full clip of music since the start or the last gap
 
         identified = on_tt and t.get("status") == "playing"
-        # After misses, wait longer each time (15 s, 30 s, 60 s, then every 90 s) so an unknown song
-        # doesn't hammer Shazam; a gap (new song) resets this.
-        retry_wait = min(CFG["retry_seconds"] * (2 ** max(0, misses - 1)), 90)
+        # Settled: Shazam said where in a song of known length the needle is (and the record being followed is
+        # confirmed). Then the song lengths and the tracklist follow along, and Shazam isn't asked again until
+        # the song should be over (or there's a gap, or the music stops for a while).
+        if rec and rec.idx is not None:
+            settled = (getattr(rec, "exact_start", False) and bool(rec.tracks[rec.idx]["duration"])
+                       and not rec.unconfirmed and not getattr(rec, "tentative", False) and not rec.pending_gap)
+        else:
+            pr = progress_now(app) if identified and t.get("source") == "turntable" else None
+            settled = bool(pr and pr.get("kind") == "exact" and pr.get("dur") and pr.get("pos") is not None
+                           and pr["pos"] < pr["dur"] - 2)
+        # Nothing matched: try every 15 s for the first minute of a song, then wait longer each time
+        # (30 s, 60 s, then every 90 s) so a song Shazam doesn't know isn't asked about all side long.
+        # A gap (new song) starts this over.
+        retry_wait = CFG["retry_seconds"] if misses <= 4 else min(CFG["retry_seconds"] * (2 ** (misses - 4)), 90)
         due = (L.gap_seen or app.pop("force_check", False) or listen_now
                or (not identified and now - last_try >= retry_wait)
                or (misses > 0 and now - last_try >= retry_wait)
-               or (now - last_try >= CFG["recheck_seconds"]))
-        app["next_try"] = max(last_try + (CFG["recheck_seconds"] if identified and not misses else retry_wait),
-                              not_before)
+               or (not settled and now - last_try >= CFG["recheck_seconds"]
+                   # moved on to the next song by its length (no gap): wait for a clip that's all the new song
+                   and not (rec and rec.idx is not None and now - rec.track_started < CFG["clip_seconds"] + 2)))
+        app["next_try"] = (None if settled and not misses else
+                           max(last_try + (CFG["recheck_seconds"] if identified and not misses else retry_wait), not_before))
         if not due or now < not_before:
             continue
         if listen_now:
