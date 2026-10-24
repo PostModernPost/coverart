@@ -28,7 +28,9 @@ Free, no ads, no account. Your listening stays on your own phone or PC.
 
 **App icon:** icon-512.png
 **Feature graphic:** feature-graphic.png
-**Phone screenshots:** play-1-now.png, play-2-lyrics.png, play-3-song.png, play-4-last.png, play-5-shelf.png
+**Phone screenshots:** play-1.png to play-7.png, in that order (1080 × 1920). Every album, band and cover in them is
+made up, so they show no one else's artwork. To remake them after the app changes: in `mockup/`, run
+`python mock_engine.py`, then the covers, screens and slides with `shot.py` (see the files there).
 
 **Category:** Music & Audio
 **Contact email:** linernotes987@gmail.com

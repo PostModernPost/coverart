@@ -1,0 +1,129 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Cover</title>
+<style>html, body { margin: 0; width: 1000px; height: 1000px; overflow: hidden; background: #000; } svg { display: block; }</style>
+</head><body>
+<script>
+// Made-up album covers for the Play Store screenshots, one per ?id=, in each genre and era's style.
+const id = new URLSearchParams(location.search).get("id");
+const W = 1000;
+let seed = [...id].reduce((a, c) => a * 31 + c.charCodeAt(0), 7) >>> 0;
+const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+const covers = {
+  // 1959 jazz: a dark photo-like field, bold condensed type in blocks, one strong color
+  bluehour: () => `
+    <rect width="1000" height="1000" fill="#0d1b2a"/>
+    <rect x="0" y="0" width="1000" height="560" fill="#1b3a5c"/>
+    <g opacity=".85">${Array.from({ length: 22 }, (_, i) => `<rect x="${60 + i * 40}" y="${120 + (i % 5) * 18}" width="18" height="${300 - (i % 7) * 30}" fill="#0d1b2a" opacity="${.3 + (i % 3) * .2}"/>`).join("")}</g>
+    <circle cx="760" cy="230" r="120" fill="#e8c547"/>
+    <text x="60" y="700" font-family="Bahnschrift, 'Arial Narrow', sans-serif" font-stretch="condensed" font-weight="700" font-size="170" fill="#ffffff" letter-spacing="-4">BLUE HOUR</text>
+    <text x="60" y="800" font-family="Bahnschrift, 'Arial Narrow', sans-serif" font-weight="700" font-size="88" fill="#e8c547" letter-spacing="2">SESSIONS</text>
+    <rect x="60" y="850" width="880" height="6" fill="#ffffff"/>
+    <text x="60" y="925" font-family="Bahnschrift, Arial, sans-serif" font-size="42" fill="#9fb9d6" letter-spacing="5">THE LENNY MARSH QUARTET</text>
+    <text x="940" y="80" text-anchor="end" font-family="Bahnschrift, Arial, sans-serif" font-size="30" fill="#9fb9d6" letter-spacing="3">MERIDIAN · MR-4012</text>`,
+  // 1967 psychedelia: concentric swirling rings, hand-drawn bubble lettering
+  prisms: () => {
+    const cols = ["#ff5d8f", "#ffb627", "#7bd389", "#38a3f5", "#9b5de5", "#f15bb5", "#fee440", "#00bbf9"];
+    let g = "";
+    for (let i = 26; i > 0; i--) {
+      const r = i * 40, wob = 18;
+      let d = "";
+      for (let a = 0; a <= 360; a += 6) {
+        const rr = r + Math.sin((a * 6 + i * 40) * Math.PI / 180) * wob;
+        const x = 500 + rr * Math.cos(a * Math.PI / 180), y = 520 + rr * Math.sin(a * Math.PI / 180);
+        d += (a ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+      }
+      g += `<path d="${d}Z" fill="${cols[i % cols.length]}"/>`;
+    }
+    return `<rect width="1000" height="1000" fill="#2b0a3d"/>${g}
+      <circle cx="500" cy="520" r="120" fill="#2b0a3d"/>
+      <text x="500" y="545" text-anchor="middle" font-family="'Segoe Print', 'Comic Sans MS', cursive" font-weight="700" font-size="54" fill="#fee440">✿</text>
+      <text x="500" y="150" text-anchor="middle" font-family="'Segoe Print', 'Comic Sans MS', cursive" font-weight="700" font-size="92" fill="#fff" stroke="#2b0a3d" stroke-width="10" paint-order="stroke">The Velvet Prisms</text>
+      <text x="500" y="935" text-anchor="middle" font-family="'Segoe Print', 'Comic Sans MS', cursive" font-weight="700" font-size="78" fill="#fee440" stroke="#2b0a3d" stroke-width="10" paint-order="stroke">Kaleidoscope Garden</text>`;
+  },
+  // 1972 soul: a warm sunrise, rays, big italic serif title
+  dellarae: () => `
+    <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5a1a0e"/><stop offset=".55" stop-color="#d9480f"/><stop offset="1" stop-color="#f7b538"/></linearGradient></defs>
+    <rect width="1000" height="1000" fill="url(#sky)"/>
+    <g opacity=".22">${Array.from({ length: 18 }, (_, i) => { const a = (-180 + i * 10) * Math.PI / 180; return `<path d="M500 700 L${500 + 1400 * Math.cos(a - .03)} ${700 + 1400 * Math.sin(a - .03)} L${500 + 1400 * Math.cos(a + .03)} ${700 + 1400 * Math.sin(a + .03)}Z" fill="#fff3c4"/>`; }).join("")}</g>
+    <circle cx="500" cy="700" r="230" fill="#ffd166"/>
+    <circle cx="500" cy="700" r="230" fill="none" stroke="#fff3c4" stroke-width="6" opacity=".6"/>
+    <rect x="0" y="760" width="1000" height="240" fill="#3d0c02"/>
+    <path d="M0 760 Q250 720 500 760 T1000 760 V800 H0Z" fill="#3d0c02"/>
+    <text x="500" y="200" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-weight="700" font-size="110" fill="#fff3c4">Sunday Morning</text>
+    <text x="500" y="330" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-weight="700" font-size="150" fill="#ffd166" letter-spacing="6">FIRE</text>
+    <text x="500" y="880" text-anchor="middle" font-family="Georgia, serif" font-size="52" fill="#f7b538" letter-spacing="4">DELLA RAE</text>
+    <text x="500" y="940" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="36" fill="#f7b538">&amp; The Southern Lights</text>`,
+  // 1975 country: a desert sunset over a two-lane road, western type
+  highway: () => `
+    <rect width="1000" height="1000" fill="#f2a65a"/>
+    ${["#f7d08a", "#f2a65a", "#e07a4a", "#b5513b", "#7d3c3a"].map((c, i) => `<rect x="0" y="${i * 90}" width="1000" height="90" fill="${c}"/>`).join("")}
+    <circle cx="500" cy="440" r="150" fill="#fbe7a1"/>
+    <path d="M0 520 L1000 520 L1000 1000 L0 1000Z" fill="#c8915a"/>
+    <path d="M0 520 L180 470 L330 500 L460 455 L600 505 L760 460 L1000 515 L1000 540 L0 540Z" fill="#7d3c3a"/>
+    <path d="M440 540 L560 540 L900 1000 L100 1000Z" fill="#4a3b33"/>
+    ${[0, 1, 2, 3, 4].map(i => { const y = 560 + i * i * 22 + i * 30, h = 14 + i * 12, w = 4 + i * 4; return `<rect x="${500 - w / 2}" y="${y}" width="${w}" height="${h}" fill="#fbe7a1"/>`; }).join("")}
+    <text x="500" y="150" text-anchor="middle" font-family="Rockwell, 'Courier New', serif" font-weight="700" font-size="120" fill="#4a1f1a" letter-spacing="8">HIGHWAY</text>
+    <text x="500" y="250" text-anchor="middle" font-family="Rockwell, 'Courier New', serif" font-weight="700" font-size="120" fill="#4a1f1a" letter-spacing="8">DUST</text>
+    <text x="500" y="960" text-anchor="middle" font-family="Rockwell, Georgia, serif" font-size="56" fill="#fbe7a1" letter-spacing="10">CAL WHITMORE</text>`,
+  // 1979 disco: black, neon grid, a mirror ball, chrome lettering
+  mirrorball: () => {
+    let tiles = "";
+    for (let y = -6; y <= 6; y++) for (let x = -6; x <= 6; x++) {
+      if (x * x + y * y > 38) continue;
+      const l = 40 + rnd() * 60;
+      tiles += `<rect x="${500 + x * 30 - 14}" y="${360 + y * 30 - 14}" width="27" height="27" fill="hsl(285,40%,${l}%)"/>`;
+    }
+    return `<rect width="1000" height="1000" fill="#07010f"/>
+      <g stroke="#ff2fb3" stroke-width="3" opacity=".7">${Array.from({ length: 13 }, (_, i) => `<line x1="${500 + (i - 6) * 40}" y1="620" x2="${500 + (i - 6) * 220}" y2="1000"/>`).join("")}
+      ${[640, 680, 740, 820, 920].map(y => `<line x1="0" y1="${y}" x2="1000" y2="${y}"/>`).join("")}</g>
+      <line x1="500" y1="0" x2="500" y2="170" stroke="#aaa" stroke-width="4"/>
+      <circle cx="500" cy="360" r="200" fill="#2a0d3a"/>${tiles}
+      <circle cx="430" cy="290" r="40" fill="#fff" opacity=".7"/>
+      <defs><linearGradient id="chrome" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".5" stop-color="#b9a7ff"/><stop offset=".52" stop-color="#5b2a86"/><stop offset="1" stop-color="#ff9de2"/></linearGradient></defs>
+      <text x="500" y="730" text-anchor="middle" font-family="'Arial Black', Impact, sans-serif" font-style="italic" font-size="130" fill="url(#chrome)" stroke="#ff2fb3" stroke-width="3">NEON</text>
+      <text x="500" y="850" text-anchor="middle" font-family="'Arial Black', Impact, sans-serif" font-style="italic" font-size="110" fill="url(#chrome)" stroke="#ff2fb3" stroke-width="3">AVENUE</text>
+      <text x="500" y="950" text-anchor="middle" font-family="'Segoe Script', cursive" font-size="52" fill="#ff9de2">Mirrorball Society</text>`;
+  },
+  // 1983 new wave: cream ground, Memphis-style shapes, a grid, stencil type
+  satellites: () => `
+    <rect width="1000" height="1000" fill="#f4ecd8"/>
+    <g stroke="#1a1a1a" stroke-width="2" opacity=".25">${Array.from({ length: 21 }, (_, i) => `<line x1="${i * 50}" y1="0" x2="${i * 50}" y2="1000"/><line x1="0" y1="${i * 50}" x2="1000" y2="${i * 50}"/>`).join("")}</g>
+    <circle cx="690" cy="330" r="210" fill="#ff4f79"/>
+    <path d="M120 640 L420 160 L600 640Z" fill="#1fb5ad"/>
+    <rect x="160" y="520" width="300" height="300" fill="none" stroke="#1a1a1a" stroke-width="14" transform="rotate(-12 310 670)"/>
+    <path d="M560 620 q40 -60 80 0 t80 0 t80 0 t80 0" fill="none" stroke="#ffc914" stroke-width="22" stroke-linecap="round"/>
+    ${Array.from({ length: 24 }, () => `<circle cx="${60 + rnd() * 880}" cy="${60 + rnd() * 880}" r="7" fill="#1a1a1a"/>`).join("")}
+    <rect x="0" y="830" width="1000" height="170" fill="#1a1a1a"/>
+    <text x="50" y="905" font-family="Bahnschrift, 'Arial Narrow', sans-serif" font-weight="700" font-size="64" fill="#f4ecd8" letter-spacing="10">PAPER SATELLITES</text>
+    <text x="50" y="970" font-family="Consolas, 'Courier New', monospace" font-size="44" fill="#ffc914">signal &amp; noise</text>`,
+  // 1994 hip hop: a gritty gray skyline, big block letters, a yellow sticker
+  concrete: () => {
+    let city = "";
+    let x = 0;
+    while (x < 1000) { const w = 50 + rnd() * 90, h = 220 + rnd() * 380; city += `<rect x="${x}" y="${1000 - 260 - h}" width="${w - 6}" height="${h}" fill="#2b2b2b"/>`;
+      for (let wy = 1000 - 240 - h; wy < 720; wy += 34) for (let wx = x + 10; wx < x + w - 20; wx += 22) if (rnd() > .55) city += `<rect x="${wx}" y="${wy}" width="10" height="14" fill="#f2d16b" opacity=".8"/>`;
+      x += w; }
+    let grain = "";
+    for (let i = 0; i < 1500; i++) grain += `<rect x="${rnd() * 1000}" y="${rnd() * 1000}" width="2" height="2" fill="#fff" opacity="${rnd() * .18}"/>`;
+    return `<rect width="1000" height="1000" fill="#6b6b6b"/><rect width="1000" height="460" fill="#8a8a8a"/>${city}
+      <rect x="0" y="740" width="1000" height="260" fill="#151515"/>${grain}
+      <text x="40" y="860" font-family="Impact, 'Arial Black', sans-serif" font-size="150" fill="#ffffff" letter-spacing="2">CONCRETE</text>
+      <text x="40" y="975" font-family="Impact, 'Arial Black', sans-serif" font-size="120" fill="#f2c230" letter-spacing="2">POETRY</text>
+      <g transform="rotate(-8 790 140)"><rect x="620" y="80" width="340" height="120" fill="#f2c230"/>
+      <text x="790" y="160" text-anchor="middle" font-family="Impact, sans-serif" font-size="58" fill="#151515">LORENZO VEGA</text></g>`;
+  },
+  // 2009 indie folk: soft layered pines in fog, small lowercase type
+  pines: () => {
+    const layer = (y, col, n, hgt) => { let d = `M0 1000 L0 ${y}`; for (let i = 0; i <= n; i++) { const x = i * 1000 / n, h = hgt * (.6 + rnd() * .5); d += ` L${x - 1000 / n / 2} ${y} L${x} ${y - h}`; } return `<path d="${d} L1000 ${y} L1000 1000Z" fill="${col}"/>`; };
+    return `<defs><linearGradient id="fog" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e7ece6"/><stop offset="1" stop-color="#b7c4bb"/></linearGradient></defs>
+      <rect width="1000" height="1000" fill="url(#fog)"/>
+      <circle cx="720" cy="260" r="80" fill="#f6f2e6" opacity=".9"/>
+      ${layer(560, "#a3b5aa", 14, 160)}${layer(660, "#7f988b", 11, 220)}${layer(780, "#56715f", 9, 280)}${layer(900, "#2f4638", 7, 330)}
+      <rect x="0" y="900" width="1000" height="100" fill="#2f4638"/>
+      <text x="80" y="140" font-family="Georgia, serif" font-style="italic" font-size="72" fill="#2f4638">small hours</text>
+      <text x="80" y="200" font-family="Georgia, serif" font-size="34" fill="#56715f" letter-spacing="6">HOLLOW PINES</text>`;
+  },
+};
+document.body.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${W}" viewBox="0 0 1000 1000">${covers[id]()}</svg>`;
+</script>
+</body></html>
